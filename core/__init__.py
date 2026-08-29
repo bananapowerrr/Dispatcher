@@ -1,3 +1,3 @@
 # -*- coding: utf-8 -*-
-"""AgentBus core v1.0 — config, env, state, log, rate_limit, verify, runtime."""
+"""AgentBus core v1.0."""
 __version__ = "1.0"

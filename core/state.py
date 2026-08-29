@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Изменяемое состояние процесса."""
+"""Process-global mutable state."""
 from __future__ import annotations
 
 import datetime
@@ -7,11 +7,14 @@ import os
 import time
 from typing import Dict, Optional, Tuple
 
-from core import config as cfg
-
 SESSION_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-SESSION_LOG = os.path.join(cfg.LOGS, f"session_{SESSION_ID}.md")
-DISPATCHER_LOG = os.path.join(cfg.LOGS, "dispatcher.log")
+
+def _logs_dir() -> str:
+    drive = os.environ.get("AGENTBUS_DRIVE", r"G:\Мой диск\AgentBus")
+    return os.path.join(drive, "channels", "gpt", "logs")
+
+SESSION_LOG = os.path.join(_logs_dir(), f"session_{SESSION_ID}.md")
+DISPATCHER_LOG = os.path.join(_logs_dir(), "dispatcher.log")
 
 LAST_BEAT = time.time()
 FAIL_STREAK = 0

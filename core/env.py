@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Загрузка .env без сторонних пакетов."""
+"""Load .env without third-party packages."""
 from __future__ import annotations
 
 import os
 import re
 from typing import List, Optional, Tuple
-
-from core import state
 
 def _parse_dotenv_line(line: str) -> Optional[Tuple[str, str]]:
     line = line.strip()
@@ -55,5 +53,4 @@ def load_dotenv() -> Optional[str]:
             break
         except OSError:
             continue
-    state.ENV_FILE_LOADED = loaded
     return loaded

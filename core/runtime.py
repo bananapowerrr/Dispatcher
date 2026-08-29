@@ -155,21 +155,46 @@ GEMINI_TOKEN = os.path.join(DRIVE, "credentials", "token.json")
 GEMINI_POLL_SEC = 60
 
 # ========================= ПРОЕКТЫ =========================
+# Пути проектов (канон). Переопределение через .env всё ещё работает.
+# Prediction Analyzer (локальный клон; папка может называться desktop-tutorial)
+# Dispatcher = сам AgentBus на Google Drive (код диспетчера)
+_pa = os.getenv("PROJECT_PREDICTION_ANALYZER", r"D:\Workspace\Prediction-Analyzer").strip()
+_disp = os.getenv("PROJECT_DISPATCHER", r"G:\Мой диск\AgentBus").strip()
+
+def _first_existing(*candidates: str) -> str:
+    for c in candidates:
+        c = (c or "").strip().strip('"').strip("'")
+        if c and os.path.isdir(c):
+            return c
+    return (candidates[0] if candidates else "") or ""
+
+_PA_PATH = _first_existing(
+    _pa,
+    r"D:\Workspace\Prediction-Analyzer",
+    r"D:\Workspace\Prediction-Analyzer",
+)
+_DISP_PATH = _first_existing(
+    _disp,
+    r"G:\Мой диск\AgentBus",
+    r"G:\Мой диск\AgentBus",
+)
+
 PROJECTS = {
     "prediction-analyzer": {
-        "path": r"D:\Workspace\Prediction-Analyzer",
+        "path": _PA_PATH,
         "repo": "bananapowerrr/Prediction-Analyzer",
     },
     "desktop-tutorial": {
-        "path": r"D:\Workspace\Prediction-Analyzer",
+        "path": _PA_PATH,
         "repo": "bananapowerrr/Prediction-Analyzer",
     },
     "dispatcher": {
-        "path": r"D:\Workspace\Dispatcher",
+        "path": _DISP_PATH,
         "repo": "bananapowerrr/Dispatcher",
     },
 }
 DEFAULT_PROJECT = "prediction-analyzer"
+
 
 # ========================= СЕТЬ =========================
 PROXY_URL = os.getenv("AGENTBUS_PROXY_URL", "").strip()
@@ -405,6 +430,55 @@ def _as_list(value) -> List[str]:
         return parts
     # Обычная строка через запятую/точку с запятой/перевод
     return [x.strip() for x in re.split(r"[,;\n]+", s) if x.strip()]
+
+
+def _brief_task_text(text: str, limit: int = 500) -> str:
+    t = (text or "").strip().replace("\r\n", "\n")
+    if not t:
+        return "(пустое message)"
+    if len(t) <= limit:
+        return t
+    return t[:limit] + f"... [{len(t)} chars]"
+
+def log_supabase_task_claimed(task: dict) -> None:
+    """Пишет CLAIM в консоль/лог и полный снимок в channels/gpt/logs."""
+    tid = task.get("id") or "?"
+    files = task.get("files") or []
+    verify = task.get("verify") or []
+    msg = task.get("message") or ""
+    slog(
+        f"[{now()}] Supabase CLAIMED id={tid} project={task.get('project')} "
+        f"executor={task.get('executor')} author={task.get('author') or 'gpt'}"
+    )
+    if files:
+        slog(f"[{now()}]   FILES: {', '.join(str(f) for f in files[:12])}")
+    if verify:
+        slog(f"[{now()}]   VERIFY: {', '.join(str(v) for v in verify[:8])}")
+    # текст задачи в лог (обрезка, чтобы не залить терминал)
+    for i, line in enumerate(_brief_task_text(msg, 800).splitlines()):
+        prefix = "   MSG: " if i == 0 else "        "
+        slog(f"[{now()}]{prefix}{line}")
+    try:
+        snap = (
+            f"# Supabase task {tid}\n"
+            f"PROJECT: {task.get('project')}\n"
+            f"EXECUTOR: {task.get('executor')}\n"
+            f"MODEL: {task.get('model') or ''}\n"
+            f"AUTHOR: {task.get('author') or 'gpt'}\n"
+            f"FILES: {', '.join(str(f) for f in files)}\n"
+            f"VERIFY: {', '.join(str(v) for v in verify)}\n"
+            f"RUN: {', '.join(str(r) for r in (task.get('run') or []))}\n"
+            f"ALLOW_NO_FILES: {task.get('allow_no_files')}\n"
+            f"CLAIMED: {now()}\n"
+            f"WORKER: {WORKER_ID}\n\n"
+            f"--- MESSAGE ---\n"
+            f"{msg}\n"
+        )
+        short = str(tid).replace("-", "")[:12]
+        write(os.path.join(LOGS, f"task_{short}_{SESSION_ID}.md"), snap)
+        slog(f"[{now()}]   снимок: channels/gpt/logs/task_{short}_{SESSION_ID}.md")
+    except Exception as exc:
+        slog(f"[{now()}]   не удалось записать снимок задачи: {exc}")
 
 def claim_supabase_task() -> Optional[dict]:
     global SUPABASE_COOLDOWN_UNTIL, _last_supabase_poll
@@ -1602,8 +1676,69 @@ def process_task(meta: dict, task_text: str, filename: str,
         write_report(ERRORS, "fail", "СБОЙ_КОДА", project_id, used, task_text, detail)
         FAIL_STREAK += 1
         return
+
+    # --- FIX1: пустой diff / нет изменений в files = не успех ---
+    if not meta.get("allow_no_files") and files:
+        if not files_changed(project_path, files, before):
+            detail = (
+                "ПУСТОЙ_DIFF: кодер завершился без изменений в FILES. "
+                "Нужна реальная правка кода или корректная спека."
+            )
+            slog(f"[{now()}] {detail}")
+            if is_sb:
+                fail_supabase_task(supabase_id, detail)
+            write_report(ERRORS, "fail", "ПУСТОЙ_DIFF", project_id, used, task_text, detail + "\n" + output[-1200:])
+            FAIL_STREAK += 1
+            return
+
     supabase_heartbeat()
     ok, vmsg = verify_task(project_path, meta, files)
+
+    # --- FIX2: один retry после провала VERIFY (часто pytest) ---
+    if not ok:
+        slog(f"[{now()}] VERIFY fail → один retry с логом ошибки")
+        fix_prompt = (
+            prompt
+            + "\n\n=== ПРЕДЫДУЩАЯ ПРОВЕРКА ПРОВАЛИЛАСЬ ===\n"
+            + "Исправь код и/или тесты так, чтобы проверка прошла.\n"
+            + "Не выдумывай API: опирайся на существующий код в FILES.\n"
+            + "Ошибка проверки:\n"
+            + (vmsg or "")[-2500:]
+            + "\n"
+        )
+        before_retry = snapshot_mtimes(project_path, files)
+        r_code, r_out = 1, ""
+        if used == "aider" or (used != "opencode" and executor == "aider"):
+            r_code, r_out = run_aider(fix_prompt, files, project_path)
+            if (not is_code_ok(r_code, r_out)) and AIDER_FALLBACK_TO_OPENCODE and ALLOW_CLOUD_FALLBACK:
+                until = load_rate_limit_until()
+                if not (until and time.time() < until) and cloud_budget_left() > 0:
+                    used = "opencode"
+                    r_code, r_out = run_opencode(fix_prompt, project_path, meta.get("model") or "")
+        else:
+            until = load_rate_limit_until()
+            if until and time.time() < until:
+                r_code, r_out = 429, f"облачный лимит, retry VERIFY пропущен"
+            else:
+                r_code, r_out = run_opencode(fix_prompt, project_path, meta.get("model") or "")
+
+        output = (output or "") + "\n--- VERIFY_RETRY ---\n" + (r_out or "")
+        if is_code_ok(r_code, r_out):
+            # даже на retry пустой diff не ок, если files заданы
+            if meta.get("allow_no_files") or not files or files_changed(project_path, files, before_retry) or files_changed(project_path, files, before):
+                ok2, vmsg2 = verify_task(project_path, meta, files)
+                if ok2:
+                    ok, vmsg = True, vmsg2
+                    slog(f"[{now()}] VERIFY retry OK")
+                else:
+                    ok, vmsg = False, vmsg2
+            else:
+                ok, vmsg = False, "ПУСТОЙ_DIFF на VERIFY retry"
+        else:
+            if handle_coder_failure(project_id, used, task_text, r_out or "", local_path, filename, is_sb, supabase_id):
+                return
+            ok, vmsg = False, vmsg + "\n--- retry coder ---\n" + (r_out or "")[-1500:]
+
     if not ok:
         if is_sb:
             fail_supabase_task(supabase_id, vmsg)
@@ -1658,9 +1793,18 @@ def boot_checks() -> List[str]:
     if code != 0:
         problems.append(f"git недоступен: {out[:200]}")
         return problems
+    seen_paths = set()
     for pid, info in PROJECTS.items():
-        if not os.path.isdir(info["path"]):
-            problems.append(f"нет папки проекта {pid}: {info['path']}")
+        path = info.get("path") or ""
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        if not path or not os.path.isdir(path):
+            problems.append(
+                f"нет папки проекта {pid}: {path or '(пусто)'} — "
+                f"пропиши PROJECT_PREDICTION_ANALYZER=... в .env или клонируй репу"
+            )
+
             continue
         code, out = run_cmd([git, "rev-parse", "--is-inside-work-tree"],
                            info["path"], 15, env=base_env(), retries=3)
@@ -1801,20 +1945,7 @@ def main_loop() -> None:
             task = claim_supabase_task()
             if task:
                 CURRENT_SUPABASE_TASK_ID = task["id"]
-                slog(f"[{now()}] Supabase CLAIMED id={task['id']} project={task['project']} executor={task['executor']}")
-                # зеркало задачи в лог канала (удобно смотреть без БД)
-                try:
-                    snap = (
-                        f"# Supabase task {task['id']}\n"
-                        f"PROJECT: {task.get('project')}\n"
-                        f"EXECUTOR: {task.get('executor')}\n"
-                        f"AUTHOR: {task.get('author') or 'gpt'}\n"
-                        f"CLAIMED: {now()}\n\n"
-                        f"{task.get('message') or ''}\n"
-                    )
-                    write(os.path.join(LOGS, f"task_{task['id'][:8]}_{SESSION_ID}.md"), snap)
-                except Exception:
-                    pass
+                log_supabase_task_claimed(task)
                 meta = {k: task.get(k) for k in ("project", "executor", "model", "files", "verify", "run", "allow_no_files", "author")}
                 try:
                     process_task(meta, task["message"], f"supabase_{task['id']}", supabase_id=task["id"])
