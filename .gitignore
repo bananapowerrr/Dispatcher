@@ -1,0 +1,22 @@
+# шины и секреты — только на Drive, не в git
+channels/
+.env
+credentials/
+projects/
+archive/
+incoming/
+processing/
+done/
+errors/
+deferred/
+logs/
+gemini_archive/
+GeminiProcessed/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+cloud_usage.json
+rate_limit_until.json
+notion_state.json
+*.log
