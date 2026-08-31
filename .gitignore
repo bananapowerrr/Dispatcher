@@ -19,4 +19,6 @@ __pycache__/
 cloud_usage.json
 rate_limit_until.json
 notion_state.json
+workers_state.json
 *.log
+push_agentbus_to_git.ps1

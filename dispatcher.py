@@ -1,18 +1,25 @@
 # -*- coding: utf-8 -*-
-"""AgentBus Dispatcher v1.0 — entrypoint. Run: python dispatcher.py"""
+"""AgentBus Dispatcher — точка запуска (модули лежат в корне проекта)."""
 from __future__ import annotations
-
-import os
 import sys
+import traceback
+from pathlib import Path
 
-_ROOT = os.path.dirname(os.path.abspath(__file__))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-
-def main() -> None:
-    # runtime is self-contained (loads .env, paths, main_loop)
-    from core.runtime import main_loop
-    main_loop()
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 if __name__ == "__main__":
-    main()
+    try:
+        from runtime import main
+        main()
+    except KeyboardInterrupt:
+        print("\nостановлено вручную")
+    except Exception:
+        txt = traceback.format_exc()
+        print(txt)
+        try:
+            (ROOT / "crash.log").write_text(txt, encoding="utf-8")
+        except OSError:
+            pass
+        sys.exit(1)

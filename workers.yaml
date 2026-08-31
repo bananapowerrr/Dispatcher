@@ -1,0 +1,118 @@
+# Реестр воркеров AgentBus v2.
+# Воркер = (harness + provider + model) датакласс. Диспетчер выбирает лучшего
+# доступного по score (health.py) и сложности задачи (router.py).
+#
+# Токены в command подставляет Executor:
+#   {aider}, {opencode}, {ollama}, {aider_python}, {aider_model}, {message}
+#   {yes} -> --yes (не-интерактивный режим), {files} -> --file <abs> по файлу.
+#
+# ВСЕ aider-воркеры получают целевые файлы ОДИНАКОВО: {files} в команде;
+# provider/модель живут в yaml, а не в диспетчере.
+#
+# Провайдеры подключаются РЕГИСТРАЦИЕЙ, а не правкой диспетчера:
+# раскомментируйте слот нужного облака и укажите ключ через переменную окружения
+# (например AIDER_OPENAIC = sk-...), чтобы не хранить ключи в репозитории.
+
+# ===== ЛОКАЛЬНЫЙ ОСНОВНОЙ ==============================================
+- name: aider_local
+  harness: aider
+  provider: ollama
+  model: ollama_chat/qwen2.5-coder:7b
+  command: "{aider} {yes} --model {aider_model} --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 10
+  timeout: 900
+  complexity: 2
+  quality: 1.0
+  enabled: true
+
+# ===== СИЛЬНЫЕ ОБЛАКА (по умолчанию выключены, нет ключей) =============
+# Aider автоматически подхватит ключ из переменной окружения.
+- name: aider_groq
+  harness: aider
+  provider: groq
+  model: groq/llama-3.3-70b-versatile
+  command: "{aider} {yes} --model groq/llama-3.3-70b-versatile --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 60
+  timeout: 180
+  complexity: 5
+  quality: 1.4
+  enabled: false
+
+- name: aider_cerebras
+  harness: aider
+  provider: cerebras
+  model: cerebras/llama-3.3-70b
+  command: "{aider} {yes} --model cerebras/llama-3.3-70b --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 70
+  timeout: 180
+  complexity: 5
+  quality: 1.3
+  enabled: false
+
+- name: aider_gemini
+  harness: aider
+  provider: gemini
+  model: gemini/gemini-2.0-flash
+  command: "{aider} {yes} --model gemini/gemini-2.0-flash --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 80
+  timeout: 180
+  complexity: 5
+  quality: 1.5
+  enabled: false
+
+- name: opencode_zen
+  harness: opencode
+  provider: zen
+  model: ""
+  command: "{opencode} {message}"
+  priority: 90
+  timeout: 180
+  complexity: 5
+  quality: 1.2
+  enabled: false
+
+# ===== ЕЩЁ КАНАЛЫ ИЗ ПЛАНА (отключены: нужны ключи / boot-проба из сети РФ) ===
+# Подключаются регистрацией + env-ключом, без правки диспетчера.
+- name: aider_kilo
+  harness: aider
+  provider: kilo
+  model: kilo/auto
+  command: "{aider} {yes} --model kilo/auto --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 55
+  timeout: 180
+  complexity: 3
+  quality: 1.15
+  enabled: false
+
+- name: aider_deepseek
+  harness: aider
+  provider: deepseek
+  model: deepseek/deepseek-chat
+  command: "{aider} {yes} --model deepseek/deepseek-chat --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 75
+  timeout: 180
+  complexity: 5
+  quality: 1.35
+  enabled: false
+
+- name: aider_zai
+  harness: aider
+  provider: zai
+  model: z-ai/glm-4-plus
+  command: "{aider} {yes} --model z-ai/glm-4-plus --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 85
+  timeout: 180
+  complexity: 5
+  quality: 1.4
+  enabled: false
+
+- name: aider_openrouter
+  harness: aider
+  provider: openrouter
+  model: openrouter/openai/gpt-4o-mini
+  command: "{aider} {yes} --model openrouter/openai/gpt-4o-mini --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 88
+  timeout: 180
+  complexity: 5
+  quality: 1.3
+  enabled: false
