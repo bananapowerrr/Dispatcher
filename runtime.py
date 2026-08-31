@@ -215,6 +215,33 @@ class Runtime:
         except Exception:
             pass
 
+    def _provider_of(self, worker: Worker) -> "Provider | None":
+        """Provider-объект по w.provider, если он есть в реестре и usable."""
+        for p in self.providers:
+            if p.id == worker.provider:
+                return p if p.is_usable() else None
+        return None
+
+    def _is_foreign(self, worker: Worker) -> bool:
+        return bool(worker.provider) and worker.provider != "ollama" \
+            and worker.provider != "local"
+
+    def _exec_worker(self, worker: Worker, project: str, message: str,
+                     timeout: int, files: list[str] | None) -> ExecutionResult:
+        """Запуск воркера с учётом foreign-провайдеров.
+
+        Локальный путь (ollama, по умолчанию) — как раньше: executor.run().
+        Foreign-воркер (kilo/groq/gemini) выполняется через executor.run_foreign()
+        только если AGENTBUS_USE_DYNAMIC=1 И провайдер usable (free/local guard).
+        Иначе — безопасный fallback на run() (не ломает существующий pipeline).
+        """
+        if USE_DYNAMIC and self._is_foreign(worker):
+            prov = self._provider_of(worker)
+            if prov is not None:
+                return self.executor.run_foreign(worker, prov, project, message,
+                                                 timeout, files=files)
+        return self.executor.run(worker, project, message, timeout, files=files)
+
     # ---------- journal ----------
     def _save(self, task: Task, state: str, result: dict) -> None:
         # журнальная папка и есть состояние; продублируем его в payload,
@@ -495,8 +522,8 @@ class Runtime:
                            task_id=task.id, worker=worker.name,
                            executor=worker.harness, provider=worker.provider,
                            model=worker.model)
-                result = self.executor.run(worker, str(ctx.root), worker_message,
-                                           exec_timeout, files=abs_files)
+                result = self._exec_worker(worker, str(ctx.root), worker_message,
+                                           exec_timeout, abs_files)
                 try:
                     self.normalizer.feed(
                         (result.stdout or "") + "\n" + (result.stderr or ""),

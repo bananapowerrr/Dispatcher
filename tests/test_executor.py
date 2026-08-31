@@ -112,3 +112,65 @@ def test_yaml_workers_have_max_parallel():
     from workers import _from_yaml
     for w in _from_yaml(Path(WORKERS_FILE)):
         assert w.max_parallel >= 1
+
+
+# ---------- foreign-провайдеры (P2/P3: kilo/groq/gemini в executor) ----------
+class _FakeProv:
+    """Duck-typed Provider для executor (без реестра/сети)."""
+    def __init__(self, ptype="openai_compatible", models=None, base_url="", key=""):
+        self.type = ptype
+        self.models = models or []
+        self.base_url = base_url
+        self.api_key = key
+
+
+def _w(model="m", provider="groq"):
+    from workers import Worker
+    return Worker(name="gw", command=("{aider}", "{model}", "{files}", "{message}"),
+                  harness="aider", provider=provider, model=model,
+                  complexity=3, enabled=True)
+
+
+def test_run_model_openai_compatible_prefixes():
+    ex = Executor()
+    assert ex._run_model(_FakeProv("openai_compatible"), _w("gpt-oss")) == "openai/gpt-oss"
+
+
+def test_run_model_dynamic_uses_first_provider_model():
+    ex = Executor()
+    p = _FakeProv("openai_compatible", models=["qwen/qwen3.8-27b"])
+    assert ex._run_model(p, _w("auto")) == "openai/qwen/qwen3.8-27b"
+
+
+def test_run_model_gemini_not_prefixed():
+    ex = Executor()
+    assert ex._run_model(_FakeProv("gemini", models=["gemini-2.0-flash"]), _w("m")) == "m"
+
+
+def test_run_model_non_compat_noprefix():
+    ex = Executor()
+    # openai_compatible без 'openai/' префикса -> добавляем; уже с префиксом -> не дублируем
+    assert ex._run_model(_FakeProv("openai_compatible"), _w("openai/x")) == "openai/x"
+    assert ex._run_model(_FakeProv("openai_compatible"), _w("y")) == "openai/y"
+
+
+def test_foreign_env_sets_openai_base_and_key():
+    ex = Executor()
+    env = ex._foreign_env(_FakeProv("openai_compatible", base_url="https://kilo/gw",
+                                    key="k123"))
+    assert env["OPENAI_API_BASE"].rstrip("/") == "https://kilo/gw"
+    assert env["OPENAI_API_KEY"] == "k123"
+
+
+def test_foreign_env_empty_key_not_set():
+    ex = Executor()
+    env = ex._foreign_env(_FakeProv("openai_compatible", base_url="https://k", key=""))
+    assert env["OPENAI_API_BASE"] == "https://k"
+    assert "OPENAI_API_KEY" not in env or env["OPENAI_API_KEY"] == ""
+
+
+def test_args_model_override():
+    ex = Executor()
+    args = ex._args(_w("m"), "hi", ["a.py"], model="openai/gpt-oss")
+    assert "openai/gpt-oss" in args
+    assert "m" not in args

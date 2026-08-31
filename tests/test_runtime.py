@@ -216,3 +216,81 @@ def test_capacity_available_does_not_defer(repo, monkeypatch):
     rt.process(_raw("t-ok"))
     assert rt.queue.last("finish")[1][2] == "DONE"
     assert rt.health.running_count(wk.name) == 0
+
+
+# ---------- v3 P2/P3: foreign-воркер маршрутизируется через run_foreign ----------
+def test_foreign_worker_routed_via_run_foreign(repo, monkeypatch):
+    import runtime as runtime_mod
+    import config as cfg_mod
+    from providers.registry import Provider
+    from workers import Worker
+
+    rt, _ = h.make_runtime(repo)
+    # foreign-воркер groq + usable провайдер в реестре
+    fw = Worker(name="groq_auto", command=("{aider}", "{model}", "{files}", "{message}"),
+                harness="aider", provider="groq", model="auto",
+                complexity=3, enabled=True, timeout=120)
+    rt.workers = [fw]
+    rt.health.register(fw.name, fw.max_parallel)
+    rt.providers = [Provider({"id": "groq", "type": "openai_compatible",
+                              "billing": "free", "enabled": True, "dynamic": True,
+                              "base_url": "https://api.groq.com/openai/v1",
+                              "api_key_env": "AGENTBUS_PROVIDER_GROQ_API_KEY",
+                              "models": ["qwen/qwen3.8-27b"]})]
+    # включаем USE_DYNAMIC и в runtime, и в config (оба читаются в _exec_worker)
+    monkeypatch.setattr(cfg_mod, "USE_DYNAMIC", True)
+    monkeypatch.setattr(runtime_mod, "USE_DYNAMIC", True)
+    # перехватываем вызовы
+    calls = {"run": 0, "run_foreign": 0}
+    monkeypatch.setattr(rt.executor, "run",
+                        lambda *a, **k: calls.__setitem__("run", calls["run"] + 1) or
+                        h.ScriptedWorker(edits={"app.py": "// OK\n"}).run(repo))
+    monkeypatch.setattr(rt.executor, "run_foreign",
+                        lambda *a, **k: calls.__setitem__("run_foreign", calls["run_foreign"] + 1) or
+                        h.ScriptedWorker(edits={"app.py": "// FOR\n"}).run(repo))
+    rt._verify_escalating = lambda task, ctx, tests: (True, "")
+    monkeypatch.setattr(rt.capacity, "deferred_snapshot",
+                        lambda: {"deferred": False, "available": ["groq"]})
+
+    rt.process(_raw("t-foreign"))
+    assert calls["run_foreign"] >= 1
+    assert calls["run"] == 0
+    assert rt.queue.last("finish")[1][2] == "DONE"
+    assert rt.health.running_count(fw.name) == 0
+    # правки пришли от foreign-ветки
+    assert (repo / "app.py").read_text(encoding="utf-8").startswith("// FOR")
+
+
+def test_foreign_worker_falls_back_to_run_when_dynamic_off(repo, monkeypatch):
+    import runtime as runtime_mod
+    import config as cfg_mod
+    from providers.registry import Provider
+    from workers import Worker
+
+    rt, _ = h.make_runtime(repo)
+    fw = Worker(name="groq_auto", command=("{aider}", "{model}", "{files}", "{message}"),
+                harness="aider", provider="groq", model="auto",
+                complexity=3, enabled=True, timeout=120)
+    rt.workers = [fw]
+    rt.health.register(fw.name, fw.max_parallel)
+    rt.providers = [Provider({"id": "groq", "type": "openai_compatible",
+                              "billing": "free", "enabled": True, "dynamic": True,
+                              "base_url": "https://api.groq.com/openai/v1",
+                              "api_key_env": "AGENTBUS_PROVIDER_GROQ_API_KEY",
+                              "models": ["qwen/qwen3.8-27b"]})]
+    # USE_DYNAMIC выключен (по умолчанию): foreign НЕ роутится
+    monkeypatch.setattr(cfg_mod, "USE_DYNAMIC", False)
+    monkeypatch.setattr(runtime_mod, "USE_DYNAMIC", False)
+    calls = {"run": 0, "run_foreign": 0}
+    monkeypatch.setattr(rt.executor, "run",
+                        lambda *a, **k: calls.__setitem__("run", calls["run"] + 1) or
+                        h.ScriptedWorker(edits={"app.py": "// RUN\n"}).run(repo))
+    monkeypatch.setattr(rt.executor, "run_foreign",
+                        lambda *a, **k: calls.__setitem__("run_foreign", calls["run_foreign"] + 1) or
+                        h.ScriptedWorker(edits={"app.py": "// FOR\n"}).run(repo))
+    rt._verify_escalating = lambda task, ctx, tests: (True, "")
+    monkeypatch.setattr(rt.capacity, "deferred_snapshot",
+                        lambda: {"deferred": False, "available": ["ollama"]})
+    rt.process(_raw("t-foreign2"))
+    assert calls["run"] >= 1
+    assert calls["run_foreign"] == 0

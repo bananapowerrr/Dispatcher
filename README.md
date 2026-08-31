@@ -44,7 +44,7 @@ PROJECT_PREDICTION_ANALYZER=D:\Workspace\Prediction-Analyzer
 - `dispatcher.py` — точка входа (обёртка над runtime.main)
 - `runtime.py` — оркестратор: claim → контекст → выбор воркера → verify → git-коммит → отчёт
 - `workers.py` / `workers.yaml` — реестр воркеров (регистрация, не правка диспетчера)
-- `executor.py` — запуск CLI-воркеров (aider/opencode), бут-проверка GitPython, kill по таймауту
+- `executor.py` — запуск CLI-воркеров (aider/opencode), бут-проверка GitPython, kill по таймауту, **запуск через foreign-провайдеров** (openai_compatible: base_url/api_key/model)
 - `health.py` — реактивное здоровье: circuit breaker, cooldown, 429/Retry-After, score, **concurrency-слоты**
 - `router.py` / `select_executor` — выбор воркера по сложности и доступности
 - `context.py` — контекст задачи: tree, README, связанные файлы/тесты, содержимое файлов
@@ -166,8 +166,16 @@ heartbeat и публикует сводку доступности пула.
   активный пул не добавляются — им нужен env `base_url/api_key`, поэтому без
   явного подключения в executor'е их не роутим (только наблюдаемость).
 
-По умолчанию провайдеры отключены, поэтому пул пуст — **ничего не ломается**,
-рабочий aider+ollama pipeline не меняется.
+**Исполнение через foreign-провайдеров** (`executor.run_foreign`):
+- для openai_compatible (kilo/groq) подставляет `OPENAI_API_BASE`/`OPENAI_API_KEY`
+  из провайдера и запускает aider с `--model openai/<model>` (litellm-конвенция);
+- НЕ требует локальный ollama (пропускает ollama boot-check);
+- `runtime._exec_worker()` маршрутизирует foreign-воркера через `run_foreign`
+  **только** при `AGENTBUS_USE_DYNAMIC=1` И usable-провайдере; иначе — безопасный
+  fallback на `run()`.
+
+По умолчанию провайдеры отключены, поэтому пул пуст и foreign-исполнение
+выключено — **ничего не ломается**, рабочий aider+ollama pipeline не меняется.
 
 ## Git-транзакции (безопасность P0)
 
@@ -219,7 +227,10 @@ heartbeat и публикует сводку доступности пула.
 Постоянный regression-набор в `tests/` (`conftest`, `_helpers`, `test_gitops`,
 `test_health`, `test_executor`, `test_tests`, `test_runtime`, `test_eventbus`,
 `test_providers`, `test_ranking`, `test_stream`, `test_dynamicpool`), без сети и
-реальных CLI-инструментов (`FakeQueue`, `ScriptedWorker`, temp git-репо):
+реальных CLI-инструментов (`FakeQueue`, `ScriptedWorker`, temp git-репо).
+Исполнение через foreign-провайдеров тоже тестируется без сети: `_run_model`/
+`_foreign_env`/`run_foreign` (test_executor) и маршрутизация foreign-воркера
+через `_exec_worker` (test_runtime).
 
 ```powershell
 "C:\Users\user\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests -q

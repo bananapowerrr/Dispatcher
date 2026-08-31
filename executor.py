@@ -71,7 +71,8 @@ class Executor:
             "{aider_model}": aider_model or os.getenv("AIDER_MODEL", AIDER_MODEL),
         }
 
-    def _args(self, worker: Worker, message: str, files: list[str]) -> list[str]:
+    def _args(self, worker: Worker, message: str, files: list[str],
+              model: str | None = None) -> list[str]:
         result: list[str] = []
         for token in worker.command:
             if token in self.paths:
@@ -85,7 +86,7 @@ class Executor:
             elif token == "{yes}":
                 result.append("--yes")
             elif token == "{model}":
-                result.append(self.paths.get("{aider_model}", ""))
+                result.append(model if model is not None else self.paths.get("{aider_model}", ""))
             else:
                 result.append(token)
         return result
@@ -134,13 +135,62 @@ class Executor:
         env.setdefault("LANG", "C.UTF-8")
         return env
 
-    def _run(self, args: list[str], project: str, timeout: int) -> ExecutionResult:
+    def _foreign_env(self, provider) -> dict:
+        """Env для foreign (openai_compatible) провайдера: base_url + api key.
+
+        aider с compat-эндпоинтами читает OPENAI_API_BASE / OPENAI_API_KEY и
+        model с префиксом `openai/<model>`. Для локальных (ollama) провайдеров
+        этот helper не используется.
+        """
+        env = self._env()
+        base = getattr(provider, "base_url", "") or ""
+        key = getattr(provider, "api_key", "") or ""
+        if base:
+            env["OPENAI_API_BASE"] = base.rstrip("/")
+            if key:
+                env["OPENAI_API_KEY"] = key
+        # Literally threshold: foreign free-лимиты жёстко бьются; не задаём никаких
+        # лишних ключей, чтобы aider не подтянул локальную конфигурацию ollama.
+        env.setdefault("OPENAI_API_TYPE", "open_ai")
+        return env
+
+    def _run_model(self, provider, worker) -> str:
+        """Имя модели для запуска foreign-воркера.
+
+        openai_compatible -> `openai/<worker.model>` (aider/litellm-конвенция).
+        dynamic (model=auto) -> берём первую модель провайдера, иначе отдаём
+        worker.model как есть.
+        """
+        ptype = getattr(provider, "type", "") or "openai_compatible"
+        wmodel = worker.model or ""
+        if (not wmodel or wmodel == "auto") and getattr(provider, "models", None):
+            wmodel = provider.models[0]
+        if ptype == "openai_compatible" and wmodel and not wmodel.startswith("openai/"):
+            return "openai/" + wmodel
+        return wmodel or "openai/unknown"
+
+    def run_foreign(self, worker: Worker, provider, project: str, message: str,
+                    timeout: int, files: list[str] | None = None) -> ExecutionResult:
+        """Запуск воркера через foreign-провайдера (kilo/groq/gemini).
+
+        НЕ требует локальный ollama (пропускает boot-check), подставляет
+        OPENAI_API_BASE/OPENAI_API_KEY из провайдера и модель `openai/<model>`.
+        Используется только для foreign-воркеров; локальный путь не трогает.
+        """
+        files = files or []
+        args = self._args(worker, message, files, model=self._run_model(provider, worker))
+        env = self._foreign_env(provider)
+        # Прямой _run с переданным env — без локальных boot-checks.
+        return self._run_with_env(args, project, timeout, env)
+
+    def _run_with_env(self, args: list[str], project: str, timeout: int,
+                      env: dict | None = None) -> ExecutionResult:
         if not args:
             return ExecutionResult(False, stderr="пустая команда исполнителя")
         executable = args[0].strip('"')
         if not Path(executable).is_file() and which(executable) is None:
             return ExecutionResult(False, stderr=f"исполнитель не найден: {executable}")
-        env = self._env()
+        env = env or self._env()
         started = time.monotonic()
         try:
             proc = subprocess.Popen(
@@ -165,6 +215,9 @@ class Executor:
             return ExecutionResult(
                 False, stderr=f"не удалось запустить исполнителя: {type(exc).__name__}: {exc}",
                 latency=time.monotonic() - started)
+
+    def _run(self, args: list[str], project: str, timeout: int) -> ExecutionResult:
+        return self._run_with_env(args, project, timeout, self._env())
 
     def _repair_aider_gitpython(self, python: str, timeout: int = 180) -> ExecutionResult:
         """Стабильное решение конфликта GitPython vs пакет `git`.
