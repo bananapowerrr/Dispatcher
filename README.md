@@ -59,6 +59,7 @@ PROJECT_PREDICTION_ANALYZER=D:\Workspace\Prediction-Analyzer
 - `providers/` — слой провайдеров (v3): registry из `providers.yaml`, capacity-менеджер (429/Retry-After/cooldown), free-only guard
 - `ranking.py` — adaptive ranker (v3): обучаемые метрики per executor:provider:model, поправка к score, причины недоступности
 - `stream.py` — normalizer CLI-вывода (v3): TOOL_CALL/THINKING из stdout агента
+- `dynamicpool.py` — dynamic pool (v3): строит воркеров из доступных free/local провайдеров (без сети, по умолчанию выключено)
 - `DESIGN.md` — архитектурный контракт v3 (Executor/Provider/Model, EventBus, Free Capacity, adaptive router)
 
 ## Observability / EventBus (v3 P0)
@@ -150,6 +151,24 @@ free/local пула (kilo-auto и пр.); по умолчанию провайд
 сеть в типовом режиме не трогается. `runtime._probe_providers()` зовёт его из
 heartbeat и публикует сводку доступности пула.
 
+## Dynamic Pool (v3 P2)
+
+`dynamicpool.py` — переход от «понимаем пул» к «используем пул»:
+
+- `build_dynamic_workers(providers, existing_workers)` — из usable/free-local
+  провайдеров строит новых воркеров (harness + provider:model), **дедуплицируя**
+  против существующих по `provider:model`; dynamic-провайдер → один `model=auto`.
+- Free-only guard соблюдается: paid/выключенные провайдеры не порождают воркеров.
+- `emit_pool_event` — событие `SYSTEM/dynamic_pool` о появлении кандидатов.
+- `runtime._sync_dynamic_pool()` (на старте) строит кандидатов, публикует событие
+  и **безопасно** вносит в активный пул: при `AGENTBUS_USE_DYNAMIC=1` и только
+  для локальных/ollama источников. `foreign` (openai_compatible/gemini) в
+  активный пул не добавляются — им нужен env `base_url/api_key`, поэтому без
+  явного подключения в executor'е их не роутим (только наблюдаемость).
+
+По умолчанию провайдеры отключены, поэтому пул пуст — **ничего не ломается**,
+рабочий aider+ollama pipeline не меняется.
+
 ## Git-транзакции (безопасность P0)
 
 Диспетчер НЕ трогает чужое дерево:
@@ -199,8 +218,8 @@ heartbeat и публикует сводку доступности пула.
 
 Постоянный regression-набор в `tests/` (`conftest`, `_helpers`, `test_gitops`,
 `test_health`, `test_executor`, `test_tests`, `test_runtime`, `test_eventbus`,
-`test_providers`, `test_ranking`, `test_stream`), без сети и реальных
-CLI-инструментов (`FakeQueue`, `ScriptedWorker`, temp git-репо):
+`test_providers`, `test_ranking`, `test_stream`, `test_dynamicpool`), без сети и
+реальных CLI-инструментов (`FakeQueue`, `ScriptedWorker`, temp git-репо):
 
 ```powershell
 "C:\Users\user\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests -q

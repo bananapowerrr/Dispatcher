@@ -146,6 +146,13 @@ RANKER_BIAS_LIMIT = max(0.0, _float("AGENTBUS_RANKER_BIAS_LIMIT", 0.5))
 # Персистентное состояние профилей исполнителей (обучаемые метрики).
 RANKER_STATE_FILE = os.getenv("AGENTBUS_RANKER_STATE", "").strip() or str(BUS_ROOT / "ranker_state.json")
 
+# --- Dynamic pool (v3) ---
+# AGENTBUS_USE_DYNAMIC=1: реально добавлять новых воркеров из доступных free/local
+# провайдеров в активный пул. По умолчанию выключено — провайдеры и так выключены,
+# а подключение foreign (openai_compatible) требует env для base_url/api_key.
+# Без флага новые воркеры НЕ создаются (только наблюдаемость пула).
+USE_DYNAMIC = _flag("AGENTBUS_USE_DYNAMIC", False)
+
 # --- Retry / backoff (self-contained scheduler) ---
 RETRY_DELAY_SECONDS = max(5, _int("AGENTBUS_RETRY_DELAY_SECONDS", 60))
 # Minimal hold for a task after a worker failed it (avoid retry with the same failing worker instantly)

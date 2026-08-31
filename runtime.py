@@ -37,6 +37,8 @@ from workers import load_workers
 from providers import load_providers, FreeCapacityManager
 from ranking import AdaptiveRanker, make_key
 from stream import StreamNormalizer
+from dynamicpool import build_dynamic_workers, emit_pool_event
+from config import USE_DYNAMIC
 
 
 class DispatcherLock:
@@ -176,6 +178,40 @@ class Runtime:
             BUS.emit(AgentEvent(type="SYSTEM", provider="pool",
                                 message=f"dynamic pool: {len(enabled)}/{len(pool)} доступно",
                                 payload={"pool": pool}))
+        except Exception:
+            pass
+
+    def _sync_dynamic_pool(self) -> None:
+        """Синхронизирует динамический пул: из доступных free/local провайдеров
+        строит кандидатов-воркеров и (при AGENTBUS_USE_DYNAMIC=1 и только для
+        локальных/ollama источников) реально добавляет в рабочий пул.
+
+        Безопасность: по умолчанию провайдеры выключены, поэтому пул пуст.
+        Foreign (openai_compatible/gemini) требуют env для base_url/api_key —
+        их в активный пул НЕ добавляем без флага (только событие/лог).
+        """
+        try:
+            cand = build_dynamic_workers(self.providers, self.workers)
+            if not cand:
+                return
+            emit_pool_event(cand)
+            if not USE_DYNAMIC:
+                self.log.write(
+                    f"dynamic pool: {len(cand)} кандидатов доступно, "
+                    f"но AGENTBUS_USE_DYNAMIC=0 — не добавляю в активный пул")
+                return
+            foreign = [w for w in cand if w.provider != "ollama"]
+            local = [w for w in cand if w.provider == "ollama"]
+            if foreign:
+                self.log.write(
+                    f"dynamic pool: пропускаю foreign-воркеров {[w.name for w in foreign]} "
+                    f"(нужен env base_url/api_key — выключено)")
+            for w in local:
+                if w.name not in {x.name for x in self.workers}:
+                    self.workers.append(w)
+                    self.health.register(w.name, w.max_parallel)
+                    self.ranker.register_worker(w)
+                    self.log.write(f"dynamic pool: добавлен воркер {w.name}")
         except Exception:
             pass
 
@@ -639,6 +675,11 @@ class Runtime:
                 self.log.write(f"Sweep processing: возвращено в incoming={rec}")
         except Exception as exc:
             self.log.write(f"Sweep processing недоступен: {exc}")
+        # v3: синхронизация динамического пула (visible без USE_DYNAMIC)
+        try:
+            self._sync_dynamic_pool()
+        except Exception as exc:
+            self.log.write(f"sync dynamic pool недоступен: {exc}")
 
         self._running = True
         while True:
