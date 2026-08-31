@@ -1,0 +1,79 @@
+# Реестр провайдеров AgentBus v3 (контракт DESIGN.md).
+# Провайдер = инфраструктурный runtime (НЕ worker). Добавление провайдера =
+# регистрация здесь + env-ключ (для free/local), без правки Python.
+#
+# billing: free | local | paid
+#   - free  : динамический облачный free-пул (могут быть лимиты)
+#   - local : локальный inference (ollama) — фактически безлимит
+#   - paid  : доступен ТОЛЬКО при AGENTBUS_ALLOW_PAID=true И enabled (по умолч. выкл.)
+#
+# enabled_env: env-переменная-ворота (0/1) поверх enabled.
+# base_url_env/api_key_env: брать URL/ключ из .env (секреты не в репо).
+# dynamic: true — маршрутизатор в пул моделей (kilo-auto/free, openrouter/free);
+#          логируем requested_model + resolved_model.
+
+# ===== ЛОКАЛЬНЫЙ =========================================================
+- id: ollama
+  type: ollama
+  enabled: true
+  enabled_env: AGENTBUS_PROVIDER_OLLAMA_ENABLED
+  base_url_env: AGENTBUS_PROVIDER_OLLAMA_BASE_URL
+  base_url: http://127.0.0.1:11434
+  billing: local
+  priority: 100
+  capabilities: [coding, tools, streaming]
+  models:
+    - qwen2.5-coder:7b
+
+# ===== ОБЛАЧНЫЕ FREE-ПУЛЫ (выключены, пока нет ключей) ===================
+# Kilo Auto Free — динамический пул; anonymous free доступ возможен без ключа.
+- id: kilo
+  type: openai_compatible
+  enabled: false
+  enabled_env: AGENTBUS_PROVIDER_KILO_ENABLED
+  base_url_env: AGENTBUS_PROVIDER_KILO_BASE_URL
+  base_url: https://kilo.ai/gateway/v1
+  api_key_env: AGENTBUS_PROVIDER_KILO_API_KEY
+  billing: free
+  priority: 55
+  dynamic: true
+  capabilities: [coding, tools, streaming]
+  models:
+    - kilo-auto/free
+
+- id: openrouter
+  type: openai_compatible
+  enabled: false
+  enabled_env: AGENTBUS_PROVIDER_OPENROUTER_ENABLED
+  base_url_env: AGENTBUS_PROVIDER_OPENROUTER_BASE_URL
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: AGENTBUS_PROVIDER_OPENROUTER_API_KEY
+  billing: free
+  priority: 50
+  dynamic: true
+  capabilities: [coding, tools, streaming]
+  models:
+    - openrouter/free
+
+- id: groq
+  type: openai_compatible
+  enabled: false
+  enabled_env: AGENTBUS_PROVIDER_GROQ_ENABLED
+  base_url_env: AGENTBUS_PROVIDER_GROQ_BASE_URL
+  base_url: https://api.groq.com/openai/v1
+  api_key_env: AGENTBUS_PROVIDER_GROQ_API_KEY
+  billing: free
+  priority: 80
+  capabilities: [coding, tools, streaming]
+  models:
+    - qwen/qwen3.8-27b
+    - openai/gpt-oss-120b
+
+- id: gemini
+  type: gemini
+  enabled: false
+  enabled_env: AGENTBUS_PROVIDER_GEMINI_ENABLED
+  api_key_env: AGENTBUS_PROVIDER_GEMINI_API_KEY
+  billing: free
+  priority: 75
+  capabilities: [coding, tools, streaming]

@@ -18,6 +18,9 @@ from bus import FileBus
 from config import (BUS_ROOT, CHANNELS, DEFAULT_CHANNEL, MAX_ATTEMPTS, RETRY_DELAY_SECONDS,
                     LEASE_SECONDS, POLL_SECONDS, PROJECT_ROOT, WORKER_TIMEOUT, VERIFY_TIMEOUT,
                     GIT_ENABLED, REPAIR_ENABLED, REPORT_DIR, LOG_ROOT, resolve_project)
+from eventbus import BUS, AgentEvent
+from eventbus.jsonl import JsonlSink
+from eventbus.console import ConsoleSink
 from context import ContextBuilder
 from executor import Executor, ExecutionResult
 from gitops import GitOps, GitRun, build_commit_message
@@ -31,6 +34,7 @@ from supabase import SupabaseQueue
 from tasks import Task
 from tests import TestRunner, _pytest_status
 from workers import load_workers
+from providers import load_providers, FreeCapacityManager
 
 
 class DispatcherLock:
@@ -93,6 +97,10 @@ class Runtime:
         # конфигурация параллельности: слоты из workers.yaml (max_parallel).
         for w in self.workers:
             self.health.register(w.name, w.max_parallel)
+        # провайдеры (инфраструктурный слой v3): registry + free capacity manager.
+        # НЕ заменяет выбор воркера — даёт понимание free/local пула и cooldown'ов.
+        self.providers = load_providers()
+        self.capacity = FreeCapacityManager(self.providers)
         self.context = ProjectContext(PROJECT_ROOT) if PROJECT_ROOT else None
         self.cbuilder = ContextBuilder(self.context) if self.context else None
         self.tests = TestRunner(PROJECT_ROOT, VERIFY_TIMEOUT) if PROJECT_ROOT else None
@@ -102,11 +110,51 @@ class Runtime:
         self.report = NightlyReport(self.log, REPORT_DIR)
         self._backoff: dict[str, float] = {}   # task_id -> retry_at (monotonic)
         self._running = False
+        self._hb_last = 0.0
+        self._setup_eventbus()
+
+    # ---------- eventbus (observability, не влияет на логику) ----------
+    def _setup_eventbus(self) -> None:
+        """Подписывает Sinks (JSONL + Console) на глобальный EventBus.
+
+        Sinks добровольны и не бросают. Чтобы не плодить дубли при повторном
+        создании Runtime, подписки делаются один раз на процесс (bus_level).
+        """
+        if getattr(Runtime, "_bus_attached", False):
+            return
+        Runtime._bus_attached = True
+        self._jsonl_sink = JsonlSink()
+        self._console_sink = ConsoleSink()
+        BUS.attach(self._jsonl_sink)
+        BUS.attach(self._console_sink)
+
+    def _emit(self, type_: str, message: str = "", **kw) -> None:
+        """Удобная обёртка: шлёт событие на глобальный BUS, ничего не бросает."""
+        try:
+            kw.setdefault("ts", time.time())
+            BUS.emit(AgentEvent(type=type_, message=message, **kw))
+        except Exception:
+            pass  # observability не должна ронять оркестратор
+
+    def _heartbeat(self) -> None:
+        """Периодический heartbeat (жив ли процесс/пул) — не чаще чем раз в гплюс."""
+        now = time.monotonic()
+        if (now - self._hb_last) < 30:
+            return
+        self._hb_last = now
+        try:
+            busy = sum(1 for w in self.workers if self.health.running(w.name))
+            cool = sum(1 for w in self.workers if not self.health.available(w.name))
+            BUS.emit(AgentEvent(type="HEARTBEAT", worker=self.worker_id,
+                                message="dispatcher alive",
+                                payload={"busy": busy, "cooldown": cool,
+                                         "workers": len(self.workers)}))
+        except Exception:
+            pass
 
     # ---------- journal ----------
     def _save(self, task: Task, state: str, result: dict) -> None:
         # журнальная папка и есть состояние; продублируем его в payload,
-        # чтобы файл не говорил 'PENDING', лёжа в deferred/errors/done.
         status = {"done": "DONE", "errors": "ERROR", "deferred": "DEFERRED", "processing": "CLAIMED"}.get(state)
         if status:
             task.status = status
@@ -287,6 +335,9 @@ class Runtime:
         self._save(task, "processing", {"claimed_by": self.worker_id,
                                         "attempts": task.attempts,
                                         "source": "file" if raw.get("source") == "file" else "queue"})
+        self._emit("CLAIM", f"task {task.id} attempts={task.attempts}",
+                   task_id=task.id, worker=self.worker_id,
+                   payload={"attempts": task.attempts, "channel": task.channel})
 
         complexity = task_complexity(raw)
         # контекст проекта (карта + релевантные файлы), преамбула для воркера
@@ -338,11 +389,24 @@ class Runtime:
             exec_timeout = min(worker.timeout, WORKER_TIMEOUT)
             commit_sha = ""
             try:
+                self._emit("START", f"worker {worker.name}",
+                           task_id=task.id, worker=worker.name,
+                           executor=worker.harness, provider=worker.provider,
+                           model=worker.model,
+                           payload={"complexity": complexity, "attempt": task.attempts})
+                self._emit("COMMAND", " ".join(worker.command),
+                           task_id=task.id, worker=worker.name,
+                           executor=worker.harness, provider=worker.provider,
+                           model=worker.model)
                 result = self.executor.run(worker, str(ctx.root), worker_message,
                                            exec_timeout, files=abs_files)
                 plan = gitops.plan_commit(before_snapshot, task.files) \
                     if (gitops is not None and before_snapshot is not None) else None
                 if result.ok:
+                    self._emit("TEST_START", "verify/tests",
+                               task_id=task.id, worker=worker.name,
+                               executor=worker.harness, provider=worker.provider,
+                               model=worker.model)
                     ok, verify_error = self._verify_escalating(task, ctx, tests)
                     if not ok:
                         result.stderr = verify_error
@@ -355,7 +419,15 @@ class Runtime:
                                          + "; изменения задачи будут откачены")
                     elif plan is not None:
                         # селективный commit: только пути задачи (audit P0)
+                        self._emit("GIT_STATUS", plan.describe(),
+                                   task_id=task.id, worker=worker.name,
+                                   executor=worker.harness, provider=worker.provider,
+                                   model=worker.model)
                         if plan.stage:
+                            self._emit("COMMIT", " ".join(plan.stage[:8]),
+                                       task_id=task.id, worker=worker.name,
+                                       executor=worker.harness, provider=worker.provider,
+                                       model=worker.model)
                             commit_sha = gitops.commit(
                                 build_commit_message(task.id, worker.name, task.files),
                                 plan.stage)
@@ -384,6 +456,12 @@ class Runtime:
                     self.report.record("DONE", worker.name, task.attempts)
                     self.report.commits += int(bool(commit_sha))
                     self.log.task(task.channel, task.id, worker.name, "ГОТОВО")
+                    self._emit("DONE", "task completed",
+                               task_id=task.id, worker=worker.name,
+                               executor=worker.harness, provider=worker.provider,
+                               model=worker.model,
+                               duration=result.latency,
+                               payload={"commit": commit_sha, "attempts": task.attempts})
                     return
             except Exception as exc:
                 result = ExecutionResult(
@@ -395,6 +473,19 @@ class Runtime:
 
             error = result.stderr or result.stdout or "исполнитель завершился с ошибкой"
             self.health.failure(worker.name, error, result.timed_out)
+            # provider-level cooldown: если источник воркера упёрся в лимит —
+            # ставим provider:model в cooldown через Capacity Manager (не ломая
+            # выбор воркера и health-счётчик).
+            try:
+                pkey = f"{worker.provider}:{worker.model}" if worker.model else worker.provider
+                self.capacity.record_text_error(pkey, error, worker.provider, worker.model)
+            except Exception:
+                pass
+            self._emit("TIMEOUT" if result.timed_out else "ERROR",
+                       error[-300:], task_id=task.id, worker=worker.name,
+                       executor=worker.harness, provider=worker.provider,
+                       model=worker.model,
+                       payload={"timed_out": result.timed_out, "attempt": task.attempts})
             # repair-решение: для кодовых ошибок — тот же fix_prompt следующему воркеру
             dec = decide_failure(error, task.attempts, MAX_ATTEMPTS, result.timed_out)
             if dec.fix_prompt:
@@ -428,6 +519,8 @@ class Runtime:
             self.report.record(final, list(tried)[-1] if tried else "", task.attempts)
             self.log.task(task.channel, task.id, self.worker_id,
                           f"{final} ({task.attempts}/{MAX_ATTEMPTS}): {last_err[-300:]}")
+            self._emit(final, last_err[-300:], task_id=task.id, worker=self.worker_id,
+                       payload={"attempts": task.attempts, "category": cat})
             return
 
         # ретраябельно: откладываем и возвращаем в очередь
@@ -440,6 +533,8 @@ class Runtime:
                                       "category": cat})
         self.log.task(task.channel, task.id, self.worker_id,
                       f"ОТЛОЖЕНО ({task.attempts}/{MAX_ATTEMPTS}): {last_err[-300:]}")
+        self._emit("RETRY", last_err[-300:], task_id=task.id, worker=self.worker_id,
+                   payload={"attempts": task.attempts, "category": cat})
 
     # ---------- main loop ----------
     def run_forever(self) -> None:
@@ -470,6 +565,7 @@ class Runtime:
                 try: self.queue.requeue_stale(LEASE_SECONDS, MAX_ATTEMPTS)
                 except Exception as exc: self.log.write(f"Supabase недоступен: {exc}")
                 self._flush_backoff()
+                self._heartbeat()
                 raw = self._claim_file_task()
                 if raw is None:
                     try:

@@ -95,6 +95,12 @@ DEFAULT_CHANNEL = os.getenv("AGENTBUS_DEFAULT_CHANNEL", "gpt").strip() or "gpt"
 # --- Worker pool / registry ---
 # Path to workers.yaml. Empty -> built-in registry.
 WORKERS_FILE = os.getenv("AGENTBUS_WORKERS_FILE", "").strip() or (BASE_DIR / "workers.yaml")
+PROVIDERS_FILE = os.getenv("AGENTBUS_PROVIDERS_FILE", "").strip() or (BASE_DIR / "providers.yaml")
+# Персистентное состояние провайдеров (per provider:model): переживает рестарт.
+PROVIDERS_STATE_FILE = os.getenv("AGENTBUS_PROVIDERS_STATE", "").strip() or str(BUS_ROOT / "providers_state.json")
+# Free-only guard: платные провайдеры недоступны router'у, пока явно не разрешены
+# И ВКЛЮЧЕНЫ явной конфигурацией (billing=paid + AGENTBUS_ALLOW_PAID=true).
+ALLOW_PAID = os.getenv("AGENTBUS_ALLOW_PAID", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _tool_path(env_name: str, exe_names: tuple[str, ...], prefs: tuple[str, ...] = ()) -> str:

@@ -55,6 +55,54 @@ PROJECT_PREDICTION_ANALYZER=D:\Workspace\Prediction-Analyzer
 - `project.py` — валидация файлов (`allow_no_files`) и безопасные абсолютные пути
 - `report.py` / `logger.py` — ночной отчёт и журнал
 - `tasks.py` / `supabase.py` / `bus.py` — модель задач, очередь (Supabase RPC), файловая шина
+- `eventbus/` — EventBus / Observability (v3): единый поток событий → Console + JSONL (+обновление отчёта)
+- `providers/` — слой провайдеров (v3): registry из `providers.yaml`, capacity-менеджер (429/Retry-After/cooldown), free-only guard
+- `DESIGN.md` — архитектурный контракт v3 (Executor/Provider/Model, EventBus, Free Capacity, adaptive router)
+
+## Observability / EventBus (v3 P0)
+
+Единый поток событий через `eventbus.events.BUS` (`AgentEvent`), тип — из 5 групп
+(Lifecycle/Agent/Execution/Health/System: `CLAIM START THINKING TOOL_CALL
+TEST_START COMMIT DONE ERROR RETRY HEARTBEAT` и др.). Несколько независимых
+consumers:
+
+- **Console** (`eventbus.console.ConsoleSink`, `AGENTBUS_CONSOLE=0` — выключить) —
+  живая операторская строка.
+- **JSONL** (`eventbus.jsonl.JsonlSink` → `events/YYYY-MM-DD.jsonl`,
+  `AGENTBUS_EVENTS_DIR`) — история без сети.
+- `runtime` на старте публикует `HEARTBEAT` (не чаще 30с), каждый шаг задачи —
+  `CLAIM/START/COMMAND/TEST_START/GIT_STATUS/COMMIT/DONE|ERROR|RETRY`.
+
+EventBus никогда не бросает: сбой одного consumer не влияет на оркестратор.
+
+## Provider-слой и Free-only guard (v3 P0)
+
+Реестр провайдеров — `providers.yaml` (регистрация, не правка кода):
+
+```
+id, type(openai_compatible|gemini|ollama|cli), base_url(_env), api_key_env,
+billing(free|local|paid), models[], priority, dynamic
+```
+
+- `providers.registry.Provider` — декларативный провайдер (НЕ worker).
+- `providers.state.ProviderRegistry` — состояние **per provider:model**
+  (cooldown/retry/soft-quota), персистентно в `providers_state.json`.
+- `providers.adapter.ProviderAdapter` — endpoint-config + health-probe (DNS/TCP/
+  HTTP/auth) + распознавание rate-limit-заголовков (Groq-style).
+- `providers.reset` — парсер `Retry-After`, `2h 17m`, `37m`, `reset at 14:30`,
+  429/quota → секунды + confidence.
+- `providers.capacity.FreeCapacityManager` — пул: ставит источник на COOLDOWN по
+  429, возвращает после `retry_at`, при исчерпании всего free/local →
+  `DEFERRED_QUOTA` + `wake_at`.
+
+**Free-only guard**: router'у доступны только `billing=free|local`. Платные —
+только при `AGENTBUS_ALLOW_PAID=true` **и** явно включённом провайдере.
+По умолчанию платное никогда не запускается автоматически.
+
+Начальный пул: `ollama` (local, всегда), `kilo-auto/free`, `openrouter/free`,
+`groq`, `gemini` (free, выключены — нужен ключ/ворота `*_ENABLED=1`). Текущий
+выбор воркера (`router.py` + `health.py`) сохранён — provider-слой надстраивается
+вокруг, не ломая рабочий pipeline aider/opencode/ollama.
 
 ## Git-транзакции (безопасность P0)
 
@@ -104,8 +152,9 @@ PROJECT_PREDICTION_ANALYZER=D:\Workspace\Prediction-Analyzer
 ## Тесты
 
 Постоянный regression-набор в `tests/` (`conftest`, `_helpers`, `test_gitops`,
-`test_health`, `test_executor`, `test_tests`, `test_runtime`), без сети и реальных
-CLI-инструментов (`FakeQueue`, `ScriptedWorker`, temp git-репо):
+`test_health`, `test_executor`, `test_tests`, `test_runtime`, `test_eventbus`,
+`test_providers`), без сети и реальных CLI-инструментов (`FakeQueue`,
+`ScriptedWorker`, temp git-репо):
 
 ```powershell
 "C:\Users\user\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests -q
