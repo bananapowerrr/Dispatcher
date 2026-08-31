@@ -46,7 +46,7 @@ PROJECT_PREDICTION_ANALYZER=D:\Workspace\Prediction-Analyzer
 - `workers.py` / `workers.yaml` — реестр воркеров (регистрация, не правка диспетчера)
 - `executor.py` — запуск CLI-воркеров (aider/opencode), бут-проверка GitPython, kill по таймауту, **запуск через foreign-провайдеров** (openai_compatible: base_url/api_key/model)
 - `health.py` — реактивное здоровье: circuit breaker, cooldown, 429/Retry-After, score, **concurrency-слоты**
-- `router.py` / `select_executor` — выбор воркера по сложности и доступности
+- `router.py` / `select_executor` — выбор воркера по сложности и доступности, **provider-cooldown-aware** (capacity: провайдер в RATE_LIMIT/cooldown исключается из кандидатов)
 - `context.py` — контекст задачи: tree, README, связанные файлы/тесты, содержимое файлов
 - `tests.py` — многоуровневые проверки L0 (import) → L1 (targeted) → L2 (related) → L3 (полный)
 - `verify.py` — безопасный запуск verify/run-команд на Windows (рабочий python, не битый shim)
@@ -161,10 +161,10 @@ heartbeat и публикует сводку доступности пула.
 - Free-only guard соблюдается: paid/выключенные провайдеры не порождают воркеров.
 - `emit_pool_event` — событие `SYSTEM/dynamic_pool` о появлении кандидатов.
 - `runtime._sync_dynamic_pool()` (на старте) строит кандидатов, публикует событие
-  и **безопасно** вносит в активный пул: при `AGENTBUS_USE_DYNAMIC=1` и только
-  для локальных/ollama источников. `foreign` (openai_compatible/gemini) в
-  активный пул не добавляются — им нужен env `base_url/api_key`, поэтому без
-  явного подключения в executor'е их не роутим (только наблюдаемость).
+  и **безопасно** вносит в активный пул при `AGENTBUS_USE_DYNAMIC=1`: локальные
+  (ollama) добавляются всегда, `foreign` (openai_compatible/gemini) — только если
+  у провайдера есть `api_key` (иначе `run_foreign` гарантированно не сможет
+  авторизоваться). Без флага активный пул не меняется (событие/лог).
 
 **Исполнение через foreign-провайдеров** (`executor.run_foreign`):
 - для openai_compatible (kilo/groq) подставляет `OPENAI_API_BASE`/`OPENAI_API_KEY`
@@ -172,7 +172,8 @@ heartbeat и публикует сводку доступности пула.
 - НЕ требует локальный ollama (пропускает ollama boot-check);
 - `runtime._exec_worker()` маршрутизирует foreign-воркера через `run_foreign`
   **только** при `AGENTBUS_USE_DYNAMIC=1` И usable-провайдере; иначе — безопасный
-  fallback на `run()`.
+  fallback на `run()`. `api_key` читается из env в момент запуска (не снимок) —
+  ключ, добавленный после старта рантайма, подхватывается.
 
 По умолчанию провайдеры отключены, поэтому пул пуст и foreign-исполнение
 выключено — **ничего не ломается**, рабочий aider+ollama pipeline не меняется.

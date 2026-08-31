@@ -37,7 +37,7 @@ def task_complexity(raw: dict[str, Any] | None, default: int = 3) -> int:
 
 
 def select_executor(workers, health, raw: dict[str, Any] | None,
-                    requested: str = "", ranker=None) -> object | None:
+                    requested: str = "", ranker=None, capacity=None) -> object | None:
     """Возвращает лучшего доступного воркера или None.
 
     requested — имя исполнителя из задачи (task.executor). Если такой воркер
@@ -47,12 +47,25 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
     ranker (необязательный AdaptiveRanker) — если задан, корректирует score
     обучаемой поправкой (по доле успешных исходов на этом уровне сложности).
     Сигнатура обратно совместима: без ranker работает ровно как раньше.
+
+    capacity (необязательный FreeCapacityManager) — если задан, воркеры чьего
+    provider:model в cooldown/rate-limit (per-провайдер доступность v3)
+    исключаются из кандидатов. Ключи, которых нет в состоянии провайдеров,
+    считаются доступными (UNKNOWN) — поэтому локальный ollama-pipeline не
+    затрагивается, даже если формат имени модели отличается.
     """
     complexity = task_complexity(raw)
     candidates = []
     for w in workers:
         if not w.enabled or not health.available(w.name):
             continue
+        if capacity is not None:
+            cap_key = f"{w.provider}:{w.model or 'auto'}"
+            try:
+                if not capacity.available(cap_key):
+                    continue
+            except Exception:
+                pass   # сломанный capacity не должен ломать роутер
         score = health.score(w.name, complexity, w.complexity, w.quality)
         if score < 0:
             continue

@@ -519,7 +519,7 @@ class Runtime:
             if not pool:
                 break
             worker = select_executor(pool, self.health, raw, requested=task.executor,
-                                     ranker=self.ranker)
+                                     ranker=self.ranker, capacity=self.capacity)
             if worker is None:
                 break
             tried.append(worker.name)
