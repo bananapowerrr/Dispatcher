@@ -46,7 +46,7 @@ PROJECT_PREDICTION_ANALYZER=D:\Workspace\Prediction-Analyzer
 - `workers.py` / `workers.yaml` — реестр воркеров (регистрация, не правка диспетчера)
 - `executor.py` — запуск CLI-воркеров (aider/opencode), бут-проверка GitPython, kill по таймауту, **запуск через foreign-провайдеров** (openai_compatible: base_url/api_key/model)
 - `health.py` — реактивное здоровье: circuit breaker, cooldown, 429/Retry-After, score, **concurrency-слоты**
-- `router.py` / `select_executor` — выбор воркера по сложности и доступности, **provider-cooldown-aware** (capacity: провайдер в RATE_LIMIT/cooldown исключается из кандидатов) и **capabilities-aware** (`required_cap`: остаются воркеры с нужной `capabilities`; без declared-набора считаются способными к чему угодно)
+- `router.py` / `select_executor` — выбор воркера по сложности и доступности, **provider-cooldown-aware** (capacity: провайдер в RATE_LIMIT/cooldown исключается из кандидатов), **soft-quota-aware** (исчерпанная квота деприоритизирует, но не выкидывает) и **capabilities-aware** (`required_cap`); воркеры без declared-набора считаются способными к чему угодно
 - `context.py` — контекст задачи: tree, README, связанные файлы/тесты, содержимое файлов
 - `tests.py` — многоуровневые проверки L0 (import) → L1 (targeted) → L2 (related) → L3 (полный)
 - `verify.py` — безопасный запуск verify/run-команд на Windows (рабочий python, не битый shim)

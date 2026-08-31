@@ -12,6 +12,13 @@ from typing import Any
 from config import COMPLEXITY_LOCAL_MAX
 
 
+# Штраф к score за полностью исчерпанную soft-квоту (quota_factor=0).
+# Масштаб score ~ единицы; штраф 3.0 — заметно деприоритизирует, но не обязан
+# обнулять: здоровый локальный воркер (score обычно >2) останется fallback'ом,
+# а не станет недоступным.
+SOFT_QUOTA_PENALTY = 3.0
+
+
 def task_complexity(raw: dict[str, Any] | None, default: int = 3) -> int:
     """Определяет сложность задачи из metadata/source, грубая эвристика."""
     if not raw:
@@ -53,7 +60,9 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
     provider:model в cooldown/rate-limit (per-провайдер доступность v3)
     исключаются из кандидатов. Ключи, которых нет в состоянии провайдеров,
     считаются доступными (UNKNOWN) — поэтому локальный ollama-pipeline не
-    затрагивается, даже если формат имени модели отличается.
+    затрагивается, даже если формат имени модели отличается. Дополнительно при
+    мягком исчерпании квоты (soft quota_factor < 1) воркер НЕ выкидывается, а
+    получает штраф к score (остаётся как fallback).
 
     required_cap (необязательный str) — если задан, остаются только воркеры,
     чья `capabilities` содержит его. Воркеры БЕЗ объявленных capabilities
@@ -61,6 +70,7 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
     существующие воркеры (aider/opencode) не отсеиваются.
     """
     complexity = task_complexity(raw)
+    soft_penalty: dict[str, float] = {}   # name -> штраф за soft-quota
     candidates = []
     for w in workers:
         if not w.enabled or not health.available(w.name):
@@ -70,6 +80,9 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
             try:
                 if not capacity.available(cap_key):
                     continue
+                qf = capacity.quota_factor(cap_key)
+                if qf < 1.0:
+                    soft_penalty[w.name] = (1.0 - qf) * SOFT_QUOTA_PENALTY
             except Exception:
                 pass   # сломанный capacity не должен ломать роутер
         if required_cap:
@@ -79,6 +92,7 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
         score = health.score(w.name, complexity, w.complexity, w.quality)
         if score < 0:
             continue
+        score -= soft_penalty.get(w.name, 0.0)
         if ranker is not None and score > 0:
             score = ranker.apply_bias(
                 score, getattr(w, "harness", "cli"), w.provider, w.model,

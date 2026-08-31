@@ -45,6 +45,16 @@ class FreeCapacityManager:
     def available(self, key: str) -> bool:
         return self.state.state(key).available()
 
+    def quota_factor(self, key: str) -> float:
+        """Soft-quota фактор источника (0..1): 1 — квота в норме, меньше — rationed.
+
+        Жёсткий cooldown обрабатывает `available()`; здесь — только мягкая квота,
+        которая НЕ блокирует, а лишь деприоритизирует провайдера в роутере.
+        Неизвестный ключ == 1.0 (нет ограничений).
+        """
+        st = self.state.state(key)
+        return max(0.0, min(1.0, getattr(st, "quota_factor", 1.0) or 1.0))
+
     def next_retry(self) -> float:
         """Минимальный retry_at (monotonic) по всем cooldown-источникам, или 0."""
         now = time.monotonic()

@@ -26,11 +26,15 @@ def _w(name, provider="ollama", model="m", complexity=2, quality=1.0, caps=()):
 
 
 class _FakeCap:
-    def __init__(self, blocked_keys):
+    def __init__(self, blocked_keys, factors=None):
         self.blocked = set(blocked_keys)
+        self.factors = factors or {}
 
     def available(self, key: str) -> bool:
         return key not in self.blocked
+
+    def quota_factor(self, key: str) -> float:
+        return self.factors.get(key, 1.0)  # default 1.0 (нет ограничений)
 
 
 def test_without_capacity_matches_before(health):
@@ -98,3 +102,29 @@ def test_required_cap_no_match_returns_none(health):
     health.register("b")
     b = _w("b", provider="groq", model="qq", caps=["coding"])
     assert select_executor([b], health, {"message": "hi"}, required_cap="tools") is None
+
+
+# ---------- soft-quota (v3): rationed провайдер деприоритизируется, не выкинут ----------
+def test_exhausted_soft_quota_deprioritized_over_full(health):
+    for n in ("local_full", "cloud_ration"):
+        health.register(n)
+    local = _w("local_full", provider="ollama", model="lm", complexity=2, quality=1.0)
+    cloud = _w("cloud_ration", provider="groq", model="qq", complexity=4, quality=1.0)
+    # cloud с нулевой квотой, local в норме -> выбираем local
+    cap = _FakeCap(set(), factors={"groq:qq": 0.0})
+    assert select_executor([cloud, local], health, {"message": "x" * 200}, capacity=cap) is local
+
+
+def test_rationed_only_still_selectable_as_fallback(health):
+    health.register("only")
+    w = _w("only", provider="groq", model="qq", complexity=3)
+    cap = _FakeCap(set(), factors={"groq:qq": 0.0})
+    # единственный воркер, хоть и rationed (мягкая квота не блокирует) -> выбираем
+    assert select_executor([w], health, {"message": "hi"}, capacity=cap) is w
+
+
+def test_soft_quota_factor_zero_default_available(health):
+    # default capacity без настройки квоты = factor 1.0
+    health.register("w1")
+    w = _w("w1", provider="ollama", model="m")
+    assert select_executor([w], health, {"message": "hi"}, capacity=_FakeCap(set())) is w
