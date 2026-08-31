@@ -141,10 +141,18 @@ class Executor:
         aider с compat-эндпоинтами читает OPENAI_API_BASE / OPENAI_API_KEY и
         model с префиксом `openai/<model>`. Для локальных (ollama) провайдеров
         этот helper не используется.
+
+        api_key читается из env В МОМЕНТ запуска (provider.api_key_env), а не из
+        снимка на конструировании Provider — ключ, добавленный после старта
+        рантайма, подхватывается.
         """
+        import os as _os
         env = self._env()
         base = getattr(provider, "base_url", "") or ""
         key = getattr(provider, "api_key", "") or ""
+        key_env = getattr(provider, "api_key_env", "") or ""
+        if key_env:
+            key = _os.getenv(key_env, "") or key
         if base:
             env["OPENAI_API_BASE"] = base.rstrip("/")
             if key:

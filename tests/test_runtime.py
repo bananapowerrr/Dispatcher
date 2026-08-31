@@ -294,3 +294,63 @@ def test_foreign_worker_falls_back_to_run_when_dynamic_off(repo, monkeypatch):
     rt.process(_raw("t-foreign2"))
     assert calls["run"] >= 1
     assert calls["run_foreign"] == 0
+
+
+# ---------- v3 P3: foreign-воркеры в АКТИВНЫЙ пул (sync) ----------
+def _uniq_name():
+    import uuid
+    return f"g-{uuid.uuid4().hex[:6]}"
+
+
+def test_sync_pool_adds_foreign_with_key(repo, monkeypatch):
+    import runtime as runtime_mod
+    from providers.registry import Provider
+
+    rt, _ = h.make_runtime(repo)
+    monkeypatch.setattr(runtime_mod, "USE_DYNAMIC", True)
+    rt.workers = []
+    monkeypatch.setenv("AGENTBUS_PROVIDER_GROQ_API_KEY", "test-key-123")
+    rt.providers = [Provider({"id": "groq", "type": "openai_compatible",
+                              "billing": "free", "enabled": True, "dynamic": True,
+                              "base_url": "https://api.groq.com/openai/v1",
+                              "api_key_env": "AGENTBUS_PROVIDER_GROQ_API_KEY",
+                              "models": ["qwen/qwen3.8-27b"]})]
+    rt._sync_dynamic_pool()
+    names = [w.name for w in rt.workers]
+    assert "groq_auto" in names
+    assert "groq_auto" in rt.health.max_parallel
+
+
+def test_sync_pool_skips_foreign_without_key(repo, monkeypatch):
+    import runtime as runtime_mod
+    from providers.registry import Provider
+
+    rt, _ = h.make_runtime(repo)
+    monkeypatch.setattr(runtime_mod, "USE_DYNAMIC", True)
+    rt.workers = []
+    rt.providers = [Provider({"id": "groq", "type": "openai_compatible",
+                              "billing": "free", "enabled": True, "dynamic": True,
+                              "base_url": "https://api.groq.com/openai/v1",
+                              "api_key_env": "AGENTBUS_PROVIDER_GROQ_API_KEY",
+                              "models": ["qwen/qwen3.8-27b"]})]
+    # НЕ ставим env api_key -> провайдер usable, но нет ключа -> пропустить
+    monkeypatch.delenv("AGENTBUS_PROVIDER_GROQ_API_KEY", raising=False)
+    rt._sync_dynamic_pool()
+    assert all(w.name != "groq_auto" for w in rt.workers)
+
+
+def test_sync_pool_skips_all_when_dynamic_off(repo, monkeypatch):
+    import runtime as runtime_mod
+    from providers.registry import Provider
+
+    rt, _ = h.make_runtime(repo)
+    monkeypatch.setattr(runtime_mod, "USE_DYNAMIC", False)
+    rt.workers = []
+    rt.providers = [Provider({"id": "groq", "type": "openai_compatible",
+                              "billing": "free", "enabled": True, "dynamic": True,
+                              "base_url": "https://api.groq.com/openai/v1",
+                              "api_key_env": "AGENTBUS_PROVIDER_GROQ_API_KEY",
+                              "models": ["qwen/qwen3.8-27b"]})]
+    monkeypatch.setenv("AGENTBUS_PROVIDER_GROQ_API_KEY", "k")
+    rt._sync_dynamic_pool()
+    assert rt.workers == []

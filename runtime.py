@@ -183,12 +183,12 @@ class Runtime:
 
     def _sync_dynamic_pool(self) -> None:
         """Синхронизирует динамический пул: из доступных free/local провайдеров
-        строит кандидатов-воркеров и (при AGENTBUS_USE_DYNAMIC=1 и только для
-        локальных/ollama источников) реально добавляет в рабочий пул.
+        строит кандидатов-воркеров и (при AGENTBUS_USE_DYNAMIC=1) реально
+        добавляет в рабочий пул: и локальных (ollama), и foreign — но последних
+        только если у провайдера есть api_key (иначе run_foreign обречён).
 
         Безопасность: по умолчанию провайдеры выключены, поэтому пул пуст.
-        Foreign (openai_compatible/gemini) требуют env для base_url/api_key —
-        их в активный пул НЕ добавляем без флага (только событие/лог).
+        Без флага никакие кандидаты в активный пул не добавляются (событие/лог).
         """
         try:
             cand = build_dynamic_workers(self.providers, self.workers)
@@ -200,18 +200,26 @@ class Runtime:
                     f"dynamic pool: {len(cand)} кандидатов доступно, "
                     f"но AGENTBUS_USE_DYNAMIC=0 — не добавляю в активный пул")
                 return
-            foreign = [w for w in cand if w.provider != "ollama"]
-            local = [w for w in cand if w.provider == "ollama"]
-            if foreign:
-                self.log.write(
-                    f"dynamic pool: пропускаю foreign-воркеров {[w.name for w in foreign]} "
-                    f"(нужен env base_url/api_key — выключено)")
-            for w in local:
-                if w.name not in {x.name for x in self.workers}:
-                    self.workers.append(w)
-                    self.health.register(w.name, w.max_parallel)
-                    self.ranker.register_worker(w)
-                    self.log.write(f"dynamic pool: добавлен воркер {w.name}")
+            added: list[str] = []
+            for w in cand:
+                if w.name in {x.name for x in self.workers}:
+                    continue
+                # foreign нужно api_key провайдера; локальный (ollama) — нет.
+                need_key = self._is_foreign(w)
+                if need_key:
+                    prov = self._provider_of(w)
+                    if prov is None or not self._provider_has_key(prov):
+                        self.log.write(
+                            f"dynamic pool: пропускаю foreign-воркера {w.name} "
+                            f"(нет api_key у провайдера)")
+                        continue
+                self.workers.append(w)
+                self.health.register(w.name, w.max_parallel)
+                self.ranker.register_worker(w)
+                added.append(w.name)
+                self.log.write(f"dynamic pool: добавлен воркер {w.name}")
+            if added:
+                self.log.write(f"dynamic pool: +{','.join(added)} в активный пул")
         except Exception:
             pass
 
@@ -221,6 +229,18 @@ class Runtime:
             if p.id == worker.provider:
                 return p if p.is_usable() else None
         return None
+
+    def _provider_has_key(self, prov) -> bool:
+        """Ключ есть в env (api_key_env) или в снимке провайдера.
+
+        Проверка по env, а не по снимку api_key: ключ, добавленный после
+        построения Provider (снимок на конструировании), всё равно учитывается.
+        """
+        import os as _os
+        if getattr(prov, "api_key", "") or "":
+            return True
+        ke = getattr(prov, "api_key_env", "") or ""
+        return bool(ke) and bool(_os.getenv(ke, ""))
 
     def _is_foreign(self, worker: Worker) -> bool:
         return bool(worker.provider) and worker.provider != "ollama" \
