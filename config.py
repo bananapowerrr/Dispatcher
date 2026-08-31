@@ -138,6 +138,14 @@ HEALTH_FAIL_PENALTY = _float("AGENTBUS_HEALTH_FAIL_PENALTY", 0.5)
 # Персистентное состояние воркеров (переживает рестарт диспетчера).
 WORKERS_STATE_FILE = os.getenv("AGENTBUS_WORKERS_STATE", "").strip() or str(BUS_ROOT / "workers_state.json")
 
+# --- Adaptive ranker (v3, надстройка над health/score) ---
+# RANKER_FEEDBACK=0 отключает обучаемую поправку к score (чистый health).
+RANKER_FEEDBACK = _flag("AGENTBUS_RANKER_FEEDBACK", True)
+# Максимальная поправка ± к базовому score от выученных метрик.
+RANKER_BIAS_LIMIT = max(0.0, _float("AGENTBUS_RANKER_BIAS_LIMIT", 0.5))
+# Персистентное состояние профилей исполнителей (обучаемые метрики).
+RANKER_STATE_FILE = os.getenv("AGENTBUS_RANKER_STATE", "").strip() or str(BUS_ROOT / "ranker_state.json")
+
 # --- Retry / backoff (self-contained scheduler) ---
 RETRY_DELAY_SECONDS = max(5, _int("AGENTBUS_RETRY_DELAY_SECONDS", 60))
 # Minimal hold for a task after a worker failed it (avoid retry with the same failing worker instantly)

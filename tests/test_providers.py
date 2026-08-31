@@ -204,3 +204,71 @@ def test_yaml_registry_wellformed():
         assert "billing: local" in raw
         # декларативно — не хардкод guard'а в коде
         assert "AGENTBUS_PROVIDER_OLLAMA_ENABLED" in raw
+
+
+# ---------- dynamic pool probe (без сети, через фейковый adapter) ----------
+def test_probe_dynamic_fake_adapters(tmp_path):
+    ps = load_providers()
+    kilo = next((p for p in ps if p.id == "kilo"), None)
+    if kilo is None:
+        pytest.skip("kilo не в реестре")
+    # явно включаем kilo для теста (не трогает глобальный env)
+    kilo.enabled = True
+    cm = FreeCapacityManager([kilo], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+
+    class FakeAdapter:
+        def probe(self, timeout=5.0):
+            return (True, "ok")
+    cm.adapters["kilo"] = FakeAdapter()
+
+    pool = cm.probe_dynamic()
+    row = next(r for r in pool if r["id"] == "kilo")
+    assert row["ok"] is True and row["reason"] == "ok"
+
+
+def test_probe_dynamic_skips_unusable(tmp_path):
+    ps = load_providers()
+    kilo = next((p for p in ps if p.id == "kilo"), None)
+    if kilo is None:
+        pytest.skip("kilo не в реестре")
+    kilo.enabled = False           # по умолчанию выключен -> не пробируется
+    cm = FreeCapacityManager([kilo], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    pool = cm.probe_dynamic()
+    row = next(r for r in pool if r["id"] == "kilo")
+    assert row["ok"] is False and row["reason"] == "not_usable"
+
+
+def test_probe_dynamic_fake_adapter_down(tmp_path):
+    ps = load_providers()
+    groq = next((p for p in ps if p.id == "groq"), None)
+    if groq is None:
+        pytest.skip("groq не в реестре")
+    groq.enabled = True
+    cm = FreeCapacityManager([groq], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+
+    class DownAdapter:
+        def probe(self, timeout=5.0):
+            return (False, "UNAVAILABLE_NETWORK")
+    cm.adapters["groq"] = DownAdapter()
+
+    pool = cm.probe_dynamic()
+    row = next(r for r in pool if r["id"] == "groq")
+    assert row["ok"] is False and row["reason"] == "UNAVAILABLE_NETWORK"
+
+
+def test_probe_dynamic_swallows_adapter_exception(tmp_path):
+    ps = load_providers()
+    gemini = next((p for p in ps if p.id == "gemini"), None)
+    if gemini is None:
+        pytest.skip("gemini не в реестре")
+    gemini.enabled = True
+    cm = FreeCapacityManager([gemini], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+
+    class BoomAdapter:
+        def probe(self, timeout=5.0):
+            raise RuntimeError("boom")
+    cm.adapters["gemini"] = BoomAdapter()
+
+    pool = cm.probe_dynamic()   # не должно бросать
+    row = next(r for r in pool if r["id"] == "gemini")
+    assert row["ok"] is False and "boom" in row["reason"]

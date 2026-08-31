@@ -37,12 +37,16 @@ def task_complexity(raw: dict[str, Any] | None, default: int = 3) -> int:
 
 
 def select_executor(workers, health, raw: dict[str, Any] | None,
-                    requested: str = "") -> object | None:
+                    requested: str = "", ranker=None) -> object | None:
     """Возвращает лучшего доступного воркера или None.
 
     requested — имя исполнителя из задачи (task.executor). Если такой воркер
     доступен — он поднимается в начало списка кандидатов (но не единственный):
     при провале остаётся fallback на другие.
+
+    ranker (необязательный AdaptiveRanker) — если задан, корректирует score
+    обучаемой поправкой (по доле успешных исходов на этом уровне сложности).
+    Сигнатура обратно совместима: без ranker работает ровно как раньше.
     """
     complexity = task_complexity(raw)
     candidates = []
@@ -52,6 +56,10 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
         score = health.score(w.name, complexity, w.complexity, w.quality)
         if score < 0:
             continue
+        if ranker is not None and score > 0:
+            score = ranker.apply_bias(
+                score, getattr(w, "harness", "cli"), w.provider, w.model,
+                complexity=complexity)
         candidates.append((score, w))
     if not candidates:
         return None

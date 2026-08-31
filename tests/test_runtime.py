@@ -175,3 +175,44 @@ def test_slot_released_on_exception(repo, monkeypatch):
     deferred = config.BUS_ROOT / "channels" / "gpt" / "deferred" / "t-crash.json"
     errors = config.BUS_ROOT / "channels" / "gpt" / "errors" / "t-crash.json"
     assert deferred.is_file() or errors.is_file()
+
+
+# ---------- v3: DEFERRED_QUOTA — весь free/local пул в cooldown ----------
+def test_deferred_quota_does_not_consume_attempt(repo, monkeypatch):
+    """Когда нет свободной free/local мощности — задача откладывается по
+    wake_at (DEFERRED_QUOTA), попытка НЕ тратится и воркер не запускается."""
+    rt, wk = h.make_runtime(repo)
+    rt._verify_escalating = lambda task, ctx, tests: (True, "")
+    monkeypatch.setattr(rt.capacity, "deferred_snapshot",
+                        lambda: {"deferred": True, "wake_at": 45,
+                                 "cooldowns": [{"key": "ollama:auto", "status":
+                                                "RATE_LIMITED", "retry_in": 45}]})
+    imported = []
+    rt._emit = lambda *a, **k: imported.append(a[0])   # собрать типы событий
+    rt.process(_raw("t-quota"))
+
+    deferred = __import__("config").BUS_ROOT / "channels" / "gpt" / "deferred" / "t-quota.json"
+    assert deferred.is_file()
+    # попытка не потрачена (нет bump_attempts / terminal / finish)
+    assert rt.queue.last("bump_attempts") is None
+    assert rt.queue.last("finish") is None
+    assert rt.queue.last("terminal") is None
+    # воркер не запускался (слот свободен), дерево не тронуто
+    assert rt.health.running_count(wk.name) == 0
+    assert (repo / "app.py").read_text(encoding="utf-8").startswith("VALUE")
+    # событие DEFERRED_QUOTA опубликовано
+    assert "DEFERRED_QUOTA" in imported
+    # задача попадёт на повторе (backoff) — no-terminal, т.е. остаётся у нас
+    assert rt.queue.last("release") is None
+
+
+# ---------- v3: свободный пул -> задача выполняется normally ----------
+def test_capacity_available_does_not_defer(repo, monkeypatch):
+    rt, wk = h.make_runtime(repo)
+    h.stub_executor(rt, h.ScriptedWorker(edits={"app.py": "// CHOICE\n"}))
+    rt._verify_escalating = lambda task, ctx, tests: (True, "")
+    monkeypatch.setattr(rt.capacity, "deferred_snapshot",
+                        lambda: {"deferred": False, "available": ["ollama"]})
+    rt.process(_raw("t-ok"))
+    assert rt.queue.last("finish")[1][2] == "DONE"
+    assert rt.health.running_count(wk.name) == 0

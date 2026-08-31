@@ -35,6 +35,8 @@ from tasks import Task
 from tests import TestRunner, _pytest_status
 from workers import load_workers
 from providers import load_providers, FreeCapacityManager
+from ranking import AdaptiveRanker, make_key
+from stream import StreamNormalizer
 
 
 class DispatcherLock:
@@ -101,6 +103,13 @@ class Runtime:
         # НЕ заменяет выбор воркера — даёт понимание free/local пула и cooldown'ов.
         self.providers = load_providers()
         self.capacity = FreeCapacityManager(self.providers)
+        # адаптивный рангер (v3): обучаемые метрики per executor:provider:model,
+        # поправка к score + причины недоступности (НЕ заменяет health).
+        self.ranker = AdaptiveRanker()
+        for w in self.workers:
+            self.ranker.register_worker(w)
+        # stream normalizer (v3): эмитит TOOL_CALL/THINKING из CLI-вывода.
+        self.normalizer = StreamNormalizer()
         self.context = ProjectContext(PROJECT_ROOT) if PROJECT_ROOT else None
         self.cbuilder = ContextBuilder(self.context) if self.context else None
         self.tests = TestRunner(PROJECT_ROOT, VERIFY_TIMEOUT) if PROJECT_ROOT else None
@@ -149,6 +158,24 @@ class Runtime:
                                 message="dispatcher alive",
                                 payload={"busy": busy, "cooldown": cool,
                                          "workers": len(self.workers)}))
+        except Exception:
+            pass
+
+    def _probe_providers(self) -> None:
+        """Ленивый probe динамического free/local пула (kilo/openrouter и пр.).
+
+        По умолчанию провайдеры выключены (enabled=false) — тогда probe ничего
+        не делает и сеть не трогается. Эмитит одно событие POOL с доступностью.
+        Частота задаётся из _heartbeat (раз в период) — не жжём лимиты.
+        """
+        try:
+            pool = self.capacity.probe_dynamic()
+            if not pool:
+                return
+            enabled = [r for r in pool if r["ok"]]
+            BUS.emit(AgentEvent(type="SYSTEM", provider="pool",
+                                message=f"dynamic pool: {len(enabled)}/{len(pool)} доступно",
+                                payload={"pool": pool}))
         except Exception:
             pass
 
@@ -265,6 +292,34 @@ class Runtime:
             except Exception as exc:
                 self.log.write(f"Supabase release(backoff) пропущен: {exc}")
 
+    # ---------- capacity gate (v3) ----------
+    def _deferred_capacity(self, task: Task, complexity: int) -> bool:
+        """Если весь free/local пул провайдеров недоступен (rate-limit/cooldown),
+        задачу НЕ считаем ошибкой: откладываем по wake_at (DEFERRED_QUOTA) и
+        НЕ тратим попытку. Вернёт False, если хоть один источник свободен."""
+        try:
+            snap = self.capacity.deferred_snapshot()
+            if not snap.get("deferred"):
+                return False
+        except Exception:
+            return False
+        wake = int(snap.get("wake_at") or 60)
+        self.log.write(
+            f"Задача {task.id}: весь free/local пул в cooldown "
+            f"(wake_at≈{wake}s) — DEFERRED_QUOTA, попытка не тратится")
+        self._emit("DEFERRED_QUOTA", f"free/local пул недоступен, retry через ~{wake}s",
+                   task_id=task.id, worker=self.worker_id, complexity=complexity,
+                   payload={"wake_at": wake, "cooldowns": snap.get("cooldowns", [])})
+        self._backoff[task.id] = time.monotonic() + min(wake, 3600)
+        self.bus.move(task.channel, "processing", "deferred", f"{task.id}.json")
+        self._save(task, "deferred",
+                   {"error": "DEFERRED_QUOTA: нет свободной free/local мощности",
+                    "attempts": task.attempts, "category": "RATE_LIMIT",
+                    "wake_at": wake})
+        self.log.task(task.channel, task.id, self.worker_id,
+                      "DEFERRED_QUOTA (попытка не тратится)")
+        return True
+
     # ---------- git rollback (audit P0) ----------
     def _rollback_task(self, gitops, before_snapshot, task) -> list[str]:
         """Откатывает ТОЛЬКО изменения, созданные задачей с момента baseline.
@@ -370,12 +425,18 @@ class Runtime:
         before_snapshot = None
         if gitops is not None and gitops.is_repo():
             before_snapshot = gitops.snapshot()
+        # v3: если все free/local провайдеры в cooldown — не запускаем и не
+        # тратим попытку, а откладываем (DEFERRED_QUOTA), когда пул оживёт.
+        if self._deferred_capacity(task, complexity):
+            self._rollback_task(gitops, before_snapshot, task)
+            return
         for _ in range(len(self.workers)):
             # BUG-1: не предлагаем воркеров, которых уже пробовали в этой попытке
             pool = [w for w in self.workers if w.name not in tried]
             if not pool:
                 break
-            worker = select_executor(pool, self.health, raw, requested=task.executor)
+            worker = select_executor(pool, self.health, raw, requested=task.executor,
+                                     ranker=self.ranker)
             if worker is None:
                 break
             tried.append(worker.name)
@@ -400,6 +461,14 @@ class Runtime:
                            model=worker.model)
                 result = self.executor.run(worker, str(ctx.root), worker_message,
                                            exec_timeout, files=abs_files)
+                try:
+                    self.normalizer.feed(
+                        (result.stdout or "") + "\n" + (result.stderr or ""),
+                        task_id=task.id, worker=worker.name,
+                        executor=worker.harness, provider=worker.provider,
+                        model=worker.model)
+                except Exception:
+                    pass
                 plan = gitops.plan_commit(before_snapshot, task.files) \
                     if (gitops is not None and before_snapshot is not None) else None
                 if result.ok:
@@ -439,6 +508,12 @@ class Runtime:
                     # успех: транзакция закрыта (или git отключён — без git)
                     self.health.success(worker.name, latency=result.latency)
                     try:
+                        self.ranker.learn(worker.harness, worker.provider, worker.model,
+                                          ok=True, latency=result.latency,
+                                          complexity=complexity)
+                    except Exception:
+                        pass
+                    try:
                         self.queue.finish(task.id, self.worker_id, "DONE",
                                           result.stdout or commit_sha or "", "")
                     except Exception as exc:
@@ -473,6 +548,12 @@ class Runtime:
 
             error = result.stderr or result.stdout or "исполнитель завершился с ошибкой"
             self.health.failure(worker.name, error, result.timed_out)
+            try:
+                self.ranker.learn(worker.harness, worker.provider, worker.model,
+                                  ok=False, latency=result.latency,
+                                  complexity=complexity)
+            except Exception:
+                pass
             # provider-level cooldown: если источник воркера упёрся в лимит —
             # ставим provider:model в cooldown через Capacity Manager (не ломая
             # выбор воркера и health-счётчик).
@@ -566,6 +647,7 @@ class Runtime:
                 except Exception as exc: self.log.write(f"Supabase недоступен: {exc}")
                 self._flush_backoff()
                 self._heartbeat()
+                self._probe_providers()
                 raw = self._claim_file_task()
                 if raw is None:
                     try:

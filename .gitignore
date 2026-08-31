@@ -21,6 +21,7 @@ rate_limit_until.json
 notion_state.json
 workers_state.json
 providers_state.json
+ranker_state.json
 events/
 *.log
 push_agentbus_to_git.ps1

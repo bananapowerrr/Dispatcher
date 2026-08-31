@@ -57,6 +57,8 @@ PROJECT_PREDICTION_ANALYZER=D:\Workspace\Prediction-Analyzer
 - `tasks.py` / `supabase.py` / `bus.py` — модель задач, очередь (Supabase RPC), файловая шина
 - `eventbus/` — EventBus / Observability (v3): единый поток событий → Console + JSONL (+обновление отчёта)
 - `providers/` — слой провайдеров (v3): registry из `providers.yaml`, capacity-менеджер (429/Retry-After/cooldown), free-only guard
+- `ranking.py` — adaptive ranker (v3): обучаемые метрики per executor:provider:model, поправка к score, причины недоступности
+- `stream.py` — normalizer CLI-вывода (v3): TOOL_CALL/THINKING из stdout агента
 - `DESIGN.md` — архитектурный контракт v3 (Executor/Provider/Model, EventBus, Free Capacity, adaptive router)
 
 ## Observability / EventBus (v3 P0)
@@ -103,6 +105,50 @@ billing(free|local|paid), models[], priority, dynamic
 `groq`, `gemini` (free, выключены — нужен ключ/ворота `*_ENABLED=1`). Текущий
 выбор воркера (`router.py` + `health.py`) сохранён — provider-слой надстраивается
 вокруг, не ломая рабочий pipeline aider/opencode/ollama.
+
+## Adaptive ranker (v3 P1)
+
+`ranking.py` — обучаемым слой поверх `health/score`, а не его замена:
+
+- `ExecutorProfile` — статика (executor/provider/model, complexity, quality,
+  capabilities) + **выученные метрики по корзине сложности** (low/med/high):
+  success/fail, avg latency.
+- `AdaptiveRanker.learn(executor, provider, model, ok, latency, complexity)`
+  вызывается после каждого исхода задачи; состояние персистентно в
+  `ranker_state.json`.
+- `router.select_executor(..., ranker=...)` корректирует score: `apply_bias`
+  — чем чаще исполнитель реально доводит задачу до конца на этом уровне
+  сложности, тем выше поправка (в пределах `AGENTBUS_RANKER_BIAS_LIMIT`,
+  `AGENTBUS_RANKER_FEEDBACK=0` — выключить). Мало данных (<3 исходов) — без поправки.
+- `rank.reasons(workers, health, raw)` — для каждого воркера **почему он
+  доступен/недоступен** (rate-limit Xс / cooldown / слоты заняты / выключен).
+
+## Streaming / observability (v3 P1)
+
+`stream.py` — нормализует CLI-вывод агента в поток `AgentEvent`:
+
+- `detect_kind` / `normalize_chunk` / `scan_output` — ищут лёгкие маркеры
+  `tool`/`tool_calls`/`<|tool_use|>`/`git add/commit/diff`/`aider:` → `TOOL_CALL`,
+  `thinking`/`<thinking>` → `THINKING`. Схлопывает подряд идущие строки.
+- `StreamNormalizer.feed(chunk, task_id=..., worker=...)` эмитит `TOOL_CALL` /
+  `THINKING` на глобальный `BUS`; никогда не бросает.
+- Интеграция: `runtime` после каждого запуска воркера сканирует его
+  stdout+stderr и публикует события в консоль/JSONL.
+
+## Free Capacity gate / DEFERRED_QUOTA (v3 P1)
+
+`runtime._deferred_capacity(task, complexity)` — перед запуском воркера проверяет
+`FreeCapacityManager.deferred_snapshot()`. Если **весь** free/local пул в
+cooldown/rate-limit:
+
+- задача **НЕ считается ошибкой**: попытка НЕ тратится, воркер не запускается;
+- публикуется событие `DEFERRED_QUOTA`, задача кладётся в `deferred` с `wake_at`;
+- scheduler сам вернёт её после истечения паузы (backoff по `wake_at`, не 429-фейл).
+
+`FreeCapacityManager.probe_dynamic()` — дешёвый health-probe динамического
+free/local пула (kilo-auto и пр.); по умолчанию провайдеры выключены, поэтому
+сеть в типовом режиме не трогается. `runtime._probe_providers()` зовёт его из
+heartbeat и публикует сводку доступности пула.
 
 ## Git-транзакции (безопасность P0)
 
@@ -153,8 +199,8 @@ billing(free|local|paid), models[], priority, dynamic
 
 Постоянный regression-набор в `tests/` (`conftest`, `_helpers`, `test_gitops`,
 `test_health`, `test_executor`, `test_tests`, `test_runtime`, `test_eventbus`,
-`test_providers`), без сети и реальных CLI-инструментов (`FakeQueue`,
-`ScriptedWorker`, temp git-репо):
+`test_providers`, `test_ranking`, `test_stream`), без сети и реальных
+CLI-инструментов (`FakeQueue`, `ScriptedWorker`, temp git-репо):
 
 ```powershell
 "C:\Users\user\AppData\Local\Programs\Python\Python312\python.exe" -m pytest tests -q

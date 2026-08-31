@@ -141,6 +141,32 @@ class FreeCapacityManager:
         return {"deferred": True, "wake_at": int(wake if wake else 60),
                 "cooldowns": self.cooldown_list()}
 
+    # ---------- dynamic pool (anonymous-free / auto) ----------
+    def probe_dynamic(self, timeout: float = 5.0) -> list[dict[str, Any]]:
+        """Дешёвый probe «динамического» пула (kilo-auto/free и пр.).
+
+        Пробируются только enabled + usable (free/local) динамические или
+        HTTP-провайдеры. По умолчанию kilo/openrouter/groq/gemini выключены
+        (enabled=false), поэтому в типовом режиме сеть НЕ трогается. Этот метод
+        НЕ проводит платных вызовов — только health-запрос (probe).
+        """
+        out: list[dict[str, Any]] = []
+        for p in self.providers:
+            if not (getattr(p, "dynamic", False) or p.type in ("openai_compatible", "gemini")):
+                continue
+            if not p.is_usable():
+                out.append({"id": p.id, "ok": False, "reason": "not_usable"})
+                continue
+            ad = self.adapters.get(p.id)
+            if ad is None:
+                continue
+            try:
+                ok, reason = ad.probe(timeout=timeout)
+            except Exception as exc:  # noqa: BLE001
+                ok, reason = False, f"{type(exc).__name__}: {exc}"
+            out.append({"id": p.id, "ok": bool(ok), "reason": reason or "ok"})
+        return out
+
 
 def parse_retry(text: str) -> tuple[float, float]:
     return reset_mod.parse_retry_after(text)
