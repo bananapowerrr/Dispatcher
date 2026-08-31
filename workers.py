@@ -37,6 +37,7 @@ class Worker:
     model: str = ""               # конкретная модель
     complexity: int = 2           # 1(local-простые)..5(сильные/облачные)
     quality: float = 1.0          # субъективный бонус за качество (для score)
+    capabilities: tuple[str, ...] = ()   # coding|tools|streaming (из провайдера)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,6 +45,7 @@ class Worker:
             "timeout": self.timeout, "enabled": self.enabled, "max_parallel": self.max_parallel,
             "harness": self.harness, "provider": self.provider, "model": self.model,
             "complexity": self.complexity, "quality": self.quality,
+            "capabilities": list(self.capabilities),
         }
 
 
@@ -58,6 +60,7 @@ def _builtin_workers() -> list[Worker]:
             timeout=base_timeout,
             complexity=2,
             harness="aider", provider="ollama", model=AIDER_MODEL,
+            capabilities=("coding", "tools", "streaming"),
         ),
         # OpenCode — по умолчанию выключен (ненадёжен): включается только явно.
         Worker(

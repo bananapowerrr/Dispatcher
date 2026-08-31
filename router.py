@@ -37,7 +37,8 @@ def task_complexity(raw: dict[str, Any] | None, default: int = 3) -> int:
 
 
 def select_executor(workers, health, raw: dict[str, Any] | None,
-                    requested: str = "", ranker=None, capacity=None) -> object | None:
+                    requested: str = "", ranker=None, capacity=None,
+                    required_cap: str | None = None) -> object | None:
     """Возвращает лучшего доступного воркера или None.
 
     requested — имя исполнителя из задачи (task.executor). Если такой воркер
@@ -53,6 +54,11 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
     исключаются из кандидатов. Ключи, которых нет в состоянии провайдеров,
     считаются доступными (UNKNOWN) — поэтому локальный ollama-pipeline не
     затрагивается, даже если формат имени модели отличается.
+
+    required_cap (необязательный str) — если задан, остаются только воркеры,
+    чья `capabilities` содержит его. Воркеры БЕЗ объявленных capabilities
+    считаются способными к чему угодно (обратная совместимость), поэтому
+    существующие воркеры (aider/opencode) не отсеиваются.
     """
     complexity = task_complexity(raw)
     candidates = []
@@ -66,6 +72,10 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
                     continue
             except Exception:
                 pass   # сломанный capacity не должен ломать роутер
+        if required_cap:
+            wc = getattr(w, "capabilities", None) or ()
+            if wc and required_cap not in wc:
+                continue   # воркер явно декларирует capabilities, но без нужной
         score = health.score(w.name, complexity, w.complexity, w.quality)
         if score < 0:
             continue

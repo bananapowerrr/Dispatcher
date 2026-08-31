@@ -88,3 +88,16 @@ def test_ollama_provider_not_foreign():
     ws = build_dynamic_workers([p], [])
     assert ws and ws[0].provider == "ollama"
     assert is_foreign_provider(ws[0]) is False
+
+
+def test_capabilities_propagated_from_provider():
+    p = _provider(id="kilo", enabled=True, dynamic=True,
+                  capabilities=["coding", "tools", "streaming"])
+    ws = build_dynamic_workers([p], [])
+    assert ws and set(ws[0].capabilities) >= {"coding", "tools", "streaming"}
+
+
+def test_capabilities_empty_when_provider_none():
+    p = _provider(id="kilo", enabled=True, dynamic=True)
+    ws = build_dynamic_workers([p], [])
+    assert ws and ws[0].capabilities == ()

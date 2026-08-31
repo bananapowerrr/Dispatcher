@@ -70,6 +70,7 @@ def _make_worker(p: Provider, model: str, harness: str) -> Worker:
     else:
         command = ("{opencode}", "{message}")
     complexity = _complexity_from_priority(getattr(p, "priority", 50))
+    caps = tuple(getattr(p, "capabilities", None) or ())
     return Worker(
         name=f"{p.id}_{model.replace('/', '_') if model != 'auto' else 'auto'}",
         command=command,
@@ -82,6 +83,7 @@ def _make_worker(p: Provider, model: str, harness: str) -> Worker:
         model=model,
         complexity=complexity,
         quality=1.0,
+        capabilities=caps,
     )
 
 
