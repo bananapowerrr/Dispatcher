@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""AgentBus v2 Scheduler: пул воркеров + health + retry/fallback + контекст +
-многоуровневые тесты + git-транзакции + repair-цикл + ночной отчёт.
+"""AgentBus scheduler: pool + health + stream + ranker + dedupe + project lock + latency.
 
-Очередь — Supabase, файловая папка channels/ — журнал состояния.
-Диспетчер = оркестратор: выбирает лучшего доступного воркера по score,
-держится контракта обработки задач и не даёт задачам «горячить» очередь.
+Консолидированная версия: логика бывших патчей
+(runtime_patch, verify, project, dedupe, latency) влита напрямую.
+Отдельные модули: project_lock.py, smoke.py, dedupe.py.
 """
 from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -17,7 +17,7 @@ from pathlib import Path
 from bus import FileBus
 from config import (BUS_ROOT, CHANNELS, DEFAULT_CHANNEL, MAX_ATTEMPTS, RETRY_DELAY_SECONDS,
                     LEASE_SECONDS, POLL_SECONDS, PROJECT_ROOT, WORKER_TIMEOUT, VERIFY_TIMEOUT,
-                    GIT_ENABLED, REPAIR_ENABLED, REPORT_DIR, LOG_ROOT, resolve_project)
+                    GIT_ENABLED, REPAIR_ENABLED, REPORT_DIR, LOG_ROOT, resolve_project, USE_DYNAMIC)
 from eventbus import BUS, AgentEvent
 from eventbus.jsonl import JsonlSink
 from eventbus.console import ConsoleSink
@@ -27,67 +27,31 @@ from gitops import GitOps, GitRun, build_commit_message
 from health import HealthRegistry
 from logger import Logger
 from project import ProjectContext
+from ranking import AdaptiveRanker, infer_task_type, make_key
 from repair import decide_failure, categorize
 from report import NightlyReport
 from router import select_executor, task_complexity
 from supabase import SupabaseQueue
 from tasks import Task
-from tests import TestRunner, _pytest_status
-from workers import load_workers
+try:
+    from tests_runner import TestRunner, _pytest_status
+except ImportError:
+    from tests import TestRunner, _pytest_status  # type: ignore
+from workers import Worker, load_workers
 from providers import load_providers, FreeCapacityManager
-from ranking import AdaptiveRanker, make_key
 from stream import StreamNormalizer
 from dynamicpool import build_dynamic_workers, emit_pool_event
-from config import USE_DYNAMIC
+from dispatcher_lock import DispatcherLock
+from project_lock import ProjectLock
+from dedupe import DedupeRegistry, task_fingerprint
 
+_LATENCY_TIMEOUT_RATIO = 0.80
 
-class DispatcherLock:
-    """Единый инстанс диспетчера через монопольный lock-файл.
-
-    Файл лежит ВНЕ Dropbox (%LOCALAPPDATA%\\AgentBus), чтобы синхронизация не
-    «размазывала» его по машинам. Windows-блокировка снимается сама при
-    завершении процесса (даже аварийном); старый PID не мешает повторить.
-    """
-
-    def __init__(self) -> None:
-        base = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "AgentBus"
-        self.path = base / "dispatcher.lock"
-        self._fh = None
-
-    def acquire(self) -> bool:
-        try:
-            base = self.path.parent
-            base.mkdir(parents=True, exist_ok=True)
-            self._fh = open(self.path, "a+", encoding="utf-8")
-            import msvcrt
-            self._fh.seek(0)
-            try:
-                msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
-            except OSError:
-                self._fh.close()
-                self._fh = None
-                return False
-            self._fh.seek(0)
-            self._fh.truncate()
-            self._fh.write(f"pid={os.getpid()}\nstarted={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            self._fh.flush()
-            return True
-        except Exception:
-            return False
-
-    def release(self) -> None:
-        if self._fh is not None:
-            try:
-                import msvcrt
-                self._fh.seek(0)
-                msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
-            except OSError:
-                pass
-            try:
-                self._fh.close()
-            except OSError:
-                pass
-            self._fh = None
+try:
+    from config import _int as _cfg_int
+    MAX_PARALLEL_PROJECTS = max(1, _cfg_int("AGENTBUS_MAX_PARALLEL_PROJECTS", 2))
+except Exception:
+    MAX_PARALLEL_PROJECTS = 2
 
 
 class Runtime:
@@ -98,19 +62,13 @@ class Runtime:
         self.executor = Executor()
         self.health = HealthRegistry()
         self.workers = load_workers()
-        # конфигурация параллельности: слоты из workers.yaml (max_parallel).
         for w in self.workers:
             self.health.register(w.name, w.max_parallel)
-        # провайдеры (инфраструктурный слой v3): registry + free capacity manager.
-        # НЕ заменяет выбор воркера — даёт понимание free/local пула и cooldown'ов.
         self.providers = load_providers()
         self.capacity = FreeCapacityManager(self.providers)
-        # адаптивный рангер (v3): обучаемые метрики per executor:provider:model,
-        # поправка к score + причины недоступности (НЕ заменяет health).
         self.ranker = AdaptiveRanker()
         for w in self.workers:
             self.ranker.register_worker(w)
-        # stream normalizer (v3): эмитит TOOL_CALL/THINKING из CLI-вывода.
         self.normalizer = StreamNormalizer()
         self.context = ProjectContext(PROJECT_ROOT) if PROJECT_ROOT else None
         self.cbuilder = ContextBuilder(self.context) if self.context else None
@@ -119,36 +77,78 @@ class Runtime:
         self.worker_id = f"agentbus-{uuid.uuid4().hex[:8]}"
         self.log = Logger(LOG_ROOT / "dispatcher.log")
         self.report = NightlyReport(self.log, REPORT_DIR)
-        self._backoff: dict[str, float] = {}   # task_id -> retry_at (monotonic)
+        self._backoff: dict[str, float] = {}
         self._running = False
         self._hb_last = 0.0
+        self._probe_last = 0.0
+        # consolidated: project parallel + dedupe
+        self.project_lock = ProjectLock(max_global=MAX_PARALLEL_PROJECTS)
+        self.dedupe = DedupeRegistry()
+        self._dedupe_inflight: set[str] = set()
+        self._dedupe_lock = threading.Lock()
+        self._latency_task_complexity = 3
+        self._latency_task_type = "general"
         self._setup_eventbus()
 
-    # ---------- eventbus (observability, не влияет на логику) ----------
     def _setup_eventbus(self) -> None:
-        """Подписывает Sinks (JSONL + Console) на глобальный EventBus.
-
-        Sinks добровольны и не бросают. Чтобы не плодить дубли при повторном
-        создании Runtime, подписки делаются один раз на процесс (bus_level).
-        """
         if getattr(Runtime, "_bus_attached", False):
+            if getattr(self, "_console_sink", None):
+                self._console_sink.status_fn = self._pool_status
             return
         Runtime._bus_attached = True
         self._jsonl_sink = JsonlSink()
         self._console_sink = ConsoleSink()
+        self._console_sink.status_fn = self._pool_status
         BUS.attach(self._jsonl_sink)
         BUS.attach(self._console_sink)
 
+    def _pool_status(self) -> list[dict]:
+        by_name = {w.name: w for w in self.workers}
+        rows = self.health.operator_snapshot()
+        seen = set()
+        out = []
+        for r in rows:
+            w = by_name.get(r["name"])
+            if w:
+                r["provider"] = w.provider
+                if not self._worker_provider_ok(w):
+                    r["status"] = "NO_KEY"
+                    reason = ""
+                    try:
+                        reason = self.capacity.worker_reason(w) or ""
+                    except Exception:
+                        pass
+                    if not reason and self._is_foreign(w):
+                        reason = "нет api_key"
+                    r["detail"] = (reason or "провайдер недоступен")[:80]
+            else:
+                r.setdefault("provider", "")
+            out.append(r)
+            seen.add(r["name"])
+        for w in self.workers:
+            if w.name not in seen:
+                ok = self._worker_provider_ok(w)
+                status = "AVAILABLE" if ok else "NO_KEY"
+                detail = ""
+                if not ok:
+                    try:
+                        detail = self.capacity.worker_reason(w) or "нет api_key"
+                    except Exception:
+                        detail = "нет api_key"
+                out.append({
+                    "name": w.name, "status": status,
+                    "detail": detail[:80], "provider": w.provider,
+                })
+        return out
+
     def _emit(self, type_: str, message: str = "", **kw) -> None:
-        """Удобная обёртка: шлёт событие на глобальный BUS, ничего не бросает."""
         try:
             kw.setdefault("ts", time.time())
             BUS.emit(AgentEvent(type=type_, message=message, **kw))
         except Exception:
-            pass  # observability не должна ронять оркестратор
+            pass
 
     def _heartbeat(self) -> None:
-        """Периодический heartbeat (жив ли процесс/пул) — не чаще чем раз в гплюс."""
         now = time.monotonic()
         if (now - self._hb_last) < 30:
             return
@@ -156,124 +156,144 @@ class Runtime:
         try:
             busy = sum(1 for w in self.workers if self.health.running(w.name))
             cool = sum(1 for w in self.workers if not self.health.available(w.name))
-            BUS.emit(AgentEvent(type="HEARTBEAT", worker=self.worker_id,
-                                message="dispatcher alive",
-                                payload={"busy": busy, "cooldown": cool,
-                                         "workers": len(self.workers)}))
+            self._emit("HEARTBEAT", f"жив · занято={busy} · пауза={cool}",
+                       worker=self.worker_id,
+                       payload={"busy": busy, "cooldown": cool, "workers": len(self.workers)})
         except Exception:
             pass
 
     def _probe_providers(self) -> None:
-        """Ленивый probe динамического free/local пула (kilo/openrouter и пр.).
-
-        По умолчанию провайдеры выключены (enabled=false) — тогда probe ничего
-        не делает и сеть не трогается. Эмитит одно событие POOL с доступностью.
-        Частота задаётся из _heartbeat (раз в период) — не жжём лимиты.
-        """
+        now = time.monotonic()
+        if (now - getattr(self, "_probe_last", 0.0)) < 600.0:
+            return
+        self._probe_last = now
         try:
             pool = self.capacity.probe_dynamic()
             if not pool:
                 return
             enabled = [r for r in pool if r["ok"]]
-            BUS.emit(AgentEvent(type="SYSTEM", provider="pool",
-                                message=f"dynamic pool: {len(enabled)}/{len(pool)} доступно",
-                                payload={"pool": pool}))
+            self._emit("SYSTEM", f"пул: {len(enabled)}/{len(pool)} доступно",
+                       provider="pool", payload={"pool": pool})
         except Exception:
             pass
 
     def _sync_dynamic_pool(self) -> None:
-        """Синхронизирует динамический пул: из доступных free/local провайдеров
-        строит кандидатов-воркеров и (при AGENTBUS_USE_DYNAMIC=1) реально
-        добавляет в рабочий пул: и локальных (ollama), и foreign — но последних
-        только если у провайдера есть api_key (иначе run_foreign обречён).
-
-        Безопасность: по умолчанию провайдеры выключены, поэтому пул пуст.
-        Без флага никакие кандидаты в активный пул не добавляются (событие/лог).
-        """
         try:
             cand = build_dynamic_workers(self.providers, self.workers)
             if not cand:
                 return
             emit_pool_event(cand)
             if not USE_DYNAMIC:
-                self.log.write(
-                    f"dynamic pool: {len(cand)} кандидатов доступно, "
-                    f"но AGENTBUS_USE_DYNAMIC=0 — не добавляю в активный пул")
                 return
-            added: list[str] = []
             for w in cand:
                 if w.name in {x.name for x in self.workers}:
                     continue
-                # foreign нужно api_key провайдера; локальный (ollama) — нет.
-                need_key = self._is_foreign(w)
-                if need_key:
+                if self._is_foreign(w):
                     prov = self._provider_of(w)
                     if prov is None or not self._provider_has_key(prov):
-                        self.log.write(
-                            f"dynamic pool: пропускаю foreign-воркера {w.name} "
-                            f"(нет api_key у провайдера)")
                         continue
                 self.workers.append(w)
                 self.health.register(w.name, w.max_parallel)
                 self.ranker.register_worker(w)
-                added.append(w.name)
-                self.log.write(f"dynamic pool: добавлен воркер {w.name}")
-            if added:
-                self.log.write(f"dynamic pool: +{','.join(added)} в активный пул")
         except Exception:
             pass
 
-    def _provider_of(self, worker: Worker) -> "Provider | None":
-        """Provider-объект по w.provider, если он есть в реестре и usable."""
+    def _provider_of(self, worker: Worker):
         for p in self.providers:
             if p.id == worker.provider:
                 return p if p.is_usable() else None
         return None
 
     def _provider_has_key(self, prov) -> bool:
-        """Ключ есть в env (api_key_env) или в снимке провайдера.
-
-        Проверка по env, а не по снимку api_key: ключ, добавленный после
-        построения Provider (снимок на конструировании), всё равно учитывается.
-        """
-        import os as _os
         if getattr(prov, "api_key", "") or "":
             return True
         ke = getattr(prov, "api_key_env", "") or ""
-        return bool(ke) and bool(_os.getenv(ke, ""))
+        return bool(ke) and bool(os.getenv(ke, ""))
 
     def _is_foreign(self, worker: Worker) -> bool:
-        return bool(worker.provider) and worker.provider != "ollama" \
-            and worker.provider != "local"
+        return bool(worker.provider) and worker.provider not in ("ollama", "local", "zen", "")
 
-    def _exec_worker(self, worker: Worker, project: str, message: str,
-                     timeout: int, files: list[str] | None) -> ExecutionResult:
-        """Запуск воркера с учётом foreign-провайдеров.
+    def _worker_provider_ok(self, worker: Worker) -> bool:
+        if worker.provider in ("", "local", "ollama", "zen"):
+            return True
+        prov = self._provider_of(worker)
+        return prov is not None and self._provider_has_key(prov)
+def _exec_worker(self, worker: Worker, project: str, message: str,
+                     timeout: int, files: list[str] | None,
+                     *, task_id: str = "") -> ExecutionResult:
+        # latency prediction: reroute if estimated >> timeout
+        complexity = getattr(self, "_latency_task_complexity", 3)
+        task_type = getattr(self, "_latency_task_type", "general")
+        try:
+            key = make_key(getattr(worker, "harness", "cli"), worker.provider, worker.model)
+            prof = self.ranker.profiles.get(key)
+            estimated = prof.estimated_latency(complexity, task_type) if prof is not None else 0.0
+        except Exception:
+            estimated = 0.0
 
-        Локальный путь (ollama, по умолчанию) — как раньше: executor.run().
-        Foreign-воркер (kilo/groq/gemini) выполняется через executor.run_foreign()
-        только если AGENTBUS_USE_DYNAMIC=1 И провайдер usable (free/local guard).
-        Иначе — безопасный fallback на run() (не ломает существующий pipeline).
-        """
-        if USE_DYNAMIC and self._is_foreign(worker):
-            prov = self._provider_of(worker)
-            if prov is not None:
-                return self.executor.run_foreign(worker, prov, project, message,
-                                                 timeout, files=files)
-        return self.executor.run(worker, project, message, timeout, files=files)
+        chosen = worker
+        if estimated > 0 and timeout and estimated > timeout * _LATENCY_TIMEOUT_RATIO:
+            try:
+                alternative = select_executor(
+                    self.workers, self.health,
+                    {"message": message, "files": list(files or []),
+                     "metadata": {"complexity": complexity}, "executor": ""},
+                    ranker=self.ranker, capacity=self.capacity,
+                )
+            except Exception:
+                alternative = None
+            if alternative is not None and alternative.name != worker.name:
+                self._emit(
+                    "LATENCY_REROUTE",
+                    f"{worker.name}: прогноз {estimated:.0f}с > {timeout * _LATENCY_TIMEOUT_RATIO:.0f}с, → {alternative.name}",
+                    task_id=task_id, worker=worker.name,
+                    payload={"from": worker.name, "to": alternative.name,
+                             "estimated_latency": estimated, "timeout": timeout,
+                             "complexity": complexity, "task_type": task_type},
+                )
+                chosen = alternative
+            else:
+                self._emit(
+                    "LATENCY_WARNING",
+                    f"{worker.name}: прогноз {estimated:.0f}с близок к таймауту {timeout}с",
+                    task_id=task_id, worker=worker.name,
+                    payload={"estimated_latency": estimated, "timeout": timeout,
+                             "complexity": complexity, "task_type": task_type},
+                )
 
-    # ---------- journal ----------
+        self.normalizer.begin()
+
+        def _line(line: str) -> None:
+            self.normalizer.feed(
+                line, task_id=task_id, worker=chosen.name,
+                executor=chosen.harness, provider=chosen.provider, model=chosen.model)
+
+        self.executor.on_line = _line
+        try:
+            if self._is_foreign(chosen):
+                prov = self._provider_of(chosen)
+                if prov is not None and self._provider_has_key(prov):
+                    return self.executor.run_foreign(
+                        chosen, prov, project, message, timeout, files=files)
+                if prov is None:
+                    return ExecutionResult(
+                        False, stderr=f"провайдер '{chosen.provider}' недоступен")
+                return ExecutionResult(
+                    False, stderr=f"нет api_key для '{chosen.provider}'")
+            return self.executor.run(chosen, project, message, timeout, files=files)
+        finally:
+            self.executor.on_line = None
+
     def _save(self, task: Task, state: str, result: dict) -> None:
-        # журнальная папка и есть состояние; продублируем его в payload,
-        status = {"done": "DONE", "errors": "ERROR", "deferred": "DEFERRED", "processing": "CLAIMED"}.get(state)
+        status = {"done": "DONE", "errors": "ERROR", "deferred": "DEFERRED",
+                  "processing": "CLAIMED"}.get(state)
         if status:
             task.status = status
         payload = {**task.to_dict(), "result": result}
-        self.bus.write(task.channel, state, f"{task.id}.json", json.dumps(payload, ensure_ascii=False, indent=2))
+        self.bus.write(task.channel, state, f"{task.id}.json",
+                       json.dumps(payload, ensure_ascii=False, indent=2))
 
-    # ---------- verify ----------
     def _verify_commands(self, task: Task, ctx=None) -> tuple[bool, str]:
-        """Проверки из задачи (verify/run)."""
         context = ctx or self.context
         for command in [*task.verify, *task.run]:
             from verify import run_command
@@ -282,31 +302,38 @@ class Runtime:
                 return False, f"Команда не прошла: {command}\n{check.output[-10000:]}"
         return True, ""
 
-    def _verify_escalating(self, task: Task, ctx=None, tests=None) -> tuple[bool, str]:
-        """Многоуровневые тесты: L0->L1->L2 (+ полные, если задача просила)."""
+    def _verify_escalating(self, task: Task, ctx=None, tests=None,
+                           worker_name: str = "") -> tuple[bool, str]:
         context = ctx or self.context
         tr = tests or self.tests
         full = any("pytest" in c and "test" in c for c in task.verify) or not task.verify
         if not task.files:
-            # нет файлов — проверяем через verify-команды задачи
             ok, err = self._verify_commands(task, context)
-            if ok and full and (task.verify or task.run):
-                return ok, err
-            return ok, err
-        max_level = 3 if full else 2
-        steps = tr.run_escalating(task.files, max_level=max_level)
-        for step in steps:
-            # NO_TESTS на автоматических уровнях = «тестов нет по цели», не провал;
-            # реальный провал (usage error 4, упавшие тесты 1/2/3) — блок.
-            if _pytest_status(step.result) == "FAIL":
-                return False, f"[{step.level}] {step.command}\n{step.result.output[-10000:]}"
-        # если полные тесты не запускались (max_level<3) и задача просила verify-команды
-        ok, err = self._verify_commands(task, context)
-        if not ok:
-            return False, err
-        return True, ""
+        else:
+            max_level = 3 if full else 2
+            ok, err = True, ""
+            for step in tr.run_escalating(task.files, max_level=max_level):
+                if _pytest_status(step.result) in ("FAIL", "INFRA"):
+                    ok = False
+                    err = f"[{step.level}] {step.command}\n{step.result.output[-10000:]}"
+                    break
+            if ok:
+                ok, err = self._verify_commands(task, context)
+        if worker_name:
+            try:
+                if ok:
+                    self.health.verify_success(worker_name)
+                else:
+                    self.health.verify_failure(worker_name, err or "verify failed")
+                    self._emit(
+                        "VERIFY_FAIL", (err or "verify failed")[-300:],
+                        task_id=getattr(task, "id", ""), worker=worker_name,
+                        payload={"consecutive": self.health.state(worker_name).consecutive_verify_failures},
+                    )
+            except Exception:
+                pass
+        return ok, err
 
-    # ---------- claim ----------
     def _claim_file_task(self) -> dict | None:
         for channel in CHANNELS:
             incoming = self.bus.paths(channel)["incoming"]
@@ -316,28 +343,21 @@ class Runtime:
                     task = Task.from_dict(raw)
                     task.id = str(task.id or uuid.uuid4())
                     task.channel = channel
-                    # move() == False => файл уже забрал другой инстанс:
-                    # задача выполнится там, повторно НЕ берём.
                     if not self.bus.move(channel, "incoming", "processing", path.name):
                         continue
                     return task.to_dict()
                 except (OSError, json.JSONDecodeError, ValueError) as exc:
-                    # BUG-5: битый JSON не оставляем в incoming (иначе горячий
-                    # цикл каждую полку) — переносим в errors.
-                    self.log.write(f"Ошибка чтения файловой задачи {path.name}: {type(exc).__name__}: {exc}")
+                    self.log.write(f"битая задача {path.name}: {exc}")
                     try:
                         self.bus.move(channel, "incoming", "errors", path.name)
-                    except Exception as _mexc:
-                        self.log.write(f"Не удалось перенести битую задачу: {_mexc}")
+                    except Exception:
+                        pass
         return None
 
     def _recover_stale_processing(self, stale_seconds: int = LEASE_SECONDS) -> int:
-        """BUG-5b: файлы, зависшие в processing дольше lease (падение посреди
-        задачи), возвращаем в incoming — иначе останутся навсегда."""
         recovered = 0
         for channel in CHANNELS:
             pdir = self.bus.paths(channel)["processing"]
-            incoming = self.bus.paths(channel)["incoming"]
             now = time.time()
             for path in pdir.glob("*.json"):
                 try:
@@ -349,23 +369,47 @@ class Runtime:
                     continue
         return recovered
 
-    # ---------- backoff scheduling (self-contained, no opaque RPC) ----------
+    def _recover_deferred(self) -> int:
+        recovered = 0
+        now = time.time()
+        for channel in CHANNELS:
+            ddir = self.bus.paths(channel)["deferred"]
+            for path in list(ddir.glob("*.json")):
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, ValueError):
+                    continue
+                result = raw.get("result") if isinstance(raw, dict) else None
+                if not isinstance(result, dict):
+                    result = {}
+                wake_epoch = result.get("wake_epoch")
+                due = False
+                if isinstance(wake_epoch, (int, float)) and wake_epoch > 0:
+                    due = now >= float(wake_epoch)
+                else:
+                    try:
+                        due = (now - path.stat().st_mtime) >= RETRY_DELAY_SECONDS
+                    except OSError:
+                        continue
+                if not due:
+                    continue
+                if self.bus.move(channel, "deferred", "incoming", path.name):
+                    recovered += 1
+                    tid = (raw.get("id") if isinstance(raw, dict) else None) or path.stem
+                    self._emit("RETRY", f"deferred→incoming · {tid}",
+                               task_id=str(tid), worker=self.worker_id,
+                               payload={"from": "deferred"})
+        return recovered
+
     def _schedule_retry(self, task: Task, error: str) -> None:
-        """Откладываем повтор задачи. Задача остаётся CLAIMED (владеем ей),
-        чтобы другой диспетчер не выхватил её раньше cooldown; в PENDING её
-        вернёт _flush_backoff по истечении паузы (PATCH с фильтром CLAIMED)."""
         self._backoff[task.id] = time.monotonic() + RETRY_DELAY_SECONDS
-        # BUG-4b: сохраняем ошибку в metadata, чтобы следующий claim принёс её
-        # в prev_failure (и в файловый deferred-json через _save ниже).
         task.metadata["prev_failure"] = (error or "")[-2000:]
-        # логируем, но не трогаем состояние в БД сейчас
         try:
             self.queue.bump_attempts(task.id, task.attempts, error)
         except Exception as exc:
-            self.log.write(f"Supabase bump_attempts пропущен: {exc}")
+            self.log.write(f"bump_attempts: {exc}")
 
     def _flush_backoff(self) -> None:
-        """По истечении паузы возвращаем задачу в PENDING (только если всё ещё CLAIMED)."""
         now = time.monotonic()
         due = [tid for tid, when in self._backoff.items() if now >= when]
         for tid in due:
@@ -373,149 +417,207 @@ class Runtime:
             try:
                 self.queue.release(tid, error="повтор после backoff")
             except Exception as exc:
-                self.log.write(f"Supabase release(backoff) пропущен: {exc}")
+                self.log.write(f"release backoff: {exc}")
+        try:
+            n = self._recover_deferred()
+            if n:
+                self.log.write(f"deferred→incoming: {n}")
+        except Exception as exc:
+            self.log.write(f"recover_deferred: {exc}")
 
-    # ---------- capacity gate (v3) ----------
     def _deferred_capacity(self, task: Task, complexity: int) -> bool:
-        """Если весь free/local пул провайдеров недоступен (rate-limit/cooldown),
-        задачу НЕ считаем ошибкой: откладываем по wake_at (DEFERRED_QUOTA) и
-        НЕ тратим попытку. Вернёт False, если хоть один источник свободен."""
         try:
             snap = self.capacity.deferred_snapshot()
             if not snap.get("deferred"):
                 return False
         except Exception:
             return False
-        wake = int(snap.get("wake_at") or 60)
-        self.log.write(
-            f"Задача {task.id}: весь free/local пул в cooldown "
-            f"(wake_at≈{wake}s) — DEFERRED_QUOTA, попытка не тратится")
-        self._emit("DEFERRED_QUOTA", f"free/local пул недоступен, retry через ~{wake}s",
-                   task_id=task.id, worker=self.worker_id, complexity=complexity,
-                   payload={"wake_at": wake, "cooldowns": snap.get("cooldowns", [])})
-        self._backoff[task.id] = time.monotonic() + min(wake, 3600)
+        delay = int(snap.get("wake_at") or 60)
+        if delay > 86400:
+            delay = min(3600, max(60, delay % 86400 or 60))
+        delay = max(30, min(delay, 3600))
+        wake_epoch = time.time() + delay
+        self._emit("DEFERRED_QUOTA", f"пул недоступен, повтор \~{delay}с",
+                   task_id=task.id, worker=self.worker_id,
+                   payload={"wake_at": delay, "wake_epoch": wake_epoch})
+        self._backoff[task.id] = time.monotonic() + delay
         self.bus.move(task.channel, "processing", "deferred", f"{task.id}.json")
-        self._save(task, "deferred",
-                   {"error": "DEFERRED_QUOTA: нет свободной free/local мощности",
-                    "attempts": task.attempts, "category": "RATE_LIMIT",
-                    "wake_at": wake})
-        self.log.task(task.channel, task.id, self.worker_id,
-                      "DEFERRED_QUOTA (попытка не тратится)")
+        self._save(task, "deferred", {
+            "error": "DEFERRED_QUOTA", "attempts": task.attempts,
+            "category": "RATE_LIMIT", "wake_at": delay, "wake_epoch": wake_epoch,
+        })
         return True
-
-    # ---------- git rollback (audit P0) ----------
-    def _rollback_task(self, gitops, before_snapshot, task) -> list[str]:
-        """Откатывает ТОЛЬКО изменения, созданные задачей с момента baseline.
-
-        Пользовательские правки до задачи и untracked-файлы пользователя НЕ
-        трогаем. Возвращает список откаченных путей. Без repo/baseline — no-op.
-        """
+def _rollback_task(self, gitops, before_snapshot, task) -> list[str]:
         if gitops is None or before_snapshot is None or not gitops.is_repo():
             return []
         try:
             plan = gitops.plan_commit(before_snapshot, task.files)
             rolled = gitops.discard_task_changes(before_snapshot, plan)
-        except Exception as exc:  # noqa: BLE001
-            self.log.write(f"Откат git невозможен: {type(exc).__name__}: {exc}")
+        except Exception as exc:
+            self.log.write(f"откат git: {exc}")
             return []
-        if rolled:
-            shown = ", ".join(rolled[:10]) + ("..." if len(rolled) > 10 else "")
-            self.log.write(f"Откат изменений задачи {task.id} после провала: {shown}")
-        return rolled
+        return rolled or []
 
-    # ---------- project bindings ----------
     def _bind(self, proj: Path):
-        """Возвращает (ctx, cbuilder, gitops, tests) для конкретного проекта.
-        Для дефолтного проекта — разделяемые инстансы (как было)."""
         if proj == PROJECT_ROOT:
             return self.context, self.cbuilder, self.gitops, self.tests
         ctx = ProjectContext(proj)
         return ctx, ContextBuilder(ctx), GitOps(proj, GIT_ENABLED), TestRunner(proj, VERIFY_TIMEOUT)
 
-    # ---------- process ----------
-    def process(self, raw: dict) -> None:
+    def process(self, raw: dict) -> str | None:
+        """Обработать задачу. Возвращает DONE/ERROR/DEFERRED/DEDUPED или None."""
+        raw = dict(raw or {})
+
+        # --- dedupe (skip on retries) ---
+        try:
+            attempts_peek = int(raw.get("attempts") or 0)
+        except (TypeError, ValueError):
+            attempts_peek = 0
+        fp = None
+        if attempts_peek <= 0:
+            try:
+                fp = task_fingerprint(raw)
+            except Exception as exc:
+                self.log.write(f"dedupe fingerprint: {exc}")
+                fp = None
+            if fp and self.dedupe.contains(fp):
+                tid = str(raw.get("id") or "")
+                self._emit("DEDUPED", f"дубликат уже успешно выполненной задачи пропущен · {tid}",
+                           task_id=tid, worker=self.worker_id,
+                           payload={"fingerprint": fp, "reason": "completed"})
+                return "DEDUPED"
+            if fp:
+                with self._dedupe_lock:
+                    if fp in self._dedupe_inflight:
+                        tid = str(raw.get("id") or "")
+                        self._emit("DEDUPED", f"дубликат выполняемой задачи пропущен · {tid}",
+                                   task_id=tid, worker=self.worker_id,
+                                   payload={"fingerprint": fp, "reason": "in_flight"})
+                        return "DEDUPED"
+                    self._dedupe_inflight.add(fp)
+
+        # --- project lock + project_root for complexity ---
+        project = str(raw.get("project") or "").strip()
+        try:
+            if project:
+                root = resolve_project(project)
+            else:
+                root = PROJECT_ROOT
+            if root is not None:
+                meta = dict(raw.get("metadata") or {})
+                meta.setdefault("project_root", str(root))
+                raw["metadata"] = meta
+                project_key = project or str(root)
+            else:
+                project_key = project or "_default"
+        except Exception:
+            project_key = project or "_default"
+
+        tid = str(raw.get("id") or "")
+        if not self.project_lock.acquire(project_key, tid):
+            self._emit("PROJECT_BUSY", f"проект занят, отложено · {project_key}",
+                       task_id=tid, worker=self.worker_id,
+                       payload={"project": project_key, "active": self.project_lock.snapshot()})
+            try:
+                task = Task.from_dict(raw)
+                task.id = tid or task.id
+                self._backoff[task.id] = time.monotonic() + 15
+                self.bus.move(task.channel, "processing", "deferred", f"{task.id}.json")
+                self._save(task, "deferred", {
+                    "error": "PROJECT_BUSY",
+                    "attempts": int(raw.get("attempts") or 0),
+                    "category": "BUSY",
+                })
+            except Exception:
+                pass
+            if fp:
+                with self._dedupe_lock:
+                    self._dedupe_inflight.discard(fp)
+            return "DEFERRED"
+
+        try:
+            status = self._process_body(raw)
+            if status == "DONE" and fp:
+                self.dedupe.mark(fp, str(raw.get("id") or ""))
+            return status
+        finally:
+            self.project_lock.release(project_key)
+            if fp:
+                with self._dedupe_lock:
+                    self._dedupe_inflight.discard(fp)
+
+    def _process_body(self, raw: dict) -> str | None:
         task = Task.from_dict(raw)
         task.id = str(task.id or uuid.uuid4())
         task.channel = task.channel or DEFAULT_CHANNEL
-        task.attempts = max(int(raw.get("attempts") or 0), task.attempts)
-        task.attempts += 1
-        # мульти-проект: задача указывает project, иначе — дефолтный PROJECT_ROOT
+        task.attempts = max(int(raw.get("attempts") or 0), task.attempts) + 1
+        task_type = infer_task_type(raw)
+        self._latency_task_type = task_type
         proj = PROJECT_ROOT
         if getattr(task, "project", "").strip():
             try:
                 proj = resolve_project(task.project)
             except (ValueError, FileNotFoundError) as exc:
                 self._save(task, "errors", {"error": str(exc), "attempts": task.attempts})
-                try: self.queue.terminal(task.id, "ERROR", error=str(exc), attempts=task.attempts)
-                except Exception: pass
-                self.log.task(task.channel, task.id, self.worker_id, f"ОШИБКА(project): {exc}")
-                return
+                try:
+                    self.queue.terminal(task.id, "ERROR", error=str(exc), attempts=task.attempts)
+                except Exception:
+                    pass
+                return "ERROR"
         elif proj is None:
-            # Пустой project + не задан PROJECT_ROOT/PROJECT_* — задача невалидна.
-            exc = ("Не задан ни project в задаче, ни PROJECT_ROOT/PROJECT_* в конфигурации. "
-                   "Добавьте PROJECT_<ИМЯ>=<путь> в .env или укажите project в задаче.")
+            exc = "Не задан project / PROJECT_*"
             self._save(task, "errors", {"error": exc, "attempts": task.attempts})
-            try: self.queue.terminal(task.id, "ERROR", error=exc, attempts=task.attempts)
-            except Exception: pass
-            self.log.task(task.channel, task.id, self.worker_id, f"ОШИБКА(project): {exc}")
-            return
+            try:
+                self.queue.terminal(task.id, "ERROR", error=exc, attempts=task.attempts)
+            except Exception:
+                pass
+            return "ERROR"
         ctx, cbuilder, gitops, tests = self._bind(proj)
         try:
             ctx.validate_files(task.files, bool(raw.get("allow_no_files", False)))
         except (ValueError, FileNotFoundError) as exc:
-            # задача в принципе некорректна — завершаем, не зацикливаем
             self._save(task, "errors", {"error": str(exc), "attempts": task.attempts})
-            try: self.queue.terminal(task.id, "ERROR", error=str(exc), attempts=task.attempts)
-            except Exception: pass
-            self.log.task(task.channel, task.id, self.worker_id, f"ОШИБКА(files): {exc}")
-            return
+            try:
+                self.queue.terminal(task.id, "ERROR", error=str(exc), attempts=task.attempts)
+            except Exception:
+                pass
+            return "ERROR"
 
-        self._save(task, "processing", {"claimed_by": self.worker_id,
-                                        "attempts": task.attempts,
-                                        "source": "file" if raw.get("source") == "file" else "queue"})
-        self._emit("CLAIM", f"task {task.id} attempts={task.attempts}",
+        self._save(task, "processing", {"claimed_by": self.worker_id, "attempts": task.attempts})
+        self._emit("CLAIM", f"задача · {task_type} · попытка {task.attempts}",
                    task_id=task.id, worker=self.worker_id,
-                   payload={"attempts": task.attempts, "channel": task.channel})
+                   payload={"attempts": task.attempts, "task_type": task_type,
+                            "message": (task.message or "")[:4000],
+                            "files": list(task.files or [])})
 
         complexity = task_complexity(raw)
-        # контекст проекта (карта + релевантные файлы), преамбула для воркера
+        self._latency_task_complexity = complexity
         prev_failure = ""
         if REPAIR_ENABLED:
             meta = task.metadata or {}
-            # BUG-4: раньше было `meta.get("repair_of") and "" or ""` — всегда "".
-            # Теперь реальная ошибка предыдущей попытки (из metadata/файла/Supabase).
             prev_failure = str(meta.get("prev_failure") or meta.get("error") or "")[:800]
         message = cbuilder.build(task.files, task.message, prev_failure=prev_failure)
-
-        # абсолютные пути целевых файлов для --file (проверенные в пределах проекта)
-        abs_files: list[str] = []
+        abs_files = []
         for f in task.files:
             try:
                 abs_files.append(str(ctx.file(f)))
             except (ValueError, FileNotFoundError):
                 continue
 
-        # внутри одной попытки перебираем лучших доступных воркеров (fallback),
-        # используя fix_prompt при кодовых ошибках — та же задача меняет исполнителя.
         tried: list[str] = []
         attempted = False
         attempt_messages: dict[str, str] = {}
         if task.executor:
             attempt_messages[task.executor] = message
         result = None
-        # git-база ДО любых правок воркера (audit P0): коммитим/откатываем
-        # ТОЛЬКО дельту задачи, чужие/пользовательские изменения не трогаем.
-        before_snapshot = None
-        if gitops is not None and gitops.is_repo():
-            before_snapshot = gitops.snapshot()
-        # v3: если все free/local провайдеры в cooldown — не запускаем и не
-        # тратим попытку, а откладываем (DEFERRED_QUOTA), когда пул оживёт.
+        before_snapshot = gitops.snapshot() if (gitops and gitops.is_repo()) else None
         if self._deferred_capacity(task, complexity):
             self._rollback_task(gitops, before_snapshot, task)
-            return
+            return "DEFERRED"
+
         for _ in range(len(self.workers)):
-            # BUG-1: не предлагаем воркеров, которых уже пробовали в этой попытке
-            pool = [w for w in self.workers if w.name not in tried]
+            pool = [w for w in self.workers
+                    if w.name not in tried and self._worker_provider_ok(w)]
             if not pool:
                 break
             worker = select_executor(pool, self.health, raw, requested=task.executor,
@@ -523,8 +625,6 @@ class Runtime:
             if worker is None:
                 break
             tried.append(worker.name)
-            # P0 concurrency: слот может быть занят (running_count >= max_parallel)
-            # или в cooldown — тогда пробуем следующего доступного.
             if not self.health.begin_task(worker.name):
                 continue
             attempted = True
@@ -533,206 +633,180 @@ class Runtime:
             exec_timeout = min(worker.timeout, WORKER_TIMEOUT)
             commit_sha = ""
             try:
-                self._emit("START", f"worker {worker.name}",
+                self._emit("START", f"{worker.harness}/{worker.provider} · {task_type}",
                            task_id=task.id, worker=worker.name,
                            executor=worker.harness, provider=worker.provider,
                            model=worker.model,
-                           payload={"complexity": complexity, "attempt": task.attempts})
-                self._emit("COMMAND", " ".join(worker.command),
-                           task_id=task.id, worker=worker.name,
-                           executor=worker.harness, provider=worker.provider,
-                           model=worker.model)
-                result = self._exec_worker(worker, str(ctx.root), worker_message,
-                                           exec_timeout, abs_files)
-                try:
-                    self.normalizer.feed(
-                        (result.stdout or "") + "\n" + (result.stderr or ""),
-                        task_id=task.id, worker=worker.name,
-                        executor=worker.harness, provider=worker.provider,
-                        model=worker.model)
-                except Exception:
-                    pass
-                plan = gitops.plan_commit(before_snapshot, task.files) \
-                    if (gitops is not None and before_snapshot is not None) else None
+                           payload={"complexity": complexity, "task_type": task_type,
+                                    "attempt": task.attempts})
+                result = self._exec_worker(
+                    worker, str(ctx.root), worker_message, exec_timeout, abs_files,
+                    task_id=task.id)
+                plan = (gitops.plan_commit(before_snapshot, task.files)
+                        if (gitops and before_snapshot is not None) else None)
                 if result.ok:
-                    self._emit("TEST_START", "verify/tests",
-                               task_id=task.id, worker=worker.name,
-                               executor=worker.harness, provider=worker.provider,
-                               model=worker.model)
-                    ok, verify_error = self._verify_escalating(task, ctx, tests)
+                    self._emit("TEST_START", "проверка", task_id=task.id, worker=worker.name,
+                               executor=worker.harness, provider=worker.provider, model=worker.model)
+                    ok, verify_error = self._verify_escalating(
+                        task, ctx, tests, worker_name=worker.name)
                     if not ok:
-                        result.stderr = verify_error
-                        result.ok = False
+                        result.stderr, result.ok = verify_error, False
                     elif plan is not None and not plan.commitable:
-                        # задача трогает чужие/внешние файлы или файлы с
-                        # пользовательскими правками — коммитить нельзя.
                         result.ok = False
-                        result.stderr = ("Небезопасный git-коммит: " + plan.describe()
-                                         + "; изменения задачи будут откачены")
-                    elif plan is not None:
-                        # селективный commit: только пути задачи (audit P0)
-                        self._emit("GIT_STATUS", plan.describe(),
+                        result.stderr = "Небезопасный git: " + plan.describe()
+                    elif plan is not None and plan.stage:
+                        self._emit("COMMIT", " ".join(plan.stage[:6]),
                                    task_id=task.id, worker=worker.name,
                                    executor=worker.harness, provider=worker.provider,
                                    model=worker.model)
-                        if plan.stage:
-                            self._emit("COMMIT", " ".join(plan.stage[:8]),
-                                       task_id=task.id, worker=worker.name,
-                                       executor=worker.harness, provider=worker.provider,
-                                       model=worker.model)
-                            commit_sha = gitops.commit(
-                                build_commit_message(task.id, worker.name, task.files),
-                                plan.stage)
-                            if not commit_sha:
-                                result.ok = False
-                                result.stderr = "git commit не создал коммит; изменения откатываются"
-                        # иначе задача ничего не меняла — коммитить нечего (ok)
+                        commit_sha = gitops.commit(
+                            build_commit_message(task.id, worker.name, task.files), plan.stage)
+                        if not commit_sha:
+                            result.ok = False
+                            result.stderr = "git commit не создал коммит"
                 if result.ok:
-                    # успех: транзакция закрыта (или git отключён — без git)
                     self.health.success(worker.name, latency=result.latency)
                     try:
                         self.ranker.learn(worker.harness, worker.provider, worker.model,
                                           ok=True, latency=result.latency,
-                                          complexity=complexity)
+                                          complexity=complexity, task_type=task_type)
                     except Exception:
                         pass
                     try:
                         self.queue.finish(task.id, self.worker_id, "DONE",
                                           result.stdout or commit_sha or "", "")
                     except Exception as exc:
-                        self.log.write(f"Supabase finish пропущен: {exc}")
-                    self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
+                        self.log.write(f"finish: {exc}")
+self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
                     before_sha = before_snapshot.head if before_snapshot else ""
                     run = GitRun(task_id=task.id, before_sha=before_sha,
                                  after_sha=commit_sha or before_sha,
                                  committed=bool(commit_sha), commit_sha=commit_sha,
                                  tests_passed=True, executor=worker.name,
                                  duration=result.latency)
-                    self._save(task, "done", {"worker": worker.name,
-                                              "git": run.to_dict(),
+                    self._save(task, "done", {"worker": worker.name, "git": run.to_dict(),
                                               "stdout": (result.stdout or "")[-4000:]})
                     self.report.record("DONE", worker.name, task.attempts)
+                    self.report.record_provider(worker.provider, "DONE")
                     self.report.commits += int(bool(commit_sha))
                     self.log.task(task.channel, task.id, worker.name, "ГОТОВО")
-                    self._emit("DONE", "task completed",
-                               task_id=task.id, worker=worker.name,
+                    self._emit("DONE", "успех", task_id=task.id, worker=worker.name,
                                executor=worker.harness, provider=worker.provider,
-                               model=worker.model,
-                               duration=result.latency,
+                               model=worker.model, duration=result.latency,
                                payload={"commit": commit_sha, "attempts": task.attempts})
-                    return
+                    return "DONE"
             except Exception as exc:
                 result = ExecutionResult(
-                    False,
-                    stderr=f"Внутренняя ошибка исполнения: {type(exc).__name__}: {exc}")
+                    False, stderr=f"Внутренняя ошибка: {type(exc).__name__}: {exc}")
             finally:
-                # P0 concurrency: счётчик слота снижается ВСЕГДА (успех/ошибка/timeout)
                 self.health.end_task(worker.name)
 
-            error = result.stderr or result.stdout or "исполнитель завершился с ошибкой"
-            self.health.failure(worker.name, error, result.timed_out)
+            error = result.stderr or result.stdout or "ошибка исполнителя"
+            fail_status = "LOOP" if getattr(result, "loop_error", False) else "ERROR"
+            self.health.failure(
+                worker.name, error, result.timed_out,
+                status=fail_status,
+                billing_error=bool(getattr(result, "billing_error", False)))
             try:
                 self.ranker.learn(worker.harness, worker.provider, worker.model,
                                   ok=False, latency=result.latency,
-                                  complexity=complexity)
+                                  complexity=complexity, task_type=task_type)
             except Exception:
                 pass
-            # provider-level cooldown: если источник воркера упёрся в лимит —
-            # ставим provider:model в cooldown через Capacity Manager (не ломая
-            # выбор воркера и health-счётчик).
             try:
                 pkey = f"{worker.provider}:{worker.model}" if worker.model else worker.provider
                 self.capacity.record_text_error(pkey, error, worker.provider, worker.model)
             except Exception:
                 pass
-            self._emit("TIMEOUT" if result.timed_out else "ERROR",
-                       error[-300:], task_id=task.id, worker=worker.name,
-                       executor=worker.harness, provider=worker.provider,
-                       model=worker.model,
-                       payload={"timed_out": result.timed_out, "attempt": task.attempts})
-            # repair-решение: для кодовых ошибок — тот же fix_prompt следующему воркеру
+
+            if result.timed_out:
+                evt = "TIMEOUT"
+            elif getattr(result, "loop_error", False):
+                evt = "LOOP"
+            elif getattr(result, "rate_limit_error", False):
+                evt = "RATE_LIMIT"
+            else:
+                evt = "ERROR"
+            self._emit(evt, error[-300:], task_id=task.id, worker=worker.name,
+                       executor=worker.harness, provider=worker.provider, model=worker.model,
+                       payload={"timed_out": result.timed_out,
+                                "loop_error": bool(getattr(result, "loop_error", False)),
+                                "attempt": task.attempts, "task_type": task_type})
             dec = decide_failure(error, task.attempts, MAX_ATTEMPTS, result.timed_out)
             if dec.fix_prompt:
                 for w in self.workers:
                     if w.name != worker.name:
                         attempt_messages[w.name] = dec.fix_prompt
             self.log.task(task.channel, task.id, worker.name,
-                          f"ОШИБКА[{dec.category}]: {error[-300:]}")
+                          f"ОШИБКА[{dec.category}]: {error[-200:]}")
 
-        error = "Все доступные исполнители не выполнили задачу" if attempted else "Нет доступного исполнителя"
-        # результат последнего воркера (для категоризации); если попытка не
-        # запускалась (cooldown), берём реальную ошибку предыдущей попытки
+        error = ("Все исполнители не справились" if attempted else "Нет доступного исполнителя")
         worker_err = (result and (result.stderr or result.stdout)) or ""
         if not worker_err:
-            worker_err = str((task.metadata or {}).get("prev_failure") or "") or ""
+            worker_err = str((task.metadata or {}).get("prev_failure") or "")
         last_err = worker_err or error
         cat = categorize(last_err)
 
         if task.attempts >= MAX_ATTEMPTS:
-            # окончательно: ERROR или BLOCKED (требует человека)
             final = "BLOCKED" if cat in ("CODE_ERROR", "TEST_ERROR", "UNKNOWN_ERROR") else "ERROR"
-            # безопасный откат ТОЛЬКО изменений задачи (никогда не stash всего
-            # дерева и не git add -A): пользовательские правки остаются нетронутыми
             self._rollback_task(gitops, before_snapshot, task)
             try:
                 self.queue.terminal(task.id, final, error=last_err, attempts=task.attempts)
             except Exception as exc:
-                self.log.write(f"Supabase terminal пропущен: {exc}")
+                self.log.write(f"terminal: {exc}")
             self.bus.move(task.channel, "processing", "errors", f"{task.id}.json")
             self._save(task, "errors", {"error": last_err, "attempts": task.attempts, "category": cat})
-            self.report.record(final, list(tried)[-1] if tried else "", task.attempts)
-            self.log.task(task.channel, task.id, self.worker_id,
-                          f"{final} ({task.attempts}/{MAX_ATTEMPTS}): {last_err[-300:]}")
             self._emit(final, last_err[-300:], task_id=task.id, worker=self.worker_id,
                        payload={"attempts": task.attempts, "category": cat})
-            return
+            return "ERROR"
 
-        # ретраябельно: откладываем и возвращаем в очередь
-        # снова откатываем дельту задачи (перед повтором дерево должно быть чистым
-        # относительно baseline — иначе частичные правки попадут в следующий pull)
         self._rollback_task(gitops, before_snapshot, task)
         self._schedule_retry(task, last_err)
         self.bus.move(task.channel, "processing", "deferred", f"{task.id}.json")
-        self._save(task, "deferred", {"error": last_err, "attempts": task.attempts,
-                                      "category": cat})
-        self.log.task(task.channel, task.id, self.worker_id,
-                      f"ОТЛОЖЕНО ({task.attempts}/{MAX_ATTEMPTS}): {last_err[-300:]}")
+        self._save(task, "deferred", {"error": last_err, "attempts": task.attempts, "category": cat})
         self._emit("RETRY", last_err[-300:], task_id=task.id, worker=self.worker_id,
                    payload={"attempts": task.attempts, "category": cat})
+        return "DEFERRED"
 
-    # ---------- main loop ----------
     def run_forever(self) -> None:
         lock = DispatcherLock()
         if not lock.acquire():
-            print(f"Другой инстанс AgentBus уже работает (lock: {lock.path}) — выход.")
+            print(f"Уже запущен (lock: {lock.path})")
             sys.exit(0)
+        if getattr(self, "_console_sink", None):
+            self._console_sink.status_fn = self._pool_status
         self.report = NightlyReport(self.log, LOG_ROOT)
-        self.log.write(f"AgentBus v2 запущен | worker_id={self.worker_id}")
-        self.log.write(f"Каналы: {', '.join(CHANNELS)} | воркеры: {', '.join(w.name for w in self.workers)}")
-        # стартовый sweep: чини зависшие/перелимитные задачи
+        self.log.write(f"AgentBus запущен | {self.worker_id}")
+        self.log.write(f"воркеры: {', '.join(w.name for w in self.workers)}")
         try:
             r, e = self.queue.recover_stale_claimed(LEASE_SECONDS, MAX_ATTEMPTS)
-            self.log.write(f"Sweep старта: переопубликовано={r}, закрыто ERROR={e}")
+            self.log.write(f"sweep: requeue={r} error={e}")
         except Exception as exc:
-            self.log.write(f"Sweep старта недоступен: {exc}")
-        # BUG-5b: файловые задачи, зависшие в processing (падение посреди дела)
+            self.log.write(f"sweep: {exc}")
         try:
             rec = self._recover_stale_processing(LEASE_SECONDS)
             if rec:
-                self.log.write(f"Sweep processing: возвращено в incoming={rec}")
+                self.log.write(f"processing→incoming: {rec}")
         except Exception as exc:
-            self.log.write(f"Sweep processing недоступен: {exc}")
-        # v3: синхронизация динамического пула (visible без USE_DYNAMIC)
+            self.log.write(f"recover: {exc}")
+        try:
+            n = self._recover_deferred()
+            if n:
+                self.log.write(f"deferred→incoming(start): {n}")
+        except Exception as exc:
+            self.log.write(f"recover_deferred: {exc}")
         try:
             self._sync_dynamic_pool()
         except Exception as exc:
-            self.log.write(f"sync dynamic pool недоступен: {exc}")
+            self.log.write(f"dynamic: {exc}")
 
         self._running = True
         while True:
             try:
-                try: self.queue.requeue_stale(LEASE_SECONDS, MAX_ATTEMPTS)
-                except Exception as exc: self.log.write(f"Supabase недоступен: {exc}")
+                try:
+                    self.queue.requeue_stale(LEASE_SECONDS, MAX_ATTEMPTS)
+                except Exception as exc:
+                    self.log.write(f"supabase: {exc}")
                 self._flush_backoff()
                 self._heartbeat()
                 self._probe_providers()
@@ -741,7 +815,8 @@ class Runtime:
                     try:
                         raw = self.queue.claim(self.worker_id)
                     except Exception as exc:
-                        self.log.write(f"Supabase claim недоступен: {exc}"); raw = None
+                        self.log.write(f"claim: {exc}")
+                        raw = None
                 if raw:
                     if raw.get("id") in self._backoff:
                         time.sleep(POLL_SECONDS)
@@ -751,18 +826,80 @@ class Runtime:
                     time.sleep(POLL_SECONDS)
             except KeyboardInterrupt:
                 self._running = False
-                self.log.write("Остановка по Ctrl+C")
-                report_path = self.report.save("interrupt")
-                if report_path:
-                    self.log.write(f"Отчёт: {report_path}")
+                self.log.write("стоп Ctrl+C")
+                try:
+                    self.report.set_provider_cooldowns(self.capacity.cooldown_list())
+                except Exception:
+                    pass
+                path = self.report.save("interrupt")
+                if path:
+                    self.log.write(f"отчёт: {path}")
                 lock.release()
                 return
             except Exception as exc:
-                self.log.write(f"Ошибка главного цикла: {type(exc).__name__}: {exc}")
+                self.log.write(f"цикл: {type(exc).__name__}: {exc}")
                 time.sleep(POLL_SECONDS)
 
 
-def main() -> None:
+def diagnose() -> int:
+    print("=== AgentBus diagnose ===")
+    from config import (BUS_ROOT, PROJECT_ROOT, PROVIDERS_FILE, WORKERS_FILE,
+                        ALLOW_PAID, USE_DYNAMIC, OPENCODE_TIMEOUT, SUPABASE_ENABLED,
+                        AIDER_PATH, OPENCODE_PATH, OLLAMA_PATH)
+    from shutil import which
+    print(f"BUS_ROOT          : {BUS_ROOT}")
+    print(f"PROJECT_ROOT      : {PROJECT_ROOT}")
+    print(f"PROVIDERS_FILE    : {PROVIDERS_FILE} exists={Path(PROVIDERS_FILE).is_file()}")
+    print(f"WORKERS_FILE      : {WORKERS_FILE} exists={Path(WORKERS_FILE).is_file()}")
+    print(f"ALLOW_PAID        : {ALLOW_PAID}")
+    print(f"USE_DYNAMIC       : {USE_DYNAMIC}")
+    print(f"OPENCODE_TIMEOUT  : {OPENCODE_TIMEOUT}")
+    print(f"SUPABASE_ENABLED  : {SUPABASE_ENABLED}")
+    try:
+        providers = load_providers()
+        print(f"providers loaded  : {len(providers)}")
+        for p in providers:
+            flag = "OK" if p.is_usable() else "skip"
+            print(f"  [{flag}] {p.id:16} billing={p.billing:6} models={len(p.models)}")
+        cap = FreeCapacityManager(providers)
+        print(f"deferred_snapshot : {cap.deferred_snapshot()}")
+    except Exception as e:
+        print(f"providers ERR     : {e}")
+    try:
+        workers = load_workers()
+        print(f"workers loaded    : {len(workers)}")
+        for w in workers:
+            print(f"  [{'ON' if w.enabled else 'off'}] {w.name:22} harness={w.harness:8} provider={w.provider} timeout={w.timeout}")
+    except Exception as e:
+        print(f"workers ERR       : {e}")
+    for name, path in (("aider", AIDER_PATH), ("opencode", OPENCODE_PATH), ("ollama", OLLAMA_PATH)):
+        print(f"CLI {name:10}: {which(path) or which(name) or 'NOT FOUND'}")
+    try:
+        health = HealthRegistry()
+        for w in load_workers():
+            health.register(w.name, w.max_parallel)
+            health.state(w.name)
+        snap = health.operator_snapshot() if hasattr(health, "operator_snapshot") else []
+        print(f"health workers    : {len(snap) if isinstance(snap, list) else snap}")
+        for r in (snap or [])[:6]:
+            print(f"  {r.get('name','?'):22} {r.get('status','?')}")
+    except Exception as e:
+        print(f"health ERR        : {e}")
+    try:
+        bus = FileBus(BUS_ROOT, CHANNELS)
+        bus.ensure()
+        print(f"file-bus          : OK ({BUS_ROOT})")
+    except Exception as e:
+        print(f"file-bus ERR      : {e}")
+    print("=== end diagnose ===")
+    print("READY")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = list(argv if argv is not None else sys.argv[1:])
+    if "--diagnose" in args or "diagnose" in args:
+        raise SystemExit(diagnose())
     Runtime().run_forever()
 
 
