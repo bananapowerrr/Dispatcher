@@ -575,6 +575,8 @@ def _rollback_task(self, gitops, before_snapshot, task) -> list[str]:
         ctx, cbuilder, gitops, tests = self._bind(proj)
         try:
             ctx.validate_files(task.files, bool(raw.get("allow_no_files", False)))
+            if hasattr(ctx, "validate_commands"):
+                ctx.validate_commands(getattr(task, "verify", None), getattr(task, "run", None))
         except (ValueError, FileNotFoundError) as exc:
             self._save(task, "errors", {"error": str(exc), "attempts": task.attempts})
             try:
@@ -677,7 +679,7 @@ def _rollback_task(self, gitops, before_snapshot, task) -> list[str]:
                                           result.stdout or commit_sha or "", "")
                     except Exception as exc:
                         self.log.write(f"finish: {exc}")
-self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
+                    self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
                     before_sha = before_snapshot.head if before_snapshot else ""
                     run = GitRun(task_id=task.id, before_sha=before_sha,
                                  after_sha=commit_sha or before_sha,
@@ -767,8 +769,7 @@ self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
         self._emit("RETRY", last_err[-300:], task_id=task.id, worker=self.worker_id,
                    payload={"attempts": task.attempts, "category": cat})
         return "DEFERRED"
-
-    def run_forever(self) -> None:
+def run_forever(self) -> None:
         lock = DispatcherLock()
         if not lock.acquire():
             print(f"Уже запущен (lock: {lock.path})")
