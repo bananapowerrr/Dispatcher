@@ -1,0 +1,7 @@
+{
+  "id": "cleanup",
+  "title": "Очистка кода",
+  "message": "Убери неиспользуемые импорты, отсортируй imports, убери trailing whitespace в указанных файлах. Не меняй логику.",
+  "complexity": 2,
+  "tags": ["cleanup", "style"]
+}

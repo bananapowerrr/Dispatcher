@@ -1,0 +1,286 @@
+# -*- coding: utf-8 -*-
+"""P0.4 — compact go/no-go checklist for first launch."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+
+@dataclass
+class Check:
+    id: str
+    ok: bool
+    critical: bool
+    detail: str
+
+
+
+CHECK_LABELS = {
+    "workers_yaml": "workers.yaml",
+    "providers_yaml": "providers.yaml",
+    "base_dir": "корень проекта",
+    "config": "конфиг",
+    "policy": "политика",
+    "local_runtime": "локальные модели",
+    "worker_capacity": "доступные воркеры",
+    "desktop_queue": "очередь чата",
+    "phone_filebus": "шина телефона",
+    "strict_verify": "строгая верификация",
+    "ui_deps": "зависимости UI",
+    "max_parallel": "параллельность",
+    "feature_flags": "feature flags",
+    "git": "git",
+}
+
+CHECK_TIPS = {
+    "workers_yaml": "положите config/workers.yaml или запустите python dispatcher.py --init",
+    "providers_yaml": "нужен config/providers.yaml",
+    "base_dir": "запускайте из корня AgentBus",
+    "config": "проверьте PYTHONPATH=src и структуру src/core",
+    "local_runtime": "установите Ollama и модели: ollama pull qwen2.5-coder:7b",
+    "worker_capacity": "включите хотя бы один воркер в workers.yaml / проверьте ключи",
+    "desktop_queue": "создастся при первой задаче из чата",
+    "ui_deps": "pip install -r requirements-ui.txt",
+    "max_parallel": "для стабильности: AGENTBUS_MAX_PARALLEL_PROJECTS=1",
+    "git": "git init в проекте задач, если нужен diff/rollback",
+}
+
+@dataclass
+class DoctorReport:
+    checks: list[Check] = field(default_factory=list)
+
+    @property
+    def critical_ok(self) -> bool:
+        return all(c.ok for c in self.checks if c.critical)
+
+    @property
+    def score(self) -> tuple[int, int]:
+        total = len(self.checks)
+        ok = sum(1 for c in self.checks if c.ok)
+        return ok, total
+
+    def to_dict(self) -> dict[str, Any]:
+        ok_n, total = self.score
+        return {
+            "critical_ok": self.critical_ok,
+            "score": [ok_n, total],
+            "verdict": "READY" if self.critical_ok else "BLOCKED",
+            "checks": [
+                {
+                    "id": c.id,
+                    "ok": c.ok,
+                    "critical": c.critical,
+                    "detail": c.detail,
+                    "label": CHECK_LABELS.get(c.id, c.id),
+                }
+                for c in self.checks
+            ],
+        }
+
+    def format_human(self, *, max_len: int = 4000) -> str:
+        """FC-18: product text for chat / UI (RU)."""
+        lines: list[str] = []
+        ok_n, total = self.score
+        if self.critical_ok:
+            lines.append(f"✓ Диагностика: ГОТОВО К ЗАПУСКУ ({ok_n}/{total})")
+        else:
+            lines.append(f"✗ Диагностика: НУЖНЫ ИСПРАВЛЕНИЯ ({ok_n}/{total})")
+        for c in self.checks:
+            mark = "✓" if c.ok else "✗"
+            crit = " [критично]" if c.critical and not c.ok else ""
+            label = CHECK_LABELS.get(c.id, c.id)
+            lines.append(f"  {mark} {label}: {c.detail}{crit}")
+        fails = [c for c in self.checks if not c.ok]
+        if fails:
+            lines.append("")
+            lines.append("Что сделать:")
+            for c in fails:
+                tip = CHECK_TIPS.get(c.id, "")
+                if tip:
+                    lines.append(f"  • {CHECK_LABELS.get(c.id, c.id)} — {tip}")
+        else:
+            lines.append("")
+            lines.append("Можно: python dispatcher.py  |  python dispatcher_ui.py")
+        return "\n".join(lines)[:max_len]
+
+
+def run_doctor() -> DoctorReport:
+    """Collect readiness checks without raising."""
+    rep = DoctorReport()
+
+    def add(cid: str, ok: bool, detail: str, *, critical: bool = False) -> None:
+        rep.checks.append(Check(cid, bool(ok), critical, detail))
+
+    # --- paths / config ---
+    try:
+        from core.config import WORKERS_FILE, PROVIDERS_FILE, BASE_DIR
+        add("workers_yaml", Path(WORKERS_FILE).is_file(), str(WORKERS_FILE), critical=True)
+        add("providers_yaml", Path(PROVIDERS_FILE).is_file(), str(PROVIDERS_FILE), critical=True)
+        add("base_dir", Path(BASE_DIR).is_dir(), str(BASE_DIR), critical=True)
+    except Exception as exp:
+        add("config", False, f"{type(exp).__name__}: {exp}", critical=True)
+
+    # --- policy ---
+    try:
+        from core.policy import load_policy
+        pol = load_policy()
+        add(
+            "policy",
+            True,
+            f"{pol.name} cloud={pol.allow_cloud} privacy={pol.privacy}",
+            critical=False,
+        )
+        allow_cloud = bool(pol.allow_cloud)
+        prefer_local = bool(getattr(pol, "prefer_local", True))
+    except Exception as exp:
+        allow_cloud, prefer_local = True, True
+        add("policy", False, str(exp), critical=False)
+
+    # --- local runtimes ---
+    local_ok = False
+    local_detail = "none"
+    try:
+        from cli.init_wizard import discover_local_stack
+        disc = discover_local_stack()
+        parts = []
+        for r in disc.get("runtimes") or []:
+            mark = "OK" if r.get("ok") else "--"
+            nmod = len(r.get("models") or [])
+            parts.append(f"{r.get('id')}[{mark}/{nmod}]")
+            if r.get("ok"):
+                local_ok = True
+        local_detail = ", ".join(parts) or "no runtimes discovered"
+    except Exception as exp:
+        local_detail = f"discover err: {exp}"
+    add(
+        "local_runtime",
+        local_ok,
+        local_detail,
+        critical=bool(prefer_local and not allow_cloud),
+    )
+
+    # --- cloud keys (only critical if policy needs cloud and no local) ---
+    cloud_usable = False
+    try:
+        from providers.registry import load_providers
+        from providers.capacity import FreeCapacityManager
+        from core.workers import load_workers
+        ps = load_providers()
+        cm = FreeCapacityManager(ps)
+        usable_workers = []
+        for w in load_workers():
+            if not getattr(w, "enabled", True):
+                continue
+            try:
+                if cm.worker_usable(w):
+                    usable_workers.append(w.name)
+                    if getattr(w, "provider", "") not in ("ollama", "local", ""):
+                        cloud_usable = True
+                    else:
+                        # local worker counts as capacity
+                        cloud_usable = cloud_usable or local_ok
+            except Exception:
+                pass
+        add(
+            "worker_capacity",
+            len(usable_workers) > 0,
+            (", ".join(usable_workers[:8]) if usable_workers else "no usable workers"),
+            critical=True,
+        )
+    except Exception as exp:
+        add("worker_capacity", False, str(exp), critical=True)
+
+    # --- desktop queue path ---
+    try:
+        from core.local_queue import get_local_queue
+        from core.config import BASE_DIR
+        n = get_local_queue(Path(BASE_DIR)).size()
+        add("desktop_queue", True, f"size={n} (chat primary)", critical=False)
+    except Exception as exp:
+        add("desktop_queue", False, str(exp), critical=False)
+
+    # --- phone bus optional ---
+    try:
+        from core.feature_flags import is_enabled
+        phone = is_enabled("phone_filebus", default=False)
+        add("phone_filebus", True, f"enabled={phone} (optional)", critical=False)
+    except Exception as exp:
+        add("phone_filebus", False, str(exp), critical=False)
+
+    # --- strict verify ---
+    import os
+    strict = (os.getenv("AGENTBUS_STRICT_VERIFY") or "1").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    add("strict_verify", True, f"AGENTBUS_STRICT_VERIFY={'1' if strict else '0'}", critical=False)
+
+    # --- UI optional ---
+    try:
+        import customtkinter  # noqa: F401
+        add("ui_deps", True, "customtkinter OK", critical=False)
+    except Exception:
+        add("ui_deps", False, "pip install -r requirements-ui.txt", critical=False)
+
+
+    # --- concurrency safety (P0.5) ---
+    try:
+        from core.config import MAX_PARALLEL_PROJECTS
+        mp = int(MAX_PARALLEL_PROJECTS or 1)
+        add(
+            "max_parallel",
+            mp <= 1,
+            f"AGENTBUS_MAX_PARALLEL_PROJECTS={mp}"
+            + ("" if mp <= 1 else " — риск конфликтов git; для beginner ставь 1"),
+            critical=False,
+        )
+    except Exception as exp:
+        add("max_parallel", True, f"default 1 ({exp})", critical=False)
+
+    # --- feature flags (informational) ---
+    try:
+        from core.feature_flags import list_flags
+        flags = list_flags() if callable(list_flags) else {}
+        if not flags:
+            from core.feature_flags import get_all
+            flags = get_all() if callable(get_all) else {}
+        if isinstance(flags, dict) and flags:
+            on = [k for k, v in flags.items() if v]
+            add("feature_flags", True, f"on={len(on)}/{len(flags)}", critical=False)
+        else:
+            add("feature_flags", True, "defaults", critical=False)
+    except Exception:
+        try:
+            from core.feature_flags import is_enabled
+            add("feature_flags", True, f"skills={is_enabled('skills', True)}", critical=False)
+        except Exception as exp:
+            add("feature_flags", False, str(exp)[:120], critical=False)
+
+    # --- git (optional, for diff/rollback) ---
+    try:
+        import subprocess
+        from core.config import BASE_DIR
+        r = subprocess.run(
+            ["git", "-C", str(BASE_DIR), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=5,
+        )
+        ok_git = r.returncode == 0 and "true" in (r.stdout or "").lower()
+        add("git", ok_git, "repo OK" if ok_git else "не git-репозиторий (diff/rollback ограничены)", critical=False)
+    except Exception as exp:
+        add("git", False, str(exp)[:120], critical=False)
+
+    return rep
+
+
+def print_doctor(rep: DoctorReport | None = None) -> int:
+    """Print checklist; return 0 if all critical checks pass."""
+    rep = rep or run_doctor()
+    print()
+    print(rep.format_human())
+    print()
+    return 0 if rep.critical_ok else 1
+
+
+def doctor_text() -> str:
+    """FC-18: string for UI without print side-effects."""
+    return run_doctor().format_human()

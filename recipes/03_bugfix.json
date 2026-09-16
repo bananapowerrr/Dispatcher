@@ -1,0 +1,12 @@
+{
+  "id": "recipe-bugfix",
+  "message": "Проанализируй возможные причины ошибки в указанном файле/модуле и исправь баг. Добавь минимальный тест, если уместно. Объясни причину кратко.",
+  "files": [],
+  "metadata": {
+    "recipe": "bugfix",
+    "complexity": 3,
+    "task_type": "bugfix",
+    "prefer_local": true,
+    "source": "recipe"
+  }
+}

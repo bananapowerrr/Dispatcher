@@ -5,11 +5,16 @@
 429/quota, парсит Retry-After/текст, ведёт COOLDOWN per provider:model и
 возвращает источник после retry_at. При исчерпании всего бесплатного пула
 указывает DEFERRED_QUOTA + wake_at (задача НЕ ошибка — она вернётся).
+
+Локальные (billing=local) всегда считаются available: Ollama не зависит от
+cloud-квот и не должен вызывать DEFERRED_QUOTA.
 """
 from __future__ import annotations
+import os
 import time
 from typing import Any
 
+from core.config import ALLOW_PAID
 from providers.registry import Provider
 from providers.state import ProviderRegistry, key_for
 from providers.adapter import ProviderAdapter, build_adapter
@@ -40,6 +45,38 @@ class FreeCapacityManager:
     def usable_providers(self) -> list[Provider]:
         """Только enabled + free/local (free-only guard) — платные исключены."""
         return [p for p in self.providers if p.is_usable()]
+
+    def worker_usable(self, worker) -> bool:
+        """Provider-gate (контракт v3, P0.4): воркер runnable, только если его
+        провайдер зарегистрирован и usable (enabled + free/local + env-ворота).
+
+        - provider зарегистрирован в реестре -> решает provider.is_usable()
+          (disabled провайдер = его воркер НЕ может стать runnable);
+        - provider НЕ зарегистрирован (напр. локальный 'zen'/cli-роутер) ->
+          воркер управляется собственным enabled/health (обратная совместимость,
+          не блокируем существующие воркеры открытого harness'а).
+        """
+        pid = getattr(worker, "provider", "") or ""
+        if not pid:
+            return True
+        for p in self.providers:
+            if p.id == pid:
+                return p.is_usable()
+        return True
+
+    def worker_reason(self, worker) -> str:
+        """Человекочитаемая причина, если worker_usable() == False."""
+        pid = getattr(worker, "provider", "") or ""
+        for p in self.providers:
+            if p.id == pid:
+                if not p.enabled:
+                    return f"провайдер {pid} выключен в providers.yaml"
+                if p.env_gate and os.getenv(p.env_gate, "").strip().lower() in {"0", "false", "no", "off"}:
+                    return f"провайдер {pid} выключен (env-ворота {p.env_gate})"
+                if p.billing == "paid" and not ALLOW_PAID:
+                    return f"провайдер {pid} платный, а AGENTBUS_ALLOW_PAID не задан"
+                return f"провайдер {pid} недоступен"
+        return ""
 
     # ---------- availability ----------
     def available(self, key: str) -> bool:
@@ -104,11 +141,10 @@ class FreeCapacityManager:
             if secs:
                 cooldown = secs
             else:
-                # голый числовой Retry-After header
                 try:
                     cooldown = float(min(int(str(retry_hdr).strip()), 86400)) if retry_hdr is not None else 300.0
                 except (TypeError, ValueError):
-                    cooldown = 300.0   # без времени — 5m tier
+                    cooldown = 300.0
             if not cooldown:
                 cooldown = 300.0
         elif status in (401, 403):
@@ -130,10 +166,9 @@ class FreeCapacityManager:
         if secs:
             cooldown = secs
         elif conf >= 0.6:
-            cooldown = 300.0   # rate-limit без точного времени -> 5m
+            cooldown = 300.0
         else:
             cooldown = 0.0
-        new_status = "COOLDOWN" if cooldown else "COOLDOWN"
         st = self.state.failure(key, error, status="RATE_LIMITED" if secs else "COOLDOWN",
                                 cooldown=cooldown if cooldown else 300.0,
                                 provider=provider, model=model)
@@ -141,25 +176,34 @@ class FreeCapacityManager:
                 "cooldown": cooldown if cooldown else 300.0, "confidence": conf}
 
     def deferred_snapshot(self) -> dict[str, Any]:
-        """Если все free/local недоступны — предлагает wake_at (min retry)."""
+        """Если все free/local недоступны → wake_at. local всегда available."""
         usable = self.usable_providers()
-        available_keys = [p.id for p in usable
-                          if any(self.available(k) for k in p.model_keys())]
+        available_keys: list[str] = []
+        for p in usable:
+            if getattr(p, "billing", "") == "local":
+                available_keys.append(p.id)
+                continue
+            keys = p.model_keys()
+            if not keys:
+                available_keys.append(p.id)
+                continue
+            if any(self.available(k) for k in keys):
+                available_keys.append(p.id)
         if available_keys:
             return {"deferred": False, "available": available_keys}
-        wake = self.next_retry()
-        return {"deferred": True, "wake_at": int(wake if wake else 60),
-                "cooldowns": self.cooldown_list()}
+        now = time.monotonic()
+        wake_abs = self.next_retry()  # absolute monotonic, 0 = unknown
+        if wake_abs and wake_abs > now:
+            delay = int(max(30.0, min(wake_abs - now, 3600.0)))
+        else:
+            delay = 60
+        return {
+            "deferred": True,
+            "wake_at": delay,
+            "cooldowns": self.cooldown_list(),
+        }
 
-    # ---------- dynamic pool (anonymous-free / auto) ----------
     def probe_dynamic(self, timeout: float = 5.0) -> list[dict[str, Any]]:
-        """Дешёвый probe «динамического» пула (kilo-auto/free и пр.).
-
-        Пробируются только enabled + usable (free/local) динамические или
-        HTTP-провайдеры. По умолчанию kilo/openrouter/groq/gemini выключены
-        (enabled=false), поэтому в типовом режиме сеть НЕ трогается. Этот метод
-        НЕ проводит платных вызовов — только health-запрос (probe).
-        """
         out: list[dict[str, Any]] = []
         for p in self.providers:
             if not (getattr(p, "dynamic", False) or p.type in ("openai_compatible", "gemini")):

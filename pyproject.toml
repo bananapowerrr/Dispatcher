@@ -1,0 +1,22 @@
+[project]
+name = "agentbus"
+version = "0.9.1"
+description = "Local-first AI coding agent for the desktop"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+ui = ["customtkinter>=5.2.0", "pystray", "pillow"]
+skills = ["libcst>=1.1.0", "networkx>=3.0"]
+dev = ["pytest>=7.0.0"]
+
+[project.scripts]
+agentbus = "core.dispatcher_main:main"
+agentbus-ui = "ui.main_window:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]

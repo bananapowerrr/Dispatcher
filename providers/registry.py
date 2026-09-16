@@ -8,6 +8,9 @@
 
 Free-only guard: billing=paid провайдеры недоступны, пока не AGENTBUS_ALLOW_PAID=true
 И провайдер явно не включён.
+
+Финальный стек (2026-09):
+  ollama > siliconflow > openrouter > together > huggingface
 """
 from __future__ import annotations
 import os
@@ -15,13 +18,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from config import PROVIDERS_FILE, ALLOW_PAID
-
-# type полей, которые будут строками из yaml (списки/булевы — отдельно)
-_KNOWN = {
-    "id", "type", "base_url", "base_url_env", "api_key_env", "billing", "protocol",
-    "priority", "dynamic", "capabilities",
-}
+from core.config import PROVIDERS_FILE, ALLOW_PAID
 
 
 class Provider:
@@ -30,7 +27,7 @@ class Provider:
     def __init__(self, data: dict[str, Any], raw: dict[str, Any] | None = None) -> None:
         d = data or {}
         self.id: str = str(d.get("id", "")).strip()
-        self.type: str = str(d.get("type", "openai_compatible")).strip()  # openai_compatible|gemini|ollama|cli
+        self.type: str = str(d.get("type", "openai_compatible")).strip()
         self.base_url: str = _resolve(d.get("base_url_env"), d.get("base_url", ""))
         self.api_key_env: str = str(d.get("api_key_env", "")).strip()
         self.api_key: str = os.getenv(self.api_key_env, "").strip() if self.api_key_env else ""
@@ -48,14 +45,17 @@ class Provider:
         return self.id
 
     def is_usable(self) -> bool:
-        """Free-only guard: paid-провайдер доступен только при ALLOW_PAID AND env-enable."""
+        """Free-only + env-gate + ключ для cloud."""
         if not self.enabled:
             return False
-        # env-ворота: если задано enabled_env и оно = 0 -> выключен
         if self.env_gate and os.getenv(self.env_gate, "").strip().lower() in {"0", "false", "no", "off"}:
             return False
         if self.billing == "paid" and not ALLOW_PAID:
             return False
+        # cloud без ключа — не usable (local/ollama ключ не нужен)
+        if self.billing != "local" and self.api_key_env:
+            if not (self.api_key or os.getenv(self.api_key_env, "").strip()):
+                return False
         return True
 
     def model_keys(self) -> list[str]:
@@ -88,31 +88,76 @@ def _truthy(v: Any) -> bool:
 
 
 def _default_providers() -> list[dict[str, Any]]:
-    """Встроенный фб (если providers.yaml нет). Только free/local."""
+    """Встроенный fallback = финальный стек (если providers.yaml нет)."""
     return [
-        {"id": "ollama", "type": "ollama", "base_url_env": "AGENTBUS_PROVIDER_OLLAMA_BASE_URL",
-         "base_url": "http://127.0.0.1:11434", "billing": "local", "priority": 100,
-         "enabled_env": "AGENTBUS_PROVIDER_OLLAMA_ENABLED", "enabled": True,
-         "models": ["qwen2.5-coder:7b"], "capabilities": ["coding", "tools", "streaming"]},
-        {"id": "kilo", "type": "openai_compatible", "base_url_env": "AGENTBUS_PROVIDER_KILO_BASE_URL",
-         "base_url": "https://kilo.ai/gateway/v1", "api_key_env": "AGENTBUS_PROVIDER_KILO_API_KEY",
-         "billing": "free", "priority": 55, "enabled_env": "AGENTBUS_PROVIDER_KILO_ENABLED",
-         "enabled": False, "dynamic": True, "models": ["kilo-auto/free"],
-         "capabilities": ["coding", "tools", "streaming"]},
-        {"id": "openrouter", "type": "openai_compatible",
-         "base_url_env": "AGENTBUS_PROVIDER_OPENROUTER_BASE_URL",
-         "base_url": "https://openrouter.ai/api/v1", "api_key_env": "AGENTBUS_PROVIDER_OPENROUTER_API_KEY",
-         "billing": "free", "priority": 50, "enabled_env": "AGENTBUS_PROVIDER_OPENROUTER_ENABLED",
-         "enabled": False, "dynamic": True, "models": ["openrouter/free"],
-         "capabilities": ["coding", "tools", "streaming"]},
-        {"id": "groq", "type": "openai_compatible", "base_url_env": "AGENTBUS_PROVIDER_GROQ_BASE_URL",
-         "base_url": "https://api.groq.com/openai/v1", "api_key_env": "AGENTBUS_PROVIDER_GROQ_API_KEY",
-         "billing": "free", "priority": 80, "enabled_env": "AGENTBUS_PROVIDER_GROQ_ENABLED",
-         "enabled": False, "models": ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"],
-         "capabilities": ["coding", "tools", "streaming"]},
-        {"id": "gemini", "type": "gemini", "api_key_env": "AGENTBUS_PROVIDER_GEMINI_API_KEY",
-         "billing": "free", "priority": 75, "enabled_env": "AGENTBUS_PROVIDER_GEMINI_ENABLED",
-         "enabled": False, "models": [], "capabilities": ["coding", "tools", "streaming"]},
+        {
+            "id": "ollama", "type": "ollama",
+            "base_url_env": "AGENTBUS_PROVIDER_OLLAMA_BASE_URL",
+            "base_url": "http://127.0.0.1:11434",
+            "billing": "local", "priority": 100,
+            "enabled_env": "AGENTBUS_PROVIDER_OLLAMA_ENABLED", "enabled": True,
+            "dynamic": False,
+            "models": ["qwen2.5-coder:7b", "qwen2.5-coder:14b", "llama3.2:3b"],
+            "capabilities": ["coding", "tools", "streaming"],
+        },
+        {
+            "id": "siliconflow", "type": "openai_compatible",
+            "base_url_env": "AGENTBUS_PROVIDER_SILICONFLOW_BASE_URL",
+            "base_url": "https://api.siliconflow.cn/v1",
+            "api_key_env": "SILICONFLOW_API",
+            "billing": "free", "priority": 80,
+            "enabled_env": "AGENTBUS_PROVIDER_SILICONFLOW_ENABLED", "enabled": True,
+            "dynamic": True,
+            "models": [
+                "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+                "THUDM/GLM-4-9B-0414",
+                "Qwen/Qwen2-7B-Instruct",
+            ],
+            "capabilities": ["coding", "tools", "streaming"],
+        },
+        {
+            "id": "openrouter", "type": "openai_compatible",
+            "base_url_env": "AGENTBUS_PROVIDER_OPENROUTER_BASE_URL",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key_env": "OPENROUTER_API",
+            "billing": "free", "priority": 60,
+            "enabled_env": "AGENTBUS_PROVIDER_OPENROUTER_ENABLED", "enabled": True,
+            "dynamic": True,
+            "models": [
+                "openrouter/free",
+                "qwen/qwen3-coder:free",
+                "meta-llama/llama-3.3-70b-instruct:free",
+            ],
+            "capabilities": ["coding", "tools", "streaming"],
+        },
+        {
+            "id": "together", "type": "openai_compatible",
+            "base_url_env": "AGENTBUS_PROVIDER_TOGETHER_BASE_URL",
+            "base_url": "https://api.together.xyz/v1",
+            "api_key_env": "TOGETHER_API",
+            "billing": "free", "priority": 40,
+            "enabled_env": "AGENTBUS_PROVIDER_TOGETHER_ENABLED", "enabled": True,
+            "dynamic": True,
+            "models": [
+                "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                "Qwen/Qwen2.5-Coder-32B-Instruct",
+            ],
+            "capabilities": ["coding", "tools", "streaming"],
+        },
+        {
+            "id": "huggingface", "type": "openai_compatible",
+            "base_url_env": "AGENTBUS_PROVIDER_HUGGINGFACE_BASE_URL",
+            "base_url": "https://router.huggingface.co/v1",
+            "api_key_env": "HUGGINGFACE_API",
+            "billing": "free", "priority": 30,
+            "enabled_env": "AGENTBUS_PROVIDER_HUGGINGFACE_ENABLED", "enabled": True,
+            "dynamic": True,
+            "models": [
+                "meta-llama/Llama-3.3-70B-Instruct",
+                "Qwen/Qwen2.5-72B-Instruct",
+            ],
+            "capabilities": ["coding", "tools", "streaming"],
+        },
     ]
 
 
@@ -123,12 +168,8 @@ def load_providers(path: str | Path | None = None) -> list[Provider]:
         try:
             return _from_yaml(cfg_file)
         except Exception:
-            pass  # broken config -> встроенный
-    return [_Provider(d) for d in _default_providers()]
-
-
-def _Provider(d: dict[str, Any]) -> Provider:
-    return Provider(d)
+            pass
+    return [Provider(d) for d in _default_providers()]
 
 
 def _from_yaml(path: Path) -> list[Provider]:
@@ -147,20 +188,39 @@ def _from_yaml(path: Path) -> list[Provider]:
             if k == "capabilities":
                 raw[k] = _parse_list(v)
                 continue
+            if k in ("enabled", "dynamic"):
+                raw[k] = _truthy(v)
+                continue
+            if k == "priority":
+                try:
+                    raw[k] = int(v)
+                except (TypeError, ValueError):
+                    raw[k] = 50
+                continue
             raw[k] = v
         if not raw.get("id"):
             continue
         out.append(Provider(raw))
-    return out if out else [_Provider(d) for d in _default_providers()]
+    return out if out else [Provider(d) for d in _default_providers()]
 
 
 def _parse_models(block: str) -> list[str]:
-    # строка `models: [a, b]` или списком `  - a`
+    """Только секция models (не capabilities и не чужие списки)."""
     m = re.search(r"^\s*models\s*:[ \t]*\[(.*?)\]", block, flags=re.M | re.S)
     if m:
         return [x.strip().strip('"\'') for x in m.group(1).split(",") if x.strip()]
-    return [x.strip().strip('"\'') for x in
-            re.findall(r"^\s*-\s*([^#\n]+)", block, flags=re.M)]
+    m2 = re.search(
+        r"^\s*models\s*:\s*$([\s\S]*?)(?=^\s*\w+\s*:|\Z)",
+        block, flags=re.M,
+    )
+    if m2:
+        section = m2.group(1)
+        return [
+            x.strip().strip('"\'')
+            for x in re.findall(r"^\s*-\s*([^#\n]+)", section, flags=re.M)
+            if x.strip()
+        ]
+    return []
 
 
 def _parse_list(v: str) -> list[str]:

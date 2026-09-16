@@ -1,0 +1,149 @@
+# -*- coding: utf-8 -*-
+"""FilesService — project tree and file IO for Explorer/Editor."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+# Skip heavy / sensitive dirs in tree
+_SKIP_DIRS = {
+    ".git", ".hg", ".svn", "__pycache__", ".venv", "venv", "node_modules",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", "dist", "build",
+    ".agentbus", ".idea", ".vscode",
+}
+_MAX_ENTRIES = 4000
+_MAX_FILE_BYTES = 2_000_000
+
+
+class FilesService:
+    """Safe filesystem access scoped to project_root."""
+
+    def __init__(self, project_root: str | Path | None = None):
+        self.root = Path(project_root).resolve() if project_root else None
+
+    def set_root(self, project_root: str | Path) -> None:
+        self.root = Path(project_root).resolve()
+
+    def _root(self) -> Path:
+        if not self.root:
+            raise ValueError("project_root not set")
+        return self.root
+
+    def _safe(self, rel_or_abs: str | Path) -> Path:
+        root = self._root()
+        p = Path(rel_or_abs)
+        if not p.is_absolute():
+            p = root / p
+        resolved = p.resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exp:
+            raise PermissionError(f"path outside project: {rel_or_abs}") from exp
+        return resolved
+
+    def tree(
+        self,
+        *,
+        max_depth: int = 8,
+        max_entries: int = _MAX_ENTRIES,
+    ) -> list[dict[str, Any]]:
+        """Return nested list of {name, path, type, children?}."""
+        root = self._root()
+        count = [0]
+
+        def walk(dir_path: Path, depth: int) -> list[dict[str, Any]]:
+            if count[0] >= max_entries or depth > max_depth:
+                return []
+            items: list[dict[str, Any]] = []
+            try:
+                entries = sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            except OSError:
+                return []
+            for entry in entries:
+                if count[0] >= max_entries:
+                    break
+                name = entry.name
+                if name in _SKIP_DIRS or name.startswith(".") and name not in (".env.example",):
+                    if name.startswith(".") and name not in (".gitignore", ".env.example"):
+                        continue
+                count[0] += 1
+                rel = str(entry.relative_to(root)).replace("\\", "/")
+                if entry.is_dir():
+                    node: dict[str, Any] = {
+                        "name": name,
+                        "path": rel,
+                        "type": "dir",
+                        "children": walk(entry, depth + 1),
+                    }
+                else:
+                    node = {
+                        "name": name,
+                        "path": rel,
+                        "type": "file",
+                        "size": entry.stat().st_size if entry.exists() else 0,
+                    }
+                items.append(node)
+            return items
+
+        return walk(root, 0)
+
+    def read_text(self, rel_path: str, *, max_bytes: int = _MAX_FILE_BYTES) -> str:
+        path = self._safe(rel_path)
+        if not path.is_file():
+            raise FileNotFoundError(rel_path)
+        data = path.read_bytes()
+        if len(data) > max_bytes:
+            raise ValueError(f"file too large ({len(data)} bytes)")
+        return data.decode("utf-8", errors="replace")
+
+    def write_text(self, rel_path: str, content: str, *, create_dirs: bool = True) -> str:
+        path = self._safe(rel_path)
+        if create_dirs:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return str(path.relative_to(self._root())).replace("\\", "/")
+
+    def list_dir(self, rel_path: str = ".") -> list[dict[str, Any]]:
+        path = self._safe(rel_path) if rel_path not in (".", "") else self._root()
+        if not path.is_dir():
+            raise NotADirectoryError(rel_path)
+        out: list[dict[str, Any]] = []
+        for entry in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if entry.name in _SKIP_DIRS:
+                continue
+            rel = str(entry.relative_to(self._root())).replace("\\", "/")
+            out.append({
+                "name": entry.name,
+                "path": rel,
+                "type": "dir" if entry.is_dir() else "file",
+            })
+        return out
+
+    def exists(self, rel_path: str) -> bool:
+        try:
+            return self._safe(rel_path).exists()
+        except (PermissionError, ValueError):
+            return False
+
+    def mkdir(self, rel_path: str) -> str:
+        path = self._safe(rel_path)
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path.relative_to(self._root())).replace("\\", "/")
+
+    def delete(self, rel_path: str) -> bool:
+        path = self._safe(rel_path)
+        if path.is_dir():
+            path.rmdir()  # only empty
+        elif path.is_file():
+            path.unlink()
+        else:
+            return False
+        return True
+
+    def rename(self, rel_path: str, new_name: str) -> str:
+        path = self._safe(rel_path)
+        dest = path.parent / new_name
+        dest = self._safe(dest)
+        path.rename(dest)
+        return str(dest.relative_to(self._root())).replace("\\", "/")

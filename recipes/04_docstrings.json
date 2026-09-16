@@ -1,0 +1,6 @@
+{
+  "id": "recipe-docs",
+  "message": "Добавь краткие docstrings (Google style) к публичным функциям и классам в указанном файле. Не меняй логику.",
+  "files": [],
+  "metadata": {"recipe": "docs", "complexity": 2, "task_type": "docs", "prefer_local": true, "source": "recipe"}
+}

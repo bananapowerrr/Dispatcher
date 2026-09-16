@@ -1,0 +1,6 @@
+{
+  "id": "recipe-types",
+  "message": "Добавь базовые type hints к функциям в указанном файле без ломания совместимости. Используй from __future__ import annotations при необходимости.",
+  "files": [],
+  "metadata": {"recipe": "types", "complexity": 2, "task_type": "typing", "prefer_local": true, "source": "recipe"}
+}

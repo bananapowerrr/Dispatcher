@@ -70,7 +70,7 @@ def test_commit_only_task_paths(repo, gops):
     assert "app.py" not in files_in_commit
     assert "new.txt" not in files_in_commit
     # Р° СЃР°Рј РєРѕРјРјРёС‚ СЃРѕРґРµСЂР¶РёС‚ С‚РѕР»СЊРєРѕ app.py + new.txt
-    _, out, _ = h.git(repo, "show", "--stat", "--format=", "HEAD")
+    _, out, _ = h.git(repo, "show", "--stat", "--format=", "HEAD", retry_empty=True)
     assert "app.py" in out and "new.txt" in out and "notes.txt" not in out
     assert (repo / "notes.txt").read_text(encoding="utf-8") == "user-edit\n"
 
@@ -188,7 +188,7 @@ def test_junk_is_ignored(repo, gops):
     assert plan.junk and plan.stage == ["app.py"]
     assert gops.commit("m", plan.stage)
     # РјСѓСЃРѕСЂ РЅРµ РІ РєРѕРјРјРёС‚Рµ Рё РЅРµ РІ modified
-    _, out, _ = h.git(repo, "show", "--stat", "--format=", "HEAD")
+    _, out, _ = h.git(repo, "show", "--stat", "--format=", "HEAD", retry_empty=True)
     assert ".pytest_cache" not in out and "app.py" in out
 
 
@@ -200,7 +200,7 @@ def test_commit_uses_selective_add(repo, gops):
     plan = gops.plan_commit(before, ["app.py"])
     gops.commit("m", plan.stage)
     # stray.txt РќР• Р·Р°СЃС‚РµР№РґР¶РµРЅ Рё РќР• РІ РєРѕРјРјРёС‚Рµ
-    _, out, _ = h.git(repo, "show", "--stat", "--format=", "HEAD")
+    _, out, _ = h.git(repo, "show", "--stat", "--format=", "HEAD", retry_empty=True)
     assert "stray.txt" not in out
     assert "app.py" in out
 

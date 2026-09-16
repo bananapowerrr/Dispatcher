@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from config import PROVIDERS_STATE_FILE
+from core.config import PROVIDERS_STATE_FILE
 
 STATUSES = {
     "AVAILABLE", "BUSY", "RATE_LIMITED", "COOLDOWN", "ERROR",

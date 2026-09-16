@@ -128,3 +128,20 @@ def test_soft_quota_factor_zero_default_available(health):
     health.register("w1")
     w = _w("w1", provider="ollama", model="m")
     assert select_executor([w], health, {"message": "hi"}, capacity=_FakeCap(set())) is w
+
+
+# ---------- provider-gate (v3, P0.4): воркер выключенного провайдера не кандидат ----------
+def test_provider_gate_blocks_disabled_provider(health, tmp_path):
+    from providers.registry import load_providers
+    from providers.capacity import FreeCapacityManager
+    from providers.state import ProviderRegistry
+    for n in ("l", "c"):
+        health.register(n)
+    l = _w("l", provider="ollama", model="lm", complexity=2, quality=1.0)
+    c = _w("c", provider="openrouter", model="orf", complexity=2, quality=1.0)
+    # openrouter в providers.yaml выключен -> provider-gate отсекает воркера,
+    # даже если сам worker.enabled=True (иначе воркер обходил бы provider gate)
+    cap = FreeCapacityManager(load_providers(),
+                              state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    assert select_executor([c, l], health, {"message": "hi"}, capacity=cap) is l
+    assert select_executor([c], health, {"message": "hi"}, capacity=cap) is None

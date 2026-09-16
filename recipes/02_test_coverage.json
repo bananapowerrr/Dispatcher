@@ -1,0 +1,12 @@
+{
+  "id": "recipe-tests",
+  "message": "Напиши unit-тесты на pytest для указанного модуля. Покрой основные ветки и граничные случаи. Не меняй production-код без необходимости.",
+  "files": [],
+  "metadata": {
+    "recipe": "tests",
+    "complexity": 3,
+    "task_type": "test",
+    "prefer_local": true,
+    "source": "recipe"
+  }
+}

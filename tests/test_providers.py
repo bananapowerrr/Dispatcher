@@ -147,6 +147,24 @@ def test_irrelevant_text_not_rate_limit():
 
 
 # ---------- capacity manager ----------
+def test_worker_usable_provider_gate(tmp_path):
+    """P0.4 (provider-gate): воркер runnable, только если его провайдер usable."""
+    from workers import Worker
+    ps = load_providers()
+    cm = FreeCapacityManager(ps, state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    def wk(provider, model=""):
+        return Worker(name="w", command=("{aider}", "{message}"), harness="aider",
+                      provider=provider, model=model)
+    # ollama зарегистрирован и enabled -> usable
+    assert cm.worker_usable(wk("ollama", "qwen2.5-coder:7b")) is True
+    # openrouter зарегистрирован, но disabled в providers.yaml -> НЕ usable
+    assert cm.worker_usable(wk("openrouter", "openrouter/free")) is False
+    # groq зарегистрирован, disabled -> НЕ usable
+    assert cm.worker_usable(wk("groq", "openai/gpt-oss-120b")) is False
+    # незарегистрированный провайдер (напр. собственный роутер opencode) -> управляется worker.enabled
+    assert cm.worker_usable(wk("zen")) is True
+
+
 def test_deferred_quota_when_all_unavailable():
     ps = load_providers()
     cm = FreeCapacityManager(ps)

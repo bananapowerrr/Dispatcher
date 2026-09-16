@@ -1,0 +1,6 @@
+{
+  "id": "recipe-explain",
+  "message": "Объясни устройство указанного модуля простым языком: ответственность, ключевые функции, зависимости. Код не меняй.",
+  "files": [],
+  "metadata": {"recipe": "explain", "complexity": 1, "task_type": "explain", "prefer_local": true, "source": "recipe"}
+}

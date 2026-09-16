@@ -1,0 +1,12 @@
+{
+  "id": "recipe-refactor",
+  "message": "Проведи рефакторинг указанного файла: убери дублирование, улучши читаемость, не меняй публичное поведение. Сохрани стиль проекта.",
+  "files": [],
+  "metadata": {
+    "recipe": "refactor",
+    "complexity": 3,
+    "task_type": "refactor",
+    "prefer_local": true,
+    "source": "recipe"
+  }
+}

@@ -9,6 +9,7 @@
 from __future__ import annotations
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -30,9 +31,21 @@ def _env_with_first(path: str) -> dict:
 
 # ---------- реальный (здоровый) интерпретатор ----------
 def test_report_ok_on_healthy_python(executor, python_exe):
-    rep = executor._gitpython_report(python_exe)
-    # структурно корректный отчёт
+    # GitPython-проба в подпроцессе иногда падает из-за задокументированного
+    # AV-флейка: `git version` крашится нативно (0xC0000005). Этот краш приходит
+    # в _gitpython_report как ImportError (не _CRASH-returncode), поэтому его
+    # внутренний ретрай может вернуть ok=False. Повторяем инвокацию до
+    # устойчивого ok=True — тест проверяет «GitPython в здоровый момент работает».
+    rep = None
+    for _ in range(6):
+        rep = executor._gitpython_report(python_exe)
+        if rep.get("ok"):
+            break
+        time.sleep(0.5)
+    assert rep is not None
+    # структурно корректный отчёт + реально рабочий GitPython
     assert set(rep) >= {"ok", "path", "version", "exc", "exc_obj", "reason"}
+    assert rep["ok"] is True, rep
     assert rep["path"]
     # GitPython реально установлен и git.exc рабочий
     # (если нет — система обязана чинить, но в тестовом окружении должен быть)

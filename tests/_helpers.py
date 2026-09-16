@@ -21,9 +21,16 @@ def python_exe() -> str:
     return os.environ.get("AGENTBUS_TEST_PYTHON", sys.executable)
 
 
-def git(repo: Path, *args: str, retries: int = 8, expect_head: bool = False) -> tuple[int, str, str]:
+def git(repo: Path, *args: str, retries: int = 8, expect_head: bool = False,
+        retry_empty: bool = False) -> tuple[int, str, str]:
     """git-вызов с ретраями для известного флейка окружения: нативным AV может
-    рухнуть `git commit` (0xC0000005), а CreateProcess — WinError 5. Повтор транзиента."""
+    рухнуть `git commit` (0xC0000005), а CreateProcess — WinError 5. Повтор транзиента.
+
+    retry_empty=True — дополнительно повторяет, если read-команда вернула
+    returncode 0, но пустой stdout (AV/синхронизация иногда «съедает» вывод,
+    не выставляя код ошибки). Применять ТОЛЬКО к read-командам, чей результат
+    обязан быть непустым (show/rev-parse), но не к diff/status (пусто легитимно).
+    """
     def _spawn():
         return subprocess.run(["git", *args], cwd=str(repo), capture_output=True,
                               text=True, encoding="utf-8", errors="replace", timeout=120)
@@ -37,7 +44,8 @@ def git(repo: Path, *args: str, retries: int = 8, expect_head: bool = False) -> 
             continue
         last = (p.returncode, p.stdout, p.stderr)
         crash = p.returncode in (3221225477, -1073741819)  # 0xC0000005 / signed
-        if crash:
+        empty_read = retry_empty and p.returncode == 0 and not (p.stdout or "").strip()
+        if crash or empty_read:
             time.sleep(0.5 + attempt * 0.3)
             continue
         return last
