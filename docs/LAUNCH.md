@@ -1,51 +1,60 @@
-# Первый запуск (машина)
+# AgentBus — чеклист первого запуска (LIVE)
 
-## 1. Offline (без моделей)
+Offline-архитектура закрыта. Этот документ — **acceptance на ПК**, не разработка.
+
+## 0. Подготовка
 
 ```bash
 cd AgentBus
-python scripts/smoke_offline.py
-python scripts/live_smoke.py --mock
-bash scripts/ci_smoke.sh          # полный offline CI
+pip install -r requirements.txt
+pip install -r requirements-ui.txt
+export PYTHONPATH=src:.
 ```
 
-Ожидание: `READY` / `OK (0.10-alpha offline CI)`.
-
-## 2. Doctor
-
-```bash
-python dispatcher.py --diagnose
-# или
-python -c "from core.doctor import print_doctor; print_doctor()"
-```
-
-Critical must PASS. `local_runtime` / `ui_deps` могут быть NO до установки.
-
-## 3. Локальный стек
+Опционально:
 
 ```bash
 ollama pull qwen2.5-coder:7b
-ollama pull qwen2.5:1.5b-instruct   # meta
-pip install -r requirements.txt
-pip install -r requirements-ui.txt  # UI
+ollama pull qwen2.5:1.5b-instruct
 ```
 
-## 4. Старт
+Без моделей — режим **core-only** (skills / git / verify).
+
+## 1. Диагностика
 
 ```bash
-python dispatcher.py              # демон
-python dispatcher_ui.py           # чат ПК = основной канал
+python dispatcher.py --doctor
 ```
 
-Preset для РФ: `beginner_ru` (local, parallel=1).
+В UI: diagnose → checklist + Configuration Advisor.
 
-## 5. Первые задачи
+## 2. Тесты offline
 
-1. Простая правка файла через UI  
-2. Намеренный verify fail  
-3. Retry  
-4. Skill (format / normalize newlines) без LLM  
+```bash
+python -m pytest -q tests/ --tb=line
+```
 
-## Правило
+## 3. UI
 
-Worker может «успеть» — **DONE** только после `gate_done` + verification.
+```bash
+python dispatcher_ui.py
+```
+
+Setup Wizard → проект → skill-задача в чате.
+
+## 4. LIVE минимум
+
+1. Skill-only → DONE skill  
+2. Правка файла → diff → verify → DONE  
+3. Verify FAIL → не false-DONE  
+4. Retry / deferred видны  
+5. Architecture A/B при стопоре  
+6. 5 задач подряд  
+
+## 5. Красные флаги
+
+DONE без verify · вечный processing · UI hang · concurrency>1 без worktree  
+
+## 6. Откат
+
+Feature flags выкл autopilot/night · core-only · логи `.agentbus/`

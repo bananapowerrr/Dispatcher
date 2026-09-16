@@ -76,25 +76,21 @@ def build_commands(app: Any) -> list[Command]:
 
     def diagnose() -> None:
         try:
-            import io
-            import contextlib
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                try:
-                    from core.doctor import print_doctor
-                    print_doctor()
-                except Exception:
-                    from ui.metrics_panel import _queue_counts
-                    from ui.dispatcher_ctl import is_running
-                    q = _queue_counts()
-                    print(
-                        f"dispatcher={'on' if is_running() else 'off'} "
-                        f"queue desktop={q.get('desktop')} in={q.get('incoming')}"
-                    )
-            out = buf.getvalue().strip()
+            from core.doctor import doctor_full_text as doctor_text
+            out = doctor_text()
             app.chat.append("System", out[:5000] if out else "diagnose empty", kind="system")
         except Exception as exp:
-            app.chat.append("System", f"diagnose: {exp}", kind="error")
+            try:
+                import io
+                import contextlib
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    from core.doctor import print_doctor
+                    print_doctor()
+                out = buf.getvalue().strip()
+                app.chat.append("System", out[:5000] if out else f"diagnose: {exp}", kind="system")
+            except Exception as exp2:
+                app.chat.append("System", f"diagnose: {exp2}", kind="error")
 
 
     def slash_status() -> None:
@@ -125,25 +121,8 @@ def build_commands(app: Any) -> list[Command]:
         try:
             from cli.recipes import emit_recipe
             from ui.paths import agentbus_root
-            proj = ""
-            if hasattr(app, "projects"):
-                try:
-                    proj = app.projects.selected_project() or ""
-                except Exception:
-                    proj = ""
-            path = emit_recipe("refactor", project=proj, root=agentbus_root())
-            tid = path.stem if path else ""
-            if tid and hasattr(app, "chat"):
-                try:
-                    app.chat._pending_ids.add(tid)
-                    app.chat.phase_label.configure(text="○ в очереди")
-                except Exception:
-                    pass
-            app.chat.append(
-                "System",
-                f"Рецепт «refactor» в очереди" + (f" · id={tid}" if tid else ""),
-                kind="info",
-            )
+            emit_recipe("refactor", project=app.projects.selected_project() if hasattr(app, "projects") else "", root=agentbus_root())
+            app.chat.append("System", "Рецепт «refactor» в очереди", kind="info")
         except Exception as exp:
             app.chat.append("System", f"recipe: {exp}", kind="error")
 

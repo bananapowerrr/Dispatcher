@@ -76,3 +76,23 @@ presets:
       lesson_learner: true
       attachments: true
       verify_policy: true
+
+  beginner_ru:
+    description: "Массовый режим для РФ: локально, просто, без облака"
+    features:
+      conversation: true
+      session_memory: true
+      codebase_rag: true
+      sub_agents: false
+      autopilot: false
+      night_scheduler: false
+      skill_learner: true
+      diff_preview: true
+      semantic_memory: false
+    env:
+      AGENTBUS_MAX_PARALLEL_PROJECTS: "1"
+      AGENTBUS_GIT_WORKTREE: "0"
+      AGENTBUS_ALLOW_PAID: "0"
+      AGENTBUS_SYNTAX_GUARD: "1"
+      AGENTBUS_STATIC_GUARD: "1"
+      AGENTBUS_CODEINTEL: "1"

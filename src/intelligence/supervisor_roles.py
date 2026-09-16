@@ -13,9 +13,11 @@ ROLE_MODULES: dict[str, tuple[str, ...]] = {
     "planner": (
         "intelligence.pev_loop",
         "intelligence.task_graph",
+        "intelligence.living_plan",
+        "intelligence.dynamic_queue",
     ),
     "estimator": (
-        # stats from TaskResult history — FC-33; no dedicated module yet
+        "intelligence.estimation",
         "intelligence.project_state",
     ),
     "prioritizer": (
@@ -23,19 +25,39 @@ ROLE_MODULES: dict[str, tuple[str, ...]] = {
         "intelligence.report",
     ),
     "reviewer": (
+        "intelligence.project_analysis",
+        "intelligence.development_advisor",
+        "intelligence.session_bootstrap",
+        "intelligence.architecture_discovery",
+        "intelligence.architecture_interview",
+        "intelligence.architecture_blockers",
         "intelligence.lesson_learner",
         "intelligence.post_mortem",
     ),
     "decision": (
         # Policy lives in core; supervisor only recommends
         "intelligence.project_state",
+        "intelligence.conflict",
+        "intelligence.decision_queue",
+        "intelligence.architecture_interview",
+        "intelligence.autopilot_policy",
+        "intelligence.smart_waiting",
+        "intelligence.autonomous_loop",
     ),
     "replanner": (
         "intelligence.pev_loop",
         "intelligence.task_graph",
+        "intelligence.living_plan",
+        "intelligence.dynamic_queue",
+        "intelligence.conflict",
+        "intelligence.decision_queue",
         "intelligence.project_state",
+        "intelligence.autopilot_policy",
+        "intelligence.smart_waiting",
+        "intelligence.autonomous_loop",
     ),
     "state": (
+        "intelligence.project_analysis",
         "intelligence.project_state",
         "intelligence.session_memory",
         "intelligence.memory_layers",
@@ -47,6 +69,7 @@ ROLE_MODULES: dict[str, tuple[str, ...]] = {
         "intelligence.codebase_rag",
         "intelligence.semantic_memory",
         "intelligence.conversation",
+        "intelligence.context_intake",
     ),
 }
 

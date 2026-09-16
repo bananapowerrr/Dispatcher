@@ -29,3 +29,14 @@ Env: `OLLAMA_HOST`, `LMSTUDIO_HOST`, `AGENTBUS_VRAM_GB`
 ## Next
 
 36E Role matching · 36F Configuration Advisor UI · first-run wizard
+
+
+## FC-36E/F Advisor
+
+```python
+from core.configuration_advisor import advise_configuration, first_run_summary
+print(first_run_summary(probe_network=False))
+```
+
+Roles: **meta** (1.5B), **code** (coder 7B), **chat**.
+Empty meta → heuristics; empty code → skills/core-only.

@@ -106,6 +106,67 @@ class RPLlmMixin:
         return pool
 
 
+
+    def _llm_classify_exec_error(self, result) -> tuple[str, str, str]:
+        """Map ExecutionResult flags → (err_type, event_name, health_fail_status)."""
+        fail_status = "LOOP" if getattr(result, "loop_error", False) else "ERROR"
+        if result.timed_out:
+            err_type = "TIMEOUT"
+        elif getattr(result, "loop_error", False):
+            err_type = "LOOP"
+        elif getattr(result, "rate_limit_error", False):
+            err_type = "RATE_LIMIT"
+        elif getattr(result, "billing_error", False):
+            err_type = "BILLING"
+        else:
+            err_type = fail_status
+        if result.timed_out:
+            evt = "TIMEOUT"
+        elif getattr(result, "loop_error", False):
+            evt = "LOOP"
+        elif getattr(result, "rate_limit_error", False):
+            evt = "RATE_LIMIT"
+        else:
+            evt = "ERROR"
+        return err_type, evt, fail_status
+
+    def _llm_record_worker_failure(
+        self, worker, task, result, error: str, err_type: str, fail_status: str,
+        *, complexity: int, task_type: str,
+    ) -> None:
+        """Budget/metrics/health/ranker/capacity after a failed worker attempt."""
+        try:
+            from utils.budget import GLOBAL_TRACKER
+            from utils.metrics import GLOBAL_METRICS
+            GLOBAL_TRACKER.record_error(
+                worker.name, err_type, provider=worker.provider)
+            GLOBAL_METRICS.record("llm_fail")
+            GLOBAL_METRICS.record_task(
+                task, worker.name, False,
+                getattr(result, "latency", 0.0) or 0.0,
+                status=err_type, error_type=err_type)
+            self.log.log_task_fail(
+                task.id, worker.name, err_type, task.attempts,
+                channel=task.channel, detail=error[-200:])
+        except Exception:
+            pass
+        self.health.failure(
+            worker.name, error, result.timed_out,
+            status=fail_status,
+            billing_error=bool(getattr(result, "billing_error", False)))
+        try:
+            self.ranker.learn(worker.harness, worker.provider, worker.model,
+                              ok=False, latency=result.latency,
+                              complexity=complexity, task_type=task_type)
+        except Exception:
+            pass
+        try:
+            pkey = f"{worker.provider}:{worker.model}" if worker.model else worker.provider
+            self.capacity.record_text_error(pkey, error, worker.provider, worker.model)
+        except Exception:
+            pass
+
+
     def _llm_emit_worker_fallback(self, tried: list[str], worker) -> None:
         """Record FALLBACK event when switching workers mid-task."""
         if len(tried) <= 1:
@@ -554,56 +615,11 @@ class RPLlmMixin:
                 self.health.end_task(worker.name)
 
             error = result.stderr or result.stdout or "ошибка исполнителя"
-            fail_status = "LOOP" if getattr(result, "loop_error", False) else "ERROR"
-            if result.timed_out:
-                err_type = "TIMEOUT"
-            elif getattr(result, "loop_error", False):
-                err_type = "LOOP"
-            elif getattr(result, "rate_limit_error", False):
-                err_type = "RATE_LIMIT"
-            elif getattr(result, "billing_error", False):
-                err_type = "BILLING"
-            else:
-                err_type = fail_status
-            try:
-                from utils.budget import GLOBAL_TRACKER
-                from utils.metrics import GLOBAL_METRICS
-                GLOBAL_TRACKER.record_error(
-                    worker.name, err_type, provider=worker.provider)
-                GLOBAL_METRICS.record("llm_fail")
-                GLOBAL_METRICS.record_task(
-                    task, worker.name, False,
-                    getattr(result, "latency", 0.0) or 0.0,
-                    status=err_type, error_type=err_type)
-                self.log.log_task_fail(
-                    task.id, worker.name, err_type, task.attempts,
-                    channel=task.channel, detail=error[-200:])
-            except Exception:
-                pass
-            self.health.failure(
-                worker.name, error, result.timed_out,
-                status=fail_status,
-                billing_error=bool(getattr(result, "billing_error", False)))
-            try:
-                self.ranker.learn(worker.harness, worker.provider, worker.model,
-                                  ok=False, latency=result.latency,
-                                  complexity=complexity, task_type=task_type)
-            except Exception:
-                pass
-            try:
-                pkey = f"{worker.provider}:{worker.model}" if worker.model else worker.provider
-                self.capacity.record_text_error(pkey, error, worker.provider, worker.model)
-            except Exception:
-                pass
-
-            if result.timed_out:
-                evt = "TIMEOUT"
-            elif getattr(result, "loop_error", False):
-                evt = "LOOP"
-            elif getattr(result, "rate_limit_error", False):
-                evt = "RATE_LIMIT"
-            else:
-                evt = "ERROR"
+            err_type, evt, fail_status = self._llm_classify_exec_error(result)
+            self._llm_record_worker_failure(
+                worker, task, result, error, err_type, fail_status,
+                complexity=complexity, task_type=task_type,
+            )
             self._emit(evt, error[-300:], task_id=task.id, worker=worker.name,
                        executor=worker.harness, provider=worker.provider, model=worker.model,
                        payload={"timed_out": result.timed_out,

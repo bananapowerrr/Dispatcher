@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Sub-agents via file-bus: emit parallel child tasks, no second runtime.
+"""Sub-agents: spawn child tasks with depth/concurrency limits (no uncontrolled recursion).
+
+Sub-agents via file-bus: emit parallel child tasks, no second runtime.
 
 Progress / cancel operate on the same channels/<channel>/{incoming,processing,done,errors}.
 Feature flag: ``sub_agents`` (see feature_flags).
@@ -15,6 +17,12 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("agentbus.sub_agent")
+
+# Hard limits — prevent uncontrolled recursion / fan-out
+MAX_DEPTH = 2          # parent depth 0 → children depth 1 → grandchildren blocked at 2
+DEFAULT_MAX_CHILDREN = 8
+ABSOLUTE_MAX_CHILDREN = 16
+
 
 
 def _sub_agents_enabled() -> bool:
@@ -119,18 +127,38 @@ class SubAgent:
         parent_id: str = "",
         project: str = "",
         max_children: int = 8,
+        parent_depth: int | None = None,
+        parent_metadata: dict[str, Any] | None = None,
     ) -> SubAgentResult:
-        """Emit up to *max_children* subtasks. No-op if feature disabled."""
+        """Emit up to *max_children* subtasks. No-op if feature disabled or depth exceeded."""
         if not _sub_agents_enabled():
             logger.info("sub_agents disabled — spawn skipped")
             return SubAgentResult(task_ids=[], channel=self.channel, parent_id=parent_id)
 
+        # Resolve depth
+        depth = 0
+        if parent_depth is not None:
+            depth = int(parent_depth)
+        elif isinstance(parent_metadata, dict):
+            try:
+                depth = int(parent_metadata.get("sub_depth") or parent_metadata.get("depth") or 0)
+            except (TypeError, ValueError):
+                depth = 0
+        if depth >= MAX_DEPTH:
+            logger.warning("sub_agent depth %s >= MAX_DEPTH %s — spawn blocked", depth, MAX_DEPTH)
+            return SubAgentResult(task_ids=[], channel=self.channel, parent_id=parent_id)
+
+        child_depth = depth + 1
         child_ch = self._child_channel(parent_id)
         self._ensure_channel_tree(child_ch)
         incoming = self.bus_root / "channels" / child_ch / "incoming"
         incoming.mkdir(parents=True, exist_ok=True)
         ids: list[str] = []
-        capped = list(tasks or [])[: max(1, int(max_children or 8))]
+        cap = min(
+            ABSOLUTE_MAX_CHILDREN,
+            max(1, int(max_children or DEFAULT_MAX_CHILDREN)),
+        )
+        capped = list(tasks or [])[:cap]
         for i, t in enumerate(capped):
             msg = str(t.get("message") or "")
             files = list(t.get("files") or [])
@@ -146,13 +174,15 @@ class SubAgent:
                 "complexity": int(t.get("complexity") or 3),
                 "status": "PENDING",
                 "metadata": {
+                    **meta_in,
                     "source": "sub_agent",
                     "is_subtask": True,
                     "parent_id": parent_id,
                     "parent_channel": self.channel,
                     "spawned_at": time.time(),
                     "child_index": i,
-                    **meta_in,
+                    "sub_depth": child_depth,
+                    "max_depth": MAX_DEPTH,
                 },
             }
             path = incoming / f"{tid}.json"

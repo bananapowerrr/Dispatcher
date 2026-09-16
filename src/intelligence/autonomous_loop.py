@@ -14,7 +14,10 @@ Orchestrates existing modules only:
   return TickResult (observability)
 
 Runtime/dispatcher calls ``run_tick`` on interval; this module does not
-claim tasks or call Aider/Ollama.
+claim tasks, run workers, own a queue, or set DONE.
+
+Phase order (observability):
+  wait → night → plan → decisions → emit → (Core Runtime)
 """
 from __future__ import annotations
 
@@ -31,9 +34,21 @@ from intelligence.project_state import ProjectState
 from intelligence.smart_waiting import WaitState, evaluate_wait, filter_emit_steps
 
 
+# Observable tick actions (not a second FSM — labels only)
+TICK_WAIT = "WAIT"
+TICK_DEFER = "DEFER"
+TICK_ASK = "ASK"
+TICK_EMIT = "EMIT"
+TICK_RUN = "RUN"  # alias: something was emitted for runtime
+
+
 @dataclass
 class TickResult:
-    """Outcome of one autonomous tick."""
+    """Outcome of one autonomous tick.
+
+    Does **not** execute workers. Emits into LocalQueue/file-bus only.
+    ``action`` is an observability label: WAIT | DEFER | ASK | EMIT | RUN.
+    """
 
     ok: bool = True
     waited: bool = False
@@ -48,19 +63,55 @@ class TickResult:
     batch: dict[str, Any] = field(default_factory=dict)
     actions: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
+    # FC-35 observability
+    action: str = TICK_WAIT
+    phase: str = "init"  # last phase reached: wait|night|plan|decisions|emit
+    source: str = ""  # night | plan | decision | policy | ...
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def format_human(self) -> str:
-        if self.waited:
-            reason = (self.wait or {}).get("reason") or "wait"
-            return f"TICK wait [{reason}] decisions={self.open_decisions}"
+        act = self.action or (TICK_WAIT if self.waited else TICK_EMIT)
+        if self.waited or act in (TICK_WAIT, TICK_DEFER, TICK_ASK):
+            reason = (self.wait or {}).get("reason") or self.source or "wait"
+            return (
+                f"TICK {act} phase={self.phase} [{reason}] "
+                f"decisions={self.open_decisions} night={self.night}"
+            )
         return (
-            f"TICK emit={len(self.emitted)} held={len(self.held_steps)} "
-            f"skip={len(self.skipped_steps)} night={self.night} "
-            f"plan_v={self.plan_version}"
+            f"TICK {act} phase={self.phase} emit={len(self.emitted)} "
+            f"held={len(self.held_steps)} skip={len(self.skipped_steps)} "
+            f"night={self.night} plan_v={self.plan_version} src={self.source or '-'}"
         )
+
+
+def _finalize_action(result: TickResult) -> TickResult:
+    """Derive action/phase/source from tick fields (deterministic)."""
+    reason = str((result.wait or {}).get("reason") or "")
+    if result.emitted:
+        result.action = TICK_EMIT
+        result.phase = "emit"
+        result.source = result.source or ("night" if result.night else "plan")
+        return result
+    if reason in ("waiting_decision", "architecture_blocker") or result.open_decisions > 0 and result.waited:
+        result.action = TICK_ASK
+        result.phase = result.phase or "decisions"
+        result.source = result.source or "decision"
+        return result
+    if reason in ("defer_to_night",) or (result.night and result.waited):
+        result.action = TICK_DEFER
+        result.phase = result.phase or "night"
+        result.source = result.source or "night"
+        return result
+    if result.waited:
+        result.action = TICK_WAIT
+        result.phase = result.phase or "wait"
+        result.source = result.source or reason or "wait"
+        return result
+    result.action = TICK_WAIT
+    result.phase = result.phase or "plan"
+    return result
 
 
 def _load_state(project_root: Path) -> ProjectState:
@@ -115,6 +166,9 @@ def run_tick(
     manual_pause: bool = False,
     apply_estimates: bool = True,
     detect_message_conflicts: bool = True,
+    run_project_scan: bool = False,
+    run_architecture_interview: bool = False,
+    architecture_limit: int = 2,
 ) -> TickResult:
     """Single autonomous orchestration tick.
 
@@ -144,7 +198,35 @@ def run_tick(
     except Exception as exp:
         errors.append(f"expire: {exp}")
 
-    # Optional conflict detection from new user message
+    # FC-37J: optional project intelligence (scan / architecture interview)
+    if run_project_scan:
+        try:
+            from intelligence.session_bootstrap import bootstrap_session
+            br = bootstrap_session(root, use_index=False, advice_limit=3, state=state)
+            if not br.skipped:
+                actions.append("project_scan")
+            else:
+                actions.append(f"project_scan_skip:{br.reason[:40]}")
+        except Exception as exp:
+            errors.append(f"project_scan: {exp}")
+
+    if run_architecture_interview:
+        try:
+            from intelligence.architecture_interview import start_interview
+            ir = start_interview(
+                root,
+                decisions=decisions,
+                limit=max(1, int(architecture_limit)),
+                project=str(getattr(plan, "project_id", "") or ""),
+            )
+            if ir.enqueued:
+                actions.append(f"arch_interview:{len(ir.enqueued)}")
+            else:
+                actions.append("arch_interview:none")
+        except Exception as exp:
+            errors.append(f"arch_interview: {exp}")
+
+        # Optional conflict detection from new user message
     conf_list = list(conflicts or [])
     if detect_message_conflicts and (new_message or "").strip():
         try:
@@ -205,8 +287,10 @@ def run_tick(
         "manual_pause", "policy_block",
     )):
         result.ok = True
+        result.phase = "wait"
+        result.source = wait.reason or "policy"
         result.duration_ms = (time.time() - t0) * 1000
-        return result
+        return _finalize_action(result)
 
     # Estimates on active steps
     if apply_estimates and plan.steps:
@@ -237,17 +321,34 @@ def run_tick(
             "PENDING", "READY", "BLOCKED",
         )
     ]
+    # FC-35: at night, prefer NightScheduler selection (budget) — do not reimplement
+    if result.night:
+        try:
+            from intelligence.night_scheduler import NightScheduler
+            night_steps = NightScheduler().select_plan_steps_for_night(plan, now=now)
+            night_ids = {getattr(s, "id", "") for s in (night_steps or [])}
+            if night_ids:
+                active = [s for s in active if s.id in night_ids]
+                actions.append(f"night_select:{len(active)}")
+                result.phase = "night"
+                result.source = "night"
+        except Exception as exp:
+            errors.append(f"night_select: {exp}")
+
     allow, hold = filter_emit_steps(active, wait)
     result.held_steps = [s.id for s in hold]
     if hold:
         actions.append(f"held:{len(hold)}")
+    result.phase = result.phase or "plan"
 
     if not wait.can_emit and not allow:
         result.waited = True
+        result.phase = "decisions" if result.open_decisions else ("night" if result.night else "wait")
+        result.source = str((result.wait or {}).get("reason") or "")
         result.duration_ms = (time.time() - t0) * 1000
         result.actions = actions
         result.errors = errors
-        return result
+        return _finalize_action(result)
 
     # Temporarily mark held steps so sync skips them (meta flag)
     held_ids = {s.id for s in hold}
@@ -312,7 +413,10 @@ def run_tick(
     result.plan_version = int(getattr(plan, "version", 0) or 0)
     result.open_decisions = len(decisions.open_items())
     result.duration_ms = (time.time() - t0) * 1000
-    return result
+    if result.emitted:
+        result.phase = "emit"
+        result.source = result.source or ("night" if result.night else "plan")
+    return _finalize_action(result)
 
 
 def run_tick_safe(project_root: str | Path, **kwargs: Any) -> TickResult:

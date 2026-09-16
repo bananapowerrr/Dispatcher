@@ -144,21 +144,27 @@ class SetupWizard(ctk.CTkToplevel if ctk else object):  # type: ignore
             root = Path(__file__).resolve().parents[1]
             sys.path.insert(0, str(root / "src"))
             sys.path.insert(0, str(root))
-            from core.harness_registry import discover_local_stack, recommend_stack
-
-            snap = discover_local_stack()
-            lines = []
-            for r in snap.get("runtimes") or []:
-                mark = "✓" if r.get("ok") else "✗"
-                lines.append(f"  {mark} {r.get('id')}")
-            for h in snap.get("harnesses") or []:
-                mark = "✓" if h.get("ok") else "✗"
-                lines.append(f"  {mark} harness:{h.get('id')}")
-            tips = recommend_stack()
-            text = "Статус:\n" + "\n".join(lines)
-            if tips:
-                text += "\n\n" + tips[0]
-            self._runtime_status.set(text)
+            text = ""
+            try:
+                from core.configuration_advisor import first_run_summary
+                text = first_run_summary(probe_network=True)
+            except Exception:
+                pass
+            if not text:
+                from core.harness_registry import discover_local_stack, recommend_stack
+                snap = discover_local_stack()
+                lines = []
+                for r in snap.get("runtimes") or []:
+                    mark = "✓" if r.get("ok") else "✗"
+                    lines.append(f"  {mark} {r.get('id')}")
+                for h in snap.get("harnesses") or []:
+                    mark = "✓" if h.get("ok") else "✗"
+                    lines.append(f"  {mark} harness:{h.get('id')}")
+                tips = recommend_stack()
+                text = "Статус:\n" + "\n".join(lines)
+                if tips:
+                    text += "\n\n" + tips[0]
+            self._runtime_status.set(text[:1500])
         except Exception as exc:
             self._runtime_status.set(f"Не удалось проверить: {exc}")
 
@@ -251,20 +257,6 @@ class SetupWizard(ctk.CTkToplevel if ctk else object):  # type: ignore
             os.environ.setdefault("AGENTBUS_FEATURE_PRESET", "beginner_ru")
         except Exception:
             pass
-        # PC-29: desktop channel + queue dirs before first task
-        try:
-            from ui.paths import agentbus_root, ensure_sys_path
-            ensure_sys_path()
-            from cli.init_wizard import ensure_agentbus_dirs
-            ensure_agentbus_dirs(agentbus_root())
-        except Exception:
-            try:
-                from core.bus import FileBus
-                from core.config import CHANNELS
-                from ui.paths import agentbus_root
-                FileBus(agentbus_root(), tuple(CHANNELS) if CHANNELS else ("gpt",)).ensure()
-            except Exception:
-                pass
         mark_setup_complete(extra)
         try:
             self.grab_release()

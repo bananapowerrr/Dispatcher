@@ -129,3 +129,141 @@ class TasksService:
             }
         except Exception as exp:
             return {"reason": "unknown", "label": str(exp)[:80], "can_emit": True, "detail": ""}
+
+
+    def find_task_row(self, task_id: str) -> dict[str, Any] | None:
+        """Locate task JSON on bus / desktop_queue / done / errors (best-effort)."""
+        tid = (task_id or "").strip()
+        if not tid:
+            return None
+        try:
+            from ui.paths import agentbus_root
+            base = agentbus_root()
+        except Exception:
+            base = Path.cwd()
+        candidates: list[Path] = []
+        dq = base / ".agentbus" / "desktop_queue"
+        if dq.is_dir():
+            candidates.extend(dq.glob(f"*{tid}*.json"))
+        channels = base / "channels"
+        if channels.is_dir():
+            for state in ("incoming", "processing", "deferred", "done", "errors"):
+                for f in channels.glob(f"*/{state}/*{tid}*.json"):
+                    if f.name.endswith(".lease.json"):
+                        continue
+                    candidates.append(f)
+        # exact id match preferred
+        for f in candidates:
+            try:
+                import json
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if str(data.get("id") or "") == tid or tid in f.stem:
+                    data["_path"] = str(f)
+                    data["_state"] = f.parent.name
+                    return data
+            except Exception:
+                continue
+        return None
+
+    def get_task_detail(self, task_id: str) -> dict[str, Any]:
+        """Unified Task Detail card data (status, phases, files, trace, verify)."""
+        row = self.find_task_row(task_id) or {"id": task_id}
+        detail: dict[str, Any] = {
+            "id": str(row.get("id") or task_id),
+            "status": str(row.get("status") or row.get("_state") or "UNKNOWN").upper(),
+            "message": str(row.get("message") or "")[:500],
+            "project": str(row.get("project") or ""),
+            "channel": str(row.get("channel") or row.get("_channel") or ""),
+            "files": list(row.get("files") or [])[:30],
+            "phases": [],
+            "trace": [],
+            "verification": {},
+            "result_summary": "",
+            "error": "",
+            "worker": "",
+            "skill": "",
+            "changes": {},
+            "human": "",
+        }
+        try:
+            from core.task_result import build_task_result, history_detail_text, history_card_lines
+            tr = build_task_result(row)
+            detail["status"] = (tr.status or detail["status"]).upper()
+            detail["worker"] = tr.worker or ""
+            detail["skill"] = tr.skill or ""
+            detail["result_summary"] = (tr.summary or "")[:400]
+            detail["error"] = (tr.error or "")[:400]
+            detail["trace"] = list(tr.timeline or [])[:20]
+            if isinstance(tr.verification, dict):
+                detail["verification"] = tr.verification
+            if tr.changes:
+                try:
+                    detail["changes"] = tr.changes.to_dict() if hasattr(tr.changes, "to_dict") else dict(tr.changes)
+                except Exception:
+                    pass
+            if not detail["files"] and getattr(tr, "files", None):
+                detail["files"] = list(tr.files or [])[:30]
+            detail["human"] = history_detail_text(row)
+            card = history_card_lines(row)
+            detail["card"] = card
+        except Exception as exp:
+            detail["error"] = detail["error"] or str(exp)[:200]
+
+        # Phases from metadata / result
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        phases = meta.get("phases") or meta.get("pipeline_phases") or []
+        if isinstance(phases, list) and phases:
+            detail["phases"] = [str(p) for p in phases][:12]
+        elif detail["trace"]:
+            # derive simple phase marks from trace labels
+            detail["phases"] = [str(x) for x in detail["trace"][:8]]
+
+        # Memory trace file
+        if not detail["trace"]:
+            try:
+                from utils.task_trace import GLOBAL_TRACES, event_label
+                trc = GLOBAL_TRACES.get(str(detail["id"])) if hasattr(GLOBAL_TRACES, "get") else None
+                if trc is None and isinstance(GLOBAL_TRACES, dict):
+                    trc = GLOBAL_TRACES.get(str(detail["id"]))
+                if trc is not None:
+                    events = getattr(trc, "events", []) or []
+                    detail["trace"] = [
+                        event_label(getattr(e, "name", str(e))) for e in events
+                    ][:20]
+                    if getattr(trc, "final_status", None):
+                        detail["status"] = str(trc.final_status).upper()
+            except Exception:
+                pass
+        return detail
+
+    def format_detail_text(self, task_id: str) -> str:
+        d = self.get_task_detail(task_id)
+        if d.get("human"):
+            return d["human"]
+        lines = [
+            f"TASK {d.get('id')}",
+            f"STATUS  {d.get('status')}",
+        ]
+        if d.get("message"):
+            lines.append(f"PROMPT  {d['message'][:200]}")
+        if d.get("worker") or d.get("skill"):
+            lines.append(f"WORKER  {d.get('worker') or ''} {('skill:'+d['skill']) if d.get('skill') else ''}".strip())
+        if d.get("phases"):
+            lines.append("PHASES")
+            for ph in d["phases"]:
+                lines.append(f"  · {ph}")
+        if d.get("files"):
+            lines.append("FILES")
+            for f in d["files"]:
+                lines.append(f"  · {f}")
+        if d.get("trace"):
+            lines.append("TRACE")
+            lines.append("  " + " → ".join(str(x) for x in d["trace"][:10]))
+        if d.get("verification"):
+            lines.append(f"VERIFY  {d['verification']}")
+        if d.get("result_summary"):
+            lines.append(f"RESULT  {d['result_summary']}")
+        if d.get("error"):
+            lines.append(f"ERROR   {d['error']}")
+        return "\n".join(lines)
+

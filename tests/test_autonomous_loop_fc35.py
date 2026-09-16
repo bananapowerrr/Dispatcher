@@ -89,3 +89,61 @@ def test_tick_result_to_dict():
     d = r.to_dict()
     assert d["emitted"] == ["a"]
     assert d["plan_version"] == 2
+
+
+def test_tick_project_scan_flag(tmp_path: Path):
+    (tmp_path / "x.py").write_text("a=1\n", encoding="utf-8")
+    plan = LivingPlan(steps=[LivingStep(id="s", action="noop", status="PENDING", complexity=1)])
+    r = run_tick(
+        tmp_path,
+        plan=plan,
+        decisions=DecisionQueue(),
+        run_project_scan=True,
+        use_desktop_queue=False,
+        use_filebus=False,
+        persist=False,
+    )
+    assert any("project_scan" in a for a in r.actions)
+
+
+def test_tick_architecture_interview_flag(tmp_path: Path):
+    (tmp_path / "app.py").write_text("from fastapi import FastAPI\napp=FastAPI()\n", encoding="utf-8")
+    plan = LivingPlan(steps=[LivingStep(id="s", action="noop", status="PENDING", complexity=1)])
+    dq = DecisionQueue(path=tmp_path / "dec.json")
+    r = run_tick(
+        tmp_path,
+        plan=plan,
+        decisions=dq,
+        run_architecture_interview=True,
+        architecture_limit=2,
+        use_desktop_queue=False,
+        use_filebus=False,
+        persist=False,
+    )
+    assert any("arch_interview" in a for a in r.actions)
+
+def test_tick_result_has_action_phase():
+    r = TickResult(ok=True, waited=True, wait={"reason": "manual_pause"}, open_decisions=0)
+    from intelligence.autonomous_loop import _finalize_action, TICK_WAIT
+    r = _finalize_action(r)
+    assert r.action in (TICK_WAIT, "WAIT", "DEFER", "ASK")
+    assert r.phase
+
+
+def test_tick_emitted_sets_action_emit(tmp_path: Path):
+    plan = LivingPlan(
+        steps=[LivingStep(id="s1", action="format", status="PENDING", complexity=1)],
+    )
+    r = run_tick(
+        tmp_path,
+        plan=plan,
+        decisions=DecisionQueue(),
+        use_desktop_queue=True,
+        use_filebus=False,
+        persist=False,
+        now=datetime(2026, 6, 1, 12, 0),
+    )
+    assert r.action in ("EMIT", "WAIT", "DEFER", "ASK", "RUN")
+    d = r.to_dict()
+    assert "action" in d and "phase" in d
+

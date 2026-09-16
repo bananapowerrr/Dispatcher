@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""История / timeline задач из channels/*/done|errors|processing."""
+"""История / timeline задач — product cards (FC-03/FC-10)."""
 from __future__ import annotations
 
 import json
@@ -40,13 +40,14 @@ def collect_history(limit: int = 80) -> list[dict]:
             for d in root.glob(f"*/{state}"):
                 try:
                     for f in d.glob("*.json"):
+                        if f.name.endswith(".lease.json"):
+                            continue
                         data = _read_task(f)
                         data["_state"] = state
                         data["_channel"] = d.parent.name
                         items.append(data)
                 except OSError:
                     continue
-    # Desktop chat spill (primary channel)
     spill = base / ".agentbus" / "desktop_queue"
     if spill.is_dir():
         try:
@@ -57,18 +58,19 @@ def collect_history(limit: int = 80) -> list[dict]:
                 items.append(data)
         except OSError:
             pass
-    for state in ("done", "errors", "processing"):
+    for state in ("done", "errors", "processing", "deferred"):
         d = base / "channels" / "desktop" / state
         if d.is_dir():
             try:
                 for f in d.glob("*.json"):
+                    if f.name.endswith(".lease.json"):
+                        continue
                     data = _read_task(f)
                     data["_state"] = state
                     data["_channel"] = "desktop"
                     items.append(data)
             except OSError:
                 pass
-    # dedupe by id+path
     seen: set[str] = set()
     uniq: list[dict] = []
     for it in items:
@@ -96,10 +98,12 @@ def _state_style(state: str) -> tuple[str, str]:
         return ("✓ done", "#4ec9b0")
     if s in ("errors", "error", "failed"):
         return ("✕ error", "#f14c4c")
-    if s in ("processing", "running"):
+    if s in ("processing", "running", "claimed"):
         return ("● run", "#cca700")
-    if s in ("deferred", "queued", "pending"):
-        return ("… wait", "#858585")
+    if s in ("deferred",):
+        return ("⏳ deferred", "#ce93d8")
+    if s in ("queued", "pending", "incoming"):
+        return ("○ queue", "#90caf9")
     return (s or "—", "gray")
 
 
@@ -113,8 +117,14 @@ class HistoryPanel(ctk.CTkFrame):
 
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=8, pady=4)
-        ctk.CTkLabel(top, text=_t("history_title", default="История задач"), font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        ctk.CTkButton(top, text=_t("refresh", default="Обновить"), width=90, command=self.refresh).pack(side="right")
+        ctk.CTkLabel(
+            top,
+            text=_t("history_title", default="История задач"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            top, text=_t("refresh", default="Обновить"), width=90, command=self.refresh
+        ).pack(side="right")
 
         self.scroll = ctk.CTkScrollableFrame(self)
         self.scroll.pack(fill="both", expand=True, padx=8, pady=8)
@@ -159,8 +169,11 @@ class HistoryPanel(ctk.CTkFrame):
         colors = {
             "done": ("#1b5e20", "#a5d6a7"),
             "errors": ("#b71c1c", "#ef9a9a"),
+            "error": ("#b71c1c", "#ef9a9a"),
             "processing": ("#e65100", "#ffe0b2"),
             "incoming": ("#1565c0", "#90caf9"),
+            "queued": ("#1565c0", "#90caf9"),
+            "pending": ("#1565c0", "#90caf9"),
             "deferred": ("#4a148c", "#ce93d8"),
         }
         fg = colors.get(state, ("gray30", "gray70"))
@@ -171,24 +184,54 @@ class HistoryPanel(ctk.CTkFrame):
         head.pack(fill="x", padx=6, pady=(4, 0))
         tid = str(row.get("id") or Path(str(row.get("_path", ""))).stem)[:18]
         label, _col = _state_style(state)
-        ctk.CTkLabel(head, text=f"{label}  {tid}", text_color=fg[1] if isinstance(fg, tuple) else fg).pack(side="left")
-        ctk.CTkLabel(head, text=_fmt_ts(float(row.get("_mtime") or 0)), text_color="gray").pack(side="right")
+        ctk.CTkLabel(
+            head, text=f"{label}  {tid}",
+            text_color=fg[1] if isinstance(fg, tuple) else fg,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            head, text=_fmt_ts(float(row.get("_mtime") or 0)), text_color="gray"
+        ).pack(side="right")
 
-        msg = str(row.get("message") or "")[:160].replace("\n", " ")
         proj = str(row.get("project") or "")
         ch = str(row.get("_channel") or "")
         ch_disp = "чат ПК" if ch == "desktop" else ch
-        ctk.CTkLabel(frame, text=f"{proj or '—'} · {ch_disp}", text_color="gray", anchor="w").pack(fill="x", padx=8)
-        ctk.CTkLabel(frame, text=msg or _t("history_no_message", default="(без текста)"), anchor="w", justify="left").pack(fill="x", padx=8, pady=(0, 2))
-        # FC-03: product card from TaskResult
+        ctk.CTkLabel(
+            frame, text=f"{proj or '—'} · {ch_disp}", text_color="gray", anchor="w"
+        ).pack(fill="x", padx=8)
+
+        # FC-10 product card
         try:
             from core.task_result import history_card_lines
             card = history_card_lines(row)
         except Exception:
-            card = {"meta": "", "verify": "", "files": ""}
+            card = {"prompt": str(row.get("message") or "")[:160], "meta": "", "verify": "", "files": "", "error": "", "lifecycle": "", "summary": ""}
+
+        prompt = card.get("prompt") or str(row.get("message") or "")[:160].replace("\n", " ")
+        ctk.CTkLabel(
+            frame,
+            text=prompt or _t("history_no_message", default="(без текста)"),
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=8, pady=(0, 2))
+
         if card.get("meta"):
+            ctk.CTkLabel(frame, text=card["meta"], text_color="gray60", anchor="w").pack(
+                fill="x", padx=8
+            )
+        if card.get("lifecycle"):
             ctk.CTkLabel(
-                frame, text=card["meta"], text_color="gray60", anchor="w",
+                frame, text=card["lifecycle"], text_color="gray",
+                anchor="w", font=ctk.CTkFont(size=10),
+            ).pack(fill="x", padx=8)
+        if card.get("retry"):
+            ctk.CTkLabel(
+                frame, text=card["retry"], text_color="#ce93d8",
+                anchor="w", font=ctk.CTkFont(size=11),
+            ).pack(fill="x", padx=8)
+        if card.get("trace"):
+            ctk.CTkLabel(
+                frame, text=card["trace"], text_color="gray50",
+                anchor="w", font=ctk.CTkFont(size=10),
             ).pack(fill="x", padx=8)
         verify_line = card.get("verify") or ""
         if verify_line:
@@ -198,22 +241,29 @@ class HistoryPanel(ctk.CTkFrame):
                 text_color=("#4ec9b0" if ok_v else "#f14c4c" if "FAIL" in verify_line else "gray"),
             ).pack(fill="x", padx=8)
         if card.get("files"):
-            ctk.CTkLabel(frame, text=card["files"], text_color="gray", anchor="w").pack(fill="x", padx=8)
-        if state in ("done", "errors", "deferred") and not verify_line:
+            ctk.CTkLabel(frame, text=card["files"], text_color="gray", anchor="w").pack(
+                fill="x", padx=8
+            )
+        if card.get("error") and state in ("errors", "error"):
+            ctk.CTkLabel(
+                frame, text=f"Ошибка: {card['error']}", anchor="w",
+                text_color="#f14c4c",
+            ).pack(fill="x", padx=8)
+        elif state in ("done", "errors", "deferred") and not verify_line and not card.get("meta"):
             try:
                 from ui.result_text import extract_result_text
                 out = extract_result_text(row)[:220]
             except Exception:
                 out = ""
-            if out and out not in (msg, "готово"):
+            if out and out not in (prompt, "готово"):
                 ctk.CTkLabel(
                     frame, text=out, anchor="w", justify="left",
-                    text_color=("#4ec9b0" if state == "done" else "#f14c4c" if state == "errors" else "gray"),
+                    text_color=("#4ec9b0" if state == "done" else "#f14c4c" if state.startswith("err") else "gray"),
                 ).pack(fill="x", padx=8, pady=(0, 2))
 
         btns = ctk.CTkFrame(frame, fg_color="transparent")
         btns.pack(fill="x", padx=6, pady=(0, 4))
-        if self.on_resend and state in ("done", "errors", "deferred"):
+        if self.on_resend and state in ("done", "errors", "error", "deferred"):
             ctk.CTkButton(
                 btns, text=_t("resend", default="↻ снова"), width=70, height=24,
                 command=lambda r=row: self._resend(r),
@@ -230,23 +280,24 @@ class HistoryPanel(ctk.CTkFrame):
     def _show_details(self, row: dict) -> None:
         win = ctk.CTkToplevel(self)
         win.title(str(row.get("id") or "task"))
-        win.geometry("620x480")
+        win.geometry("640x520")
         human = ""
         try:
-            from core.task_result import build_task_result
-            human = build_task_result(row).format_human()
+            from core.task_result import history_detail_text
+            human = history_detail_text(row)
         except Exception:
-            human = ""
-        if not human:
             try:
-                from ui.result_text import extract_result_text
-                human = extract_result_text(row)
+                from core.task_result import build_task_result
+                human = build_task_result(row).format_human()
             except Exception:
-                human = ""
+                try:
+                    from ui.result_text import extract_result_text
+                    human = extract_result_text(row)
+                except Exception:
+                    human = ""
         if human:
             ctk.CTkLabel(
-                win, text=human[:1200], anchor="w", justify="left",
-                wraplength=580,
+                win, text=human[:1600], anchor="w", justify="left", wraplength=600,
             ).pack(fill="x", padx=10, pady=(8, 4))
         ctk.CTkLabel(win, text="JSON", text_color="gray", anchor="w").pack(fill="x", padx=10)
         box = ctk.CTkTextbox(win)

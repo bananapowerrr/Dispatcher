@@ -27,6 +27,7 @@ REASON_POLICY_ASK = "policy_ask"
 REASON_POLICY_BLOCK = "policy_block"
 REASON_NIGHT = "defer_to_night"
 REASON_MANUAL = "manual_pause"
+REASON_ARCHITECTURE = "architecture_blocker"
 REASON_NONE = "ready"
 
 
@@ -63,16 +64,28 @@ class WaitState:
         return " · ".join(parts)
 
 
+def _is_architecture_item(item: Any) -> bool:
+    meta = getattr(item, "meta", None) or {}
+    if isinstance(meta, dict) and meta.get("source") == "architecture_interview":
+        return True
+    title = str(getattr(item, "title", "") or "")
+    if title.startswith("Architecture"):
+        return True
+    conf = getattr(item, "conflict", None) or {}
+    if isinstance(conf, dict) and conf.get("topic") == "architecture":
+        return True
+    return str(getattr(item, "id", "")).startswith("arch-")
+
+
 def _decision_blockers(
     decisions: DecisionQueue | None,
     project: str = "",
     step_ids: list[str] | None = None,
-) -> tuple[list[str], list[str]]:
-    """Return (decision_ids, affected_step_ids) that block."""
+) -> tuple[list[str], list[str], list[str]]:
+    """Return (decision_ids, affected_step_ids, architecture_decision_ids)."""
     if decisions is None:
-        return [], []
+        return [], [], []
     open_items = decisions.open_items(project or None)
-    # expire soft timeouts first
     try:
         decisions.expire_stale()
         open_items = decisions.open_items(project or None)
@@ -80,13 +93,18 @@ def _decision_blockers(
         pass
     dec_ids: list[str] = []
     steps: list[str] = []
+    arch_ids: list[str] = []
     for item in open_items:
         if step_ids is not None and item.affected_step_ids:
             if not (set(item.affected_step_ids) & set(step_ids)):
-                continue
+                # architecture items often have empty affected_step_ids → still block
+                if not _is_architecture_item(item):
+                    continue
         dec_ids.append(item.id)
         steps.extend(item.affected_step_ids)
-    return dec_ids, list(dict.fromkeys(steps))
+        if _is_architecture_item(item):
+            arch_ids.append(item.id)
+    return dec_ids, list(dict.fromkeys(steps)), arch_ids
 
 
 def evaluate_wait(
@@ -117,16 +135,26 @@ def evaluate_wait(
             detail="Manual pause",
         )
 
-    # Decisions
-    dec_ids, blocked_steps = _decision_blockers(decisions, project, step_ids)
+    # Decisions (including architecture interview — FC-37H)
+    dec_ids, blocked_steps, arch_ids = _decision_blockers(decisions, project, step_ids)
     if dec_ids:
+        if arch_ids and set(arch_ids) == set(dec_ids):
+            reason = REASON_ARCHITECTURE
+            detail = "Open architecture decision(s) — autopilot paused"
+        elif arch_ids:
+            reason = REASON_ARCHITECTURE
+            detail = f"Architecture + other decisions open ({len(arch_ids)} arch)"
+        else:
+            reason = REASON_DECISION
+            detail = "Open human decision(s)"
         return WaitState(
             can_emit=False,
             can_run=True,  # unrelated in-flight work may continue
-            reason=REASON_DECISION,
-            detail="Open human decision(s)",
+            reason=reason,
+            detail=detail,
             blocking_decision_ids=dec_ids,
             blocked_step_ids=blocked_steps,
+            meta={"architecture_decision_ids": arch_ids},
         )
 
     # Policy on conflicts
@@ -213,10 +241,13 @@ def filter_emit_steps(
     if wait.can_emit and wait.reason == REASON_NONE:
         return list(steps), []
     blocked = set(wait.blocked_step_ids)
-    if wait.reason == REASON_DECISION and blocked:
+    if wait.reason in (REASON_DECISION, REASON_ARCHITECTURE) and blocked:
         allow = [s for s in steps if s.id not in blocked]
         hold = [s for s in steps if s.id in blocked]
         return allow, hold
+    # Architecture with no step ids → hold everything
+    if wait.reason == REASON_ARCHITECTURE and not blocked:
+        return [], list(steps)
     if wait.reason == REASON_NIGHT and blocked:
         allow = [s for s in steps if s.id not in blocked]
         hold = [s for s in steps if s.id in blocked]

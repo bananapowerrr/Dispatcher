@@ -500,3 +500,17 @@ A later developer/agent can see:
 ---
 
 *Generated as audit-only pass. No modules deleted in this change set.*
+
+---
+
+## Cleanup log (2026-09-17)
+
+Controlled cleanup (no runtime changes):
+
+1. **Docs:** 30 historical FC/audit/handoff files moved to `docs/archive/` with HISTORICAL banner.
+2. **CURRENT docs** left in `docs/` (see INDEX.md).
+3. **`cfg_builder.py` / `updater.py`:** zero static refs → moved to `src/_archive_candidates/` (not deleted).
+4. **`workers_state.json`:** already in `.gitignore`.
+5. **`start_*.bat`:** root vs `scripts/` differ (not identical) — kept both; root is user entrypoint.
+
+Runtime / `rp_*` / FSM / verify / intake **untouched**.

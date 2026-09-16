@@ -64,3 +64,34 @@ class ProjectService:
             return doctor_text()
         except Exception as exp:
             return f"Doctor unavailable: {exp}"
+
+
+    def workspace_summary(self) -> dict[str, Any]:
+        """FC-43 compact Project Workspace payload for UI / tests."""
+        root = self._require_root()
+        out: dict[str, Any] = {
+            "project": str(root),
+            "snapshot": {},
+            "queue": {},
+            "supervisor": {},
+            "architecture_banner": "",
+            "decisions_open": 0,
+        }
+        try:
+            out["snapshot"] = self.get_snapshot(include_capabilities=False)
+        except Exception as exp:
+            out["snapshot_error"] = str(exp)[:200]
+        try:
+            from app.tasks_service import TasksService
+            ts = TasksService(root)
+            out["queue"] = ts.list_queue_summary()
+            out["supervisor"] = ts.supervisor_status()
+            out["decisions_open"] = len(ts.open_decisions() or [])
+        except Exception as exp:
+            out["queue_error"] = str(exp)[:200]
+        try:
+            out["architecture_banner"] = self.architecture_banner()
+        except Exception:
+            pass
+        return out
+

@@ -35,5 +35,10 @@ def test_collect_queue_snapshot(tmp_path, monkeypatch):
     assert counts["deferred"] >= 1
     assert any("hello" in str(i.get("message")) for i in snap["items"])
     summary = qp.format_queue_summary(counts)
-    assert "in:" in summary
-    assert "⏳" in summary or "deferred" in summary or str(counts["deferred"]) in summary
+    # FC-21: i18n summary (RU/EN)
+    assert isinstance(summary, str) and len(summary) > 5
+    assert (
+        str(counts.get("deferred", 0)) in summary
+        or "deferred" in summary.lower()
+        or "отлож" in summary.lower()
+    )

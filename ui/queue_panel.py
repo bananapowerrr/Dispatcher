@@ -98,15 +98,18 @@ def collect_queue_snapshot(limit: int = 40) -> dict[str, Any]:
 
 
 def format_queue_summary(counts: dict | None) -> str:
-    c = counts or {}
-    return (
-        f"ПК:{c.get('desktop', 0)}  "
-        f"in:{c.get('incoming', 0)}  "
-        f"run:{c.get('processing', 0)}  "
-        f"⏳:{c.get('deferred', 0)}  "
-        f"✓:{c.get('done', 0)}  "
-        f"✕:{c.get('errors', 0)}"
-    )
+    """FC-21: i18n queue summary."""
+    try:
+        from ui.status_labels import format_queue_counts
+        return format_queue_counts(counts)
+    except Exception:
+        c = counts or {}
+        return (
+            f"queued={c.get('queued', c.get('pending', 0))} "
+            f"run={c.get('processing', 0)} "
+            f"def={c.get('deferred', 0)} "
+            f"err={c.get('errors', 0)}"
+        )
 
 
 def _build_queue_panel_class():
@@ -115,9 +118,10 @@ def _build_queue_panel_class():
     class QueuePanel(ctk.CTkFrame):
         """Live queue list for desktop + file-bus."""
 
-        def __init__(self, parent, poll_ms: int = 3000):
+        def __init__(self, parent, poll_ms: int = 3000, on_select=None):
             super().__init__(parent)
             self.poll_ms = poll_ms
+            self.on_select = on_select
 
             top = ctk.CTkFrame(self, fg_color="transparent")
             top.pack(fill="x", padx=8, pady=4)
@@ -185,7 +189,18 @@ def _build_queue_panel_class():
             fg = colors.get(state, "gray70")
             frame = ctk.CTkFrame(self.scroll)
             frame.pack(fill="x", pady=2)
-            tid = str(row.get("id") or "")[:16]
+            full_tid = str(row.get("id") or "")
+            def _click(_e=None, _tid=full_tid):
+                if self.on_select and _tid:
+                    try:
+                        self.on_select(_tid)
+                    except Exception:
+                        pass
+            try:
+                frame.bind("<Button-1>", _click)
+            except Exception:
+                pass
+            tid = full_tid[:16]
             ch = str(row.get("_channel") or "")
             ch_disp = "ПК" if ch == "desktop" else ch
             head = f"{state or '—'}  {tid}  · {ch_disp}"

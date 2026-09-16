@@ -1,5 +1,7 @@
 # NVCode / NVC — Architecture (2026-09)
 
+> **Source of truth for architecture.** Module-level map: [ARCHITECTURE_INVENTORY.md](ARCHITECTURE_INVENTORY.md). Historical FC/audit docs: [archive/](archive/).
+
 ## Product
 
 **NVCode (NVC)** — local AI IDE for developers.  

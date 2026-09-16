@@ -284,3 +284,24 @@ def print_doctor(rep: DoctorReport | None = None) -> int:
 def doctor_text() -> str:
     """FC-18: string for UI without print side-effects."""
     return run_doctor().format_human()
+
+
+def capability_section() -> str:
+    """Optional human block for doctor / UI (never raises)."""
+    try:
+        from core.configuration_advisor import first_run_summary
+        return first_run_summary(probe_network=True)
+    except Exception:
+        try:
+            from core.capability_scan import scan_capabilities
+            return scan_capabilities(probe_network=True, include_config=True).format_human()
+        except Exception as exp:
+            return f"Capability scan unavailable: {exp}"
+
+
+def doctor_full_text(*, include_capability: bool = True) -> str:
+    """Checklist + optional configuration advisor for UI/CLI."""
+    body = run_doctor().format_human()
+    if not include_capability:
+        return body
+    return body + "\n\n" + capability_section()

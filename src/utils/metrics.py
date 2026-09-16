@@ -18,6 +18,7 @@ class MetricsCollector:
         self.deferred_count = 0
         self.deduped_count = 0
         self.worker_usage: dict[str, int] = {}
+        self.skill_stats: dict[str, dict[str, float]] = {}
         self.latency_stats: dict[str, dict[str, float]] = {}
         self.error_types: dict[str, int] = {}
         # Fast-path / LLM efficiency counters
@@ -150,9 +151,36 @@ class MetricsCollector:
                 key = f"verify_ladder_fail_L{lvl}"
                 self.counters[key] = int(self.counters.get(key) or 0) + 1
 
+
+    def record_skill(
+        self,
+        name: str,
+        *,
+        success: bool,
+        latency: float = 0.0,
+        matched: bool = True,
+    ) -> None:
+        """Per-skill hit / success / latency (Stage 6)."""
+        key = (name or "unknown").strip() or "unknown"
+        with self._lock:
+            st = self.skill_stats.setdefault(
+                key, {"hits": 0.0, "success": 0.0, "fail": 0.0, "latency_sum": 0.0, "latency_n": 0.0}
+            )
+            if matched:
+                st["hits"] += 1.0
+            if success:
+                st["success"] += 1.0
+            else:
+                st["fail"] += 1.0
+            if latency and latency > 0:
+                st["latency_sum"] += float(latency)
+                st["latency_n"] += 1.0
+            # skill_hit / skill_miss counters remain owned by record("skill_hit"|"skill_miss")
+
     def get_hit_rates(self) -> dict[str, float]:
         with self._lock:
             c = dict(self.counters)
+            skill_snap = {k: dict(v) for k, v in self.skill_stats.items()}
         cache_total = c.get("cache_hit", 0) + c.get("cache_miss", 0)
         skill_total = c.get("skill_hit", 0) + c.get("skill_miss", 0)
         llm_total = c.get("llm_call", 0) + c.get("llm_fail", 0)
@@ -165,6 +193,20 @@ class MetricsCollector:
         return {
             "cache_hit_rate": _rate(c.get("cache_hit", 0), cache_total),
             "skill_hit_rate": _rate(c.get("skill_hit", 0), skill_total),
+            "skill_by_name": {
+                k: {
+                    "hits": int(v.get("hits") or 0),
+                    "success": int(v.get("success") or 0),
+                    "fail": int(v.get("fail") or 0),
+                    "success_rate": (float(v.get("success") or 0) / float(v.get("hits") or 1)),
+                    "avg_latency": (
+                        float(v.get("latency_sum") or 0) / float(v.get("latency_n") or 1)
+                        if float(v.get("latency_n") or 0) > 0 else 0.0
+                    ),
+                }
+                for k, v in sorted(skill_snap.items())
+            },
+
             "llm_success_rate": _rate(llm_ok, c.get("llm_call", 0) or llm_total),
             "cache_total": float(cache_total),
             "skill_total": float(skill_total),
@@ -243,3 +285,31 @@ class MetricsCollector:
 
 
 GLOBAL_METRICS = MetricsCollector()
+
+
+def record_task_cost(
+    task_id: str,
+    *,
+    worker: str = "",
+    provider: str = "",
+    model: str = "",
+    tokens_in: int = 0,
+    tokens_out: int = 0,
+    tokens_total: int | None = None,
+) -> dict:
+    """Bridge to CostTracker — safe no-op if unavailable."""
+    try:
+        from utils.cost_tracker import GLOBAL_COST
+        rec = GLOBAL_COST.record(
+            task_id,
+            worker=worker,
+            provider=provider,
+            model=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            tokens_total=tokens_total,
+        )
+        GLOBAL_METRICS.record("llm_call")
+        return rec.to_dict()
+    except Exception:
+        return {}

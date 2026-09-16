@@ -74,3 +74,46 @@ def check_syntax(
             if not (item or {}).get("ok", False):
                 ok_all = False
     return {"ok": ok_all, "results": results[:100], "count": len(results)}
+
+
+
+def find_bare_except(
+    *, root: Path, path: str | None = None, files: list[str] | None = None
+) -> dict[str, Any]:
+    from skills.builtin.hygiene import _targets
+    import re
+    hits = []
+    for fp in _targets(root, path, files, limit=300):
+        try:
+            text = fp.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for i, ln in enumerate(text.splitlines(), 1):
+            if re.match(r"^\s*except\s*:\s*(#.*)?$", ln):
+                try:
+                    rel = str(fp.relative_to(root))
+                except ValueError:
+                    rel = str(fp)
+                hits.append({"file": rel, "line": i, "text": ln.strip()})
+    return {"ok": True, "count": len(hits), "hits": hits[:50]}
+
+
+def find_bare_io(
+    *, root: Path, path: str | None = None
+) -> dict[str, Any]:
+    from skills.builtin.hygiene import _targets
+    import re
+    hits = []
+    for fp in _targets(root, path, None, limit=300):
+        try:
+            text = fp.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for i, ln in enumerate(text.splitlines(), 1):
+            if re.search(r"\bopen\s*\(", ln) and "with " not in ln:
+                try:
+                    rel = str(fp.relative_to(root))
+                except ValueError:
+                    rel = str(fp)
+                hits.append({"file": rel, "line": i, "text": ln.strip()[:120]})
+    return {"ok": True, "count": len(hits), "hits": hits[:50]}

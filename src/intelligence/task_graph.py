@@ -20,7 +20,7 @@ class GraphNode:
     files: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     complexity: int = 3
-    status: str = "PENDING"  # PENDING | READY | DONE | ERROR | BLOCKED
+    status: str = "PENDING"  # PENDING|READY|DONE|ERROR|BLOCKED|SUPERSEDED|OBSOLETE|REPLACED|CANCELLED
     meta: dict[str, Any] = field(default_factory=dict)
 
     def to_task_dict(self, *, parent_id: str = "", channel: str = "gpt", project: str = "") -> dict[str, Any]:
@@ -79,12 +79,18 @@ class TaskGraph:
             n.status = status
 
     def ready(self) -> list[GraphNode]:
-        """Nodes with all deps DONE (or no deps); re-evaluates BLOCKED nodes."""
+        """Nodes with all deps DONE (or no deps); re-evaluates BLOCKED nodes.
+
+        FC-26: SUPERSEDED/OBSOLETE/REPLACED/CANCELLED are never eligible.
+        """
+        _closed = frozenset({
+            "DONE", "ERROR",
+            "SUPERSEDED", "OBSOLETE", "REPLACED", "CANCELLED",
+        })
         out: list[GraphNode] = []
         for n in self.nodes.values():
-            if n.status in ("DONE", "ERROR"):
+            if n.status in _closed:
                 continue
-            # PENDING, READY, BLOCKED can become ready
             deps_ok = True
             for d in n.depends_on:
                 dep = self.nodes.get(d)
@@ -95,11 +101,18 @@ class TaskGraph:
                 n.status = "READY"
                 out.append(n)
             else:
-                n.status = "BLOCKED"
+                if n.status not in ("IN_PROGRESS",):
+                    n.status = "BLOCKED"
         return out
 
     def all_finished(self) -> bool:
-        return all(n.status in ("DONE", "ERROR") for n in self.nodes.values())
+        """FC-26: inactive nodes count as closed."""
+        _closed = frozenset({
+            "DONE", "ERROR",
+            "SUPERSEDED", "OBSOLETE", "REPLACED", "CANCELLED",
+        })
+        return all(n.status in _closed for n in self.nodes.values())
+
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Chat: primary = desktop_queue; optional phone file-bus mirror."""
+"""Chat: отправка задач в file-bus (channels/*/incoming)."""
 from __future__ import annotations
 
 import json
@@ -34,6 +34,7 @@ class ChatPanel(ctk.CTkFrame):
         get_channel: Callable[[], str] | None = None,
         on_sent: Callable[[str], None] | None = None,
         on_command: Callable[[str], bool] | None = None,
+        get_editor_context: Callable[[], dict] | None = None,
     ):
         super().__init__(parent)
         try:
@@ -46,12 +47,13 @@ class ChatPanel(ctk.CTkFrame):
         self.get_channel = get_channel or (lambda: "gpt")
         self.on_sent = on_sent
         self.on_command = on_command
+        self.get_editor_context = get_editor_context
         self._files: list[str] = []
         self._pending_ids: set[str] = set()
-        self._pending_since: dict[str, float] = {}
-        self._stale_warned: set[str] = set()
         self._notified_processing: set[str] = set()
         self._last_phase: dict[str, str] = {}
+        self._last_attempts: dict[str, int] = {}
+        self._notified_deferred: set[str] = set()
         self._session_id: str | None = None
         self._ensure_session()
 
@@ -63,9 +65,14 @@ class ChatPanel(ctk.CTkFrame):
             pass
         self.history.pack(fill="both", expand=True, padx=12, pady=(12, 4))
         # Live phase / status under transcript
+        try:
+            from ui.status_labels import phase_label as _phase_lbl
+            _ready = _phase_lbl("ready")
+        except Exception:
+            _ready = _t("chat_ready", default="Готов к задаче")
         self.phase_label = ctk.CTkLabel(
             self,
-            text="",
+            text=_ready,
             anchor="w",
             text_color="gray",
             font=ctk.CTkFont(size=11),
@@ -78,8 +85,8 @@ class ChatPanel(ctk.CTkFrame):
             self._proposal_frame, text="", anchor="w", justify="left", wraplength=480
         )
         self._proposal_label.pack(side="left", fill="x", expand=True, padx=8, pady=6)
-        ctk.CTkButton(self._proposal_frame, text="Создать", width=80, command=self._accept_proposal).pack(side="right", padx=4, pady=6)
-        ctk.CTkButton(self._proposal_frame, text="Пропустить", width=90, command=self._dismiss_proposal).pack(side="right", padx=4, pady=6)
+        ctk.CTkButton(self._proposal_frame, text=_t("skill_accept", default="Создать"), width=80, command=self._accept_proposal).pack(side="right", padx=4, pady=6)
+        ctk.CTkButton(self._proposal_frame, text=_t("skill_skip", default="Пропустить"), width=90, command=self._dismiss_proposal).pack(side="right", padx=4, pady=6)
         self._proposal: dict | None = None
         # hidden until proposal
 
@@ -88,8 +95,8 @@ class ChatPanel(ctk.CTkFrame):
         ctk.CTkLabel(files_row, text=_t("files_label", default="Файлы:")).pack(side="left")
         self.files_label = ctk.CTkLabel(files_row, text=_t("files_none", default="(нет) · drag&drop сюда"), text_color="gray", anchor="w")
         self.files_label.pack(side="left", fill="x", expand=True, padx=6)
-        ctk.CTkButton(files_row, text="+ файл", width=80, command=self._add_file).pack(side="right", padx=2)
-        ctk.CTkButton(files_row, text="очистить", width=80, command=self._clear_files).pack(side="right")
+        ctk.CTkButton(files_row, text=_t("btn_add_file", default="+ файл"), width=80, command=self._add_file).pack(side="right", padx=2)
+        ctk.CTkButton(files_row, text=_t("btn_clear_files", default="очистить"), width=80, command=self._clear_files).pack(side="right")
 
         tmpl_row = ctk.CTkFrame(self, fg_color="transparent")
         tmpl_row.pack(fill="x", padx=8, pady=2)
@@ -187,13 +194,6 @@ class ChatPanel(ctk.CTkFrame):
         self._last_explanation: dict | None = None
 
         self.bind_all("<Control-Return>", lambda e: self.send_task())
-        self.bind_all("<Control-KP_Enter>", lambda e: self.send_task())
-        # Windows: some layouts fire Control-Key-Return
-        try:
-            self.input.bind("<Control-Return>", lambda e: self.send_task())
-            self.input.bind("<Control-KP_Enter>", lambda e: self.send_task())
-        except Exception:
-            pass
         self.input.bind("<KeyRelease>", self._on_input_key)
         self.bind_all("<Control-l>", lambda e: self._clear_history())
         self.bind_all("<Control-Shift-F>", lambda e: self._add_file())
@@ -519,30 +519,11 @@ class ChatPanel(ctk.CTkFrame):
             self.append("System", f"Не удалось сохранить skill: {exc}")
         self._dismiss_proposal()
 
-    def _track_pending(self, task_id: str) -> None:
-        """Register task id for result poll (PC-28: also timestamp for stale)."""
-        tid = (task_id or "").strip()
-        if not tid:
-            return
-        import time as _time
-        self._pending_ids.add(tid)
-        self._pending_since.setdefault(tid, _time.time())
-
-    def _untrack_pending(self, task_id: str) -> None:
-        tid = (task_id or "").strip()
-        if not tid:
-            return
-        self._pending_ids.discard(tid)
-        self._pending_since.pop(tid, None)
-        self._stale_warned.discard(tid)
-        self._notified_processing.discard(tid)
-        self._last_phase.pop(tid, None)
-
     def notify_done(self, task_id: str = "", detail: str = "", explanation: dict | None = None) -> None:
         msg = detail or task_id or "задача"
         self.append("Agent", f"DONE: {msg}", kind="done")
         try:
-            self.phase_label.configure(text="✓ готово")
+            self.phase_label.configure(text="✓ " + _t("phase_done", default="готово"))
         except Exception:
             pass
         try:
@@ -560,33 +541,65 @@ class ChatPanel(ctk.CTkFrame):
             if summary:
                 self.append("System", f"💡 {summary}")
         if task_id:
-            self._untrack_pending(task_id)
+            self._pending_ids.discard(task_id)
+            self._notified_processing.discard(task_id)
+            self._last_phase.pop(task_id, None)
+            self._last_attempts.pop(task_id, None)
+            self._notified_deferred.discard(task_id)
+
 
     def notify_error(self, task_id: str = "", detail: str = "") -> None:
-        msg = detail or task_id or "ошибка"
-        self.append("System", f"ERROR: {msg}", kind="error")
+        text = detail or task_id or "ошибка"
         try:
-            self.phase_label.configure(text="✗ ошибка")
+            from core.error_ux import humanize_error
+            text = humanize_error(text)
         except Exception:
             pass
+        self.append("System", f"ERROR: {text}", kind="error")
         if task_id:
-            self._untrack_pending(task_id)
+            self._pending_ids.discard(task_id)
+            self._notified_processing.discard(task_id)
+            self._last_phase.pop(task_id, None)
+            self._last_attempts.pop(task_id, None)
+            self._notified_deferred.discard(task_id)
 
     def _extract_result_text(self, data: dict) -> str:
-        """Достать человекочитаемый итог из done/error JSON (FC-02: TaskResult + verify)."""
+        """Достать человекочитаемый итог из done/error JSON."""
         try:
-            from core.task_result import build_task_result
-            tr = build_task_result(data if isinstance(data, dict) else {})
-            human = tr.format_human()
-            if human and (tr.verification or tr.changes.files or tr.error or tr.summary):
-                return human[:1200]
+            from ui.result_text import extract_result_text
+            text = extract_result_text(data)
+            if text and text != "готово":
+                return text[:2000]
         except Exception:
             pass
         try:
-            from ui.result_text import extract_result_text
-            return extract_result_text(data)
+            from core.error_ux import humanize_from_row
+            st = str(data.get("status") or data.get("_state") or "").lower()
+            nested = data.get("result") if isinstance(data.get("result"), dict) else {}
+            if st in ("error", "errors", "failed") or nested.get("ok") is False:
+                return humanize_from_row(data)[:2000]
         except Exception:
-            return str((data or {}).get("error") or (data or {}).get("status") or "готово")[:1200]
+            pass
+        for key in ("result", "output", "summary", "reply", "response", "message_out"):
+            v = data.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()[:2000]
+        meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+        for key in ("result", "summary", "verify_note", "worker_output"):
+            v = meta.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()[:2000]
+        err = data.get("error") or meta.get("error")
+        if isinstance(err, str) and err.strip():
+            try:
+                from core.error_ux import humanize_error
+                return humanize_error(err)[:1200]
+            except Exception:
+                return err.strip()[:1200]
+        status = data.get("status") or ""
+        worker = data.get("worker") or meta.get("worker") or ""
+        parts = [p for p in (str(status), str(worker)) if p]
+        return " · ".join(parts) if parts else "готово"
 
     def _match_pending(self, path: Path, data: dict) -> str | None:
         iid = str(data.get("id") or path.stem or "")
@@ -661,62 +674,46 @@ class ChatPanel(ctk.CTkFrame):
                             )
                         except Exception:
                             pass
+                    # FC-13: retry / reclaim progress
+                    try:
+                        from core.error_ux import retry_status_from_row
+                        rline = retry_status_from_row(data)
+                        meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+                        att = int(data.get("attempts") or meta.get("attempts") or 0)
+                        prev_att = self._last_attempts.get(tid, 0)
+                        if rline and (att > prev_att or (att > 1 and prev_att == 0)):
+                            self._last_attempts[tid] = att
+                            self.append("System", rline + f" ({tid[:12]})", kind="info")
+                            try:
+                                self.phase_label.configure(text=f"↻ {rline[:80]}")
+                            except Exception:
+                                pass
+                        elif att and tid not in self._last_attempts:
+                            self._last_attempts[tid] = att
+                    except Exception:
+                        pass
+                    continue
+                if state == "deferred":
+                    if tid not in self._notified_deferred:
+                        self._notified_deferred.add(tid)
+                        try:
+                            from core.error_ux import format_deferred_banner
+                            banner = format_deferred_banner(data)
+                        except Exception:
+                            banner = "⏳ Задача отложена — вернётся в очередь автоматически"
+                        self.append("System", f"{banner} ({tid[:12]})", kind="info")
+                        try:
+                            self.phase_label.configure(text=banner[:90])
+                        except Exception:
+                            pass
                     continue
                 detail = self._extract_result_text(data)
                 self._notified_processing.discard(tid)
+                self._notified_deferred.discard(tid)
                 if state == "done":
                     self.notify_done(tid, detail)
-                elif state == "deferred":
-                    self.append(
-                        "System",
-                        f"⏳ отложено: {detail or tid[:12]}",
-                        kind="info",
-                    )
-                    try:
-                        self.phase_label.configure(text="⏳ отложено")
-                    except Exception:
-                        pass
-                    # keep pending — may return to processing later
                 else:
                     self.notify_error(tid, detail)
-            # PC-28/29: pending stuck — dispatcher not running or lost on bus
-            try:
-                import time as _time
-                now = _time.time()
-                spill_root = agentbus_root() / ".agentbus" / "desktop_queue"
-                for tid in list(self._pending_ids):
-                    since = float(self._pending_since.get(tid) or now)
-                    age = now - since
-                    still_queued = False
-                    try:
-                        still_queued = (spill_root / f"{tid}.json").is_file()
-                    except Exception:
-                        still_queued = False
-                    if tid not in self._stale_warned:
-                        if still_queued and age >= 60:
-                            self._stale_warned.add(tid)
-                            self.append(
-                                "System",
-                                f"⚠ задача {tid[:12]}… всё ещё в очереди ({int(age)}с). "
-                                f"Запустите диспетчер (▶ в шапке окна).",
-                                kind="info",
-                            )
-                        elif (not still_queued) and age >= 1800:
-                            self._stale_warned.add(tid)
-                            self.append(
-                                "System",
-                                f"⚠ нет статуса по задаче {tid[:12]}… "
-                                f"({int(age // 60)} мин). Проверьте reclaim / логи.",
-                                kind="info",
-                            )
-                    if age >= 7200:  # 2 h — stop polling this id
-                        self._untrack_pending(tid)
-                        try:
-                            self.phase_label.configure(text="○ ожидание")
-                        except Exception:
-                            pass
-            except Exception:
-                pass
 
         try:
             from ui.async_poll import run_bg
@@ -747,6 +744,43 @@ class ChatPanel(ctk.CTkFrame):
         except Exception:
             self._session_id = None
             return self._ensure_session(project)
+
+    
+    def _maybe_session_bootstrap(self, project_root: str = "") -> str:
+        """FC-37C: optional quick analysis banner (never raises)."""
+        try:
+            from intelligence.session_bootstrap import bootstrap_session
+            from core.config import BASE_DIR
+            root = project_root or str(BASE_DIR or ".")
+            # Prefer explicit UI project path if panel tracks it
+            proj = ""
+            if hasattr(self, "get_project"):
+                try:
+                    proj = self.get_project() or ""
+                except Exception:
+                    proj = ""
+            path = proj or root
+            if not path:
+                return ""
+            r = bootstrap_session(path, use_index=False, advice_limit=3)
+            parts = []
+            if not r.skipped:
+                parts.append(r.banner or r.analysis_summary or "")
+            try:
+                from intelligence.architecture_blockers import format_blocker_banner
+                from intelligence.decision_queue import DecisionQueue
+                from pathlib import Path as P
+                dq_path = P(path) / ".agentbus" / "decisions.json"
+                dq = DecisionQueue(path=dq_path if dq_path.parent.is_dir() else None)
+                banner = format_blocker_banner(dq)
+                if banner:
+                    parts.append(banner)
+            except Exception:
+                pass
+            return "\n\n".join(x for x in parts if x).strip()
+        except Exception:
+            return ""
+
 
     def _ensure_session(self, project: str = "") -> str:
         try:
@@ -967,17 +1001,10 @@ class ChatPanel(ctk.CTkFrame):
             path = emit_recipe(
                 name, target=target, project=project, channel=channel,
             )
-            tid = path.stem if path else ""
-            if tid:
-                self._track_pending(tid)
+            self.append("System", f"Рецепт «{name}» → {path.name}")
+            if self.on_sent:
                 try:
-                    self.phase_label.configure(text="○ в очереди")
-                except Exception:
-                    pass
-            self.append("System", f"Рецепт «{name}» → desktop_queue id={tid or path.name}")
-            if self.on_sent and tid:
-                try:
-                    self.on_sent(tid)
+                    self.on_sent(path.stem.replace(".json", ""))
                 except Exception:
                     pass
         except Exception as exc:
@@ -1054,6 +1081,34 @@ class ChatPanel(ctk.CTkFrame):
                 )
             except Exception as exc:
                 meta["attachments_error"] = str(exc)
+        # FC-41: editor context (active file / selection)
+        try:
+            ctx = {}
+            if callable(getattr(self, "get_editor_context", None)):
+                ctx = self.get_editor_context() or {}
+            af = (ctx.get("active_file") or "").strip()
+            sel = (ctx.get("selection") or "").strip()
+            if af or sel:
+                ensure_sys_path()
+                from app.agent_service import AgentService
+                ag = AgentService(project)
+                ag.set_editor_context(active_file=af, selection=sel)
+                message = ag.enrich_prompt(message)
+                meta["active_file"] = af
+                if sel:
+                    meta["has_selection"] = True
+                meta["editor_context"] = True
+                # Prefer active file in task.files if none attached
+                if af and not self._files:
+                    self._files = [af]
+                self.append(
+                    "System",
+                    f"Контекст редактора: {af or '—'}{' + selection' if sel else ''}",
+                    kind="info",
+                )
+        except Exception as _ecx:
+            meta["editor_context_error"] = str(_ecx)[:200]
+
         payload = {
             "id": task_id,
             "project": project,
@@ -1063,51 +1118,26 @@ class ChatPanel(ctk.CTkFrame):
             "status": "PENDING",
             "metadata": meta,
         }
-        # Primary: desktop queue (not channels/incoming)
+        # FC-09: TaskService → desktop_queue (+ optional phone mirror)
         try:
-            from core.local_queue import get_local_queue
-            queued_id = get_local_queue(root).put(payload)
-            if queued_id:
-                task_id = str(queued_id)
-                payload["id"] = task_id
+            from core.task_service import submit_payload
+            tid, err = submit_payload(
+                payload,
+                source="desktop_chat",
+                root=root,
+                mirror_phone=True,
+                phone_channel=channel,
+            )
+            if err or not tid:
+                self.append("System", f"Отклонено: {err or 'queue failed'}")
+                return
+            task_id = str(tid)
+            payload["id"] = task_id
             meta["queued"] = "desktop"
-        except ValueError as exc:
-            # intake reject (path traversal / dangerous cmd / contract)
-            self.append("System", f"Отклонено: {exc}")
-            return
         except Exception as exc:
             self.append("System", f"Очередь desktop: {exc}")
             return
-        # Optional: mirror to phone file-bus if enabled
-        try:
-            from core.feature_flags import is_enabled
-            if is_enabled("phone_filebus", default=False) or is_enabled("remote_filebus", default=False):
-                incoming = root / "channels" / channel / "incoming"
-                incoming.mkdir(parents=True, exist_ok=True)
-                mirror = dict(payload)
-                mirror["channel"] = channel
-                mirror.setdefault("metadata", {})["mirrored_from"] = "desktop"
-                (incoming / f"{task_id}.json").write_text(
-                    json.dumps(mirror, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-        except Exception:
-            pass
-        self._track_pending(task_id)
-        try:
-            self.phase_label.configure(text="○ в очереди")
-        except Exception:
-            pass
-        # PC-30: immediate hint if dispatcher is not running
-        try:
-            from ui.dispatcher_ctl import is_running as _disp_run
-            if not _disp_run():
-                self.append(
-                    "System",
-                    "Диспетчер не запущен — задача в очереди. Нажмите ▶ «Запустить диспетчер».",
-                    kind="info",
-                )
-        except Exception:
-            pass
+        self._pending_ids.add(task_id)
         self.input.delete("1.0", "end")
         self._files.clear()
         if hasattr(self, "_attach_abs"):

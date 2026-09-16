@@ -17,6 +17,7 @@ _STATUS_KEYS = {
     "running": "status_processing",
     "claimed": "status_processing",
     "deferred": "status_deferred",
+    "waiting_decision": "status_waiting_decision",
     "cancelled": "status_cancelled",
     "canceled": "status_cancelled",
 }
@@ -27,6 +28,7 @@ _STATUS_DEFAULTS = {
     "status_pending": "Queued",
     "status_processing": "Running",
     "status_deferred": "Deferred",
+    "status_waiting_decision": "Waiting decision",
     "status_cancelled": "Cancelled",
 }
 

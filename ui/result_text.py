@@ -36,6 +36,21 @@ def extract_result_text(data: dict[str, Any] | None) -> str:
     except Exception:
         pass
 
+    # FC-12: unified error humanizer when task failed
+    try:
+        st = str(data.get("status") or data.get("_state") or "").lower()
+        nested0 = data.get("result") if isinstance(data.get("result"), dict) else {}
+        failed = st in ("error", "errors", "failed") or (
+            isinstance(nested0, dict) and nested0.get("ok") is False
+        )
+        if failed:
+            from core.error_ux import humanize_from_row
+            msg = humanize_from_row(data)
+            if msg:
+                return msg[:1200]
+    except Exception:
+        pass
+
     meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
     nested = data.get("result") if isinstance(data.get("result"), dict) else {}
 
