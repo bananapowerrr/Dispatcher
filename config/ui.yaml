@@ -1,0 +1,5 @@
+# AgentBus UI defaults
+active_preset: local_only
+theme: system
+autostart_dispatcher: false
+language: ru

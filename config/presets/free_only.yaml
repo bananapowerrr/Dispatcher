@@ -1,0 +1,8 @@
+preset:
+  name: free_only
+  description: "Только бесплатные / local провайдеры"
+  allow_providers:
+    - ollama
+    - openrouter_free
+  deny_billing: true
+  prefer_complexity_max: 4

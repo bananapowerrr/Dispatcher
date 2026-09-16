@@ -2,7 +2,7 @@
 """JSONL consumer: пишет все события в events/YYYY-MM-DD.jsonl.
 
 Один файл в день, каждая строка — одно событие (AgentEvent.to_line()).
-Выживает без сети (в отличие от Supabase). Атомарная запись под локом.
+Атомарная запись под локом.
 """
 from __future__ import annotations
 import os

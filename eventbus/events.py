@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """EventBus — единый поток событий AgentBus (контракт v3, DESIGN.md).
 
-Один поток событий, несколько независимых consumers (Console / JSONL / Supabase).
+Один поток событий, несколько независимых consumers (Console / JSONL).
 События не влияют на бизнес-логику задач: emit() никогда не бросает, подписчики
 не знают друг о друге.
 """
@@ -12,24 +12,24 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
-# --- типы событий: 5 групп (Lifecycle/Agent/Execution/Health/System) ---
+# --- типы событий: Lifecycle / Agent / Execution / Health / System ---
 LIFECYCLE = frozenset({
     "CLAIM", "START", "READY", "DONE", "ERROR", "TIMEOUT", "RETRY", "DEFERRED",
-    "BLOCKED", "DEFERRED_QUOTA",
+    "BLOCKED", "DEFERRED_QUOTA", "RATE_LIMIT", "LOOP",
 })
-AGENT = frozenset({"THINKING", "MESSAGE", "TOOL_CALL", "TOOL_RESULT"})
+AGENT = frozenset({"THINKING", "MESSAGE", "TOOL_CALL", "TOOL_RESULT", "PULSE"})
 EXECUTION = frozenset({"COMMAND", "TEST_START", "TEST_RESULT", "GIT_STATUS", "COMMIT"})
 HEALTH = frozenset({
     "HEARTBEAT", "WORKER_BUSY", "WORKER_READY", "WORKER_COOLDOWN", "WORKER_CRASH",
 })
-SYSTEM = frozenset({"QUEUE", "SUPABASE", "LOCK", "CONFIG", "REPAIR"})
+SYSTEM = frozenset({"QUEUE", "LOCK", "CONFIG", "REPAIR", "SYSTEM"})
 
 EVENT_TYPES = LIFECYCLE | AGENT | EXECUTION | HEALTH | SYSTEM
 
 
 @dataclass
 class AgentEvent:
-    """Унифицированное событие для одного потока/консоли/JSONL/Supabase."""
+    """Унифицированное событие для консоли / JSONL."""
     task_id: str = ""
     worker: str = ""
     executor: str = ""
@@ -58,31 +58,25 @@ Listener = Callable[[AgentEvent], None]
 
 
 class EventBus:
-    """Тонкий, thread-safe шина событий. Никогда не бросает исключений.
-
-    Подписчики — callable(event). Если любой подписчик упал — шина логирует
-    в stderr и продолжает, чтобы сбой consumer'а не влиял на остальных.
-    """
+    """Thread-safe шина. Никогда не бросает."""
 
     def __init__(self, eager: bool = True) -> None:
         self._listeners: list[Listener] = []
         self._lock = threading.Lock()
         self._count = 0
         self._last: AgentEvent | None = None
-        if eager:
-            pass  # синглтон-конфигурация происходит через submit/attach
 
-    # ---------- subscription ----------
     def attach(self, listener: Listener) -> Callable[[], None]:
-        """Регистрирует consumer; возвращает функцию-отписку."""
         with self._lock:
             self._listeners.append(listener)
+
         def detach() -> None:
             with self._lock:
                 try:
                     self._listeners.remove(listener)
                 except ValueError:
                     pass
+
         return detach
 
     def detach_all(self) -> None:
@@ -97,14 +91,10 @@ class EventBus:
     def last(self) -> AgentEvent | None:
         return self._last
 
-    # ---------- emit ----------
     def emit(self, event: AgentEvent | None = None, **kw: Any) -> AgentEvent:
-        """Публикует событие. Принимает либо готовый AgentEvent, либо kwargs
-        для его построения (task_id/worker/type/message/payload...)."""
         if event is None:
             event = AgentEvent(**kw)
         elif kw:
-            # merge: явные kwargs-поля переопределяют одноимённые из event
             for k, v in kw.items():
                 if hasattr(event, k):
                     setattr(event, k, v)
@@ -118,26 +108,22 @@ class EventBus:
             except Exception as exc:  # noqa: BLE001
                 try:
                     import sys as _sys
-                    print(f"[eventbus] consumer error: {type(exc).__name__}: {exc}",
+                    print(f"[шина] ошибка consumer: {type(exc).__name__}: {exc}",
                           file=_sys.stderr)
                 except Exception:
                     pass
         return event
 
-    # --- короткие хелперы для типовых событий ---
     def event(self, type_: str, message: str = "", **kw: Any) -> AgentEvent:
         kw["type"] = type_
         kw["message"] = message
         return self.emit(**kw)
 
 
-# Глобальный синглтон, к которому обращаются модули без передачи инстанса.
-# Тесты могут заменить BUS = EventBus() свежим инстансом.
 BUS = EventBus()
 
 
 def reset_bus() -> EventBus:
-    """Возвращает новый чистый шину и назначает его глобальным (для тестов)."""
     global BUS
     new_bus = EventBus()
     BUS = new_bus

@@ -1,0 +1,74 @@
+# AgentBus workers registry
+# Meta-classification is NOT a worker here — see meta_classifier.py + AGENTBUS_META / META_MODEL.
+# role is informational for future router hints (optional).
+
+# Реестр воркеров AgentBus — финальный стек (2026-09)
+# Воркер = (harness + provider + model). Диспетчер выбирает по score (health)
+# и complexity (router Stage 3). Источник истины для моделей — providers.yaml
+
+- name: aider_local
+  role: code
+  harness: aider
+  provider: ollama
+  model: ollama_chat/qwen2.5-coder:7b
+  command: "{aider} {yes} --model {aider_model} --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 10
+  timeout: 900
+  complexity: 2
+  quality: 1.0
+  enabled: true
+
+- name: opencode
+  harness: opencode
+  provider: zen
+  model: ""
+  command: "{opencode} {message}"
+  priority: 20
+  timeout: 600
+  complexity: 5
+  quality: 1.2
+  enabled: true
+
+- name: aider_siliconflow
+  harness: aider
+  provider: siliconflow
+  model: ""
+  command: "{aider} {yes} --model {model} --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 25
+  timeout: 300
+  complexity: 5
+  quality: 1.4
+  enabled: true
+
+- name: aider_openrouter
+  harness: aider
+  provider: openrouter
+  model: ""
+  command: "{aider} {yes} --model {model} --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 30
+  timeout: 180
+  complexity: 4
+  quality: 1.3
+  enabled: true
+
+- name: aider_together
+  harness: aider
+  provider: together
+  model: ""
+  command: "{aider} {yes} --model {model} --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 40
+  timeout: 300
+  complexity: 5
+  quality: 1.3
+  enabled: true
+
+- name: aider_huggingface
+  harness: aider
+  provider: huggingface
+  model: ""
+  command: "{aider} {yes} --model {model} --no-auto-commits --no-pretty --no-stream {files} --message {message}"
+  priority: 50
+  timeout: 300
+  complexity: 4
+  quality: 1.2
+  enabled: true

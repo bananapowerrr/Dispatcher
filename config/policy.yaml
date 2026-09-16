@@ -1,0 +1,39 @@
+# Политика выполнения (масс-продукт). Не хардкод «только РФ» —
+# профили: local_only | balanced | quality | cheap
+
+# Активный профиль: env AGENTBUS_POLICY перекрывает
+active: balanced
+
+profiles:
+  local_only:
+    description: "Только локальные backends. Без облака и telemetry."
+    prefer_local: true
+    require_local_fallback: true
+    allow_cloud: false
+    telemetry: false
+    privacy: private
+
+  balanced:
+    description: "Local-first; облако при нехватке tier / offline-fail."
+    prefer_local: true
+    require_local_fallback: true
+    allow_cloud: true
+    telemetry: false
+    privacy: hybrid
+
+  quality:
+    description: "Максимальное качество: облако допускается раньше."
+    prefer_local: false
+    require_local_fallback: true
+    allow_cloud: true
+    telemetry: false
+    privacy: hybrid
+
+  cheap:
+    description: "Минимум платных вызовов: local + free tier."
+    prefer_local: true
+    require_local_fallback: true
+    allow_cloud: true
+    prefer_free_billing: true
+    telemetry: false
+    privacy: hybrid

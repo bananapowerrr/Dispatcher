@@ -1,0 +1,58 @@
+{
+  "fix_lint": {
+    "message": "Исправь ошибки линтера в {files}",
+    "files_required": false
+  },
+  "add_tests": {
+    "message": "Напиши тесты для {files}",
+    "files_required": true
+  },
+  "refactor": {
+    "message": "Отрефакторь {files}, не меняя внешнего поведения",
+    "files_required": true
+  },
+  "explain": {
+    "message": "Объясни как работает {files}",
+    "files_required": true
+  },
+  "format": {
+    "message": "Отформатируй код в {files}",
+    "files_required": false
+  },
+  "cleanup_imports": {
+    "message": "Удали неиспользуемые импорты в {files}",
+    "files_required": false
+  },
+  "type_hints": {
+    "message": "Добавь type hints в {files}",
+    "files_required": true
+  },
+  "docstrings": {
+    "message": "Добавь docstrings к публичным функциям в {files}",
+    "files_required": true
+  },
+  "bare_except": {
+    "message": "Замени bare except: на типизированные except в {files}",
+    "files_required": false
+  },
+  "strip_whitespace": {
+    "message": "Убери хвостовые пробелы в {files}",
+    "files_required": false
+  },
+  "normalize_newlines": {
+    "message": "Нормализуй переводы строк (CRLF→LF) в {files}",
+    "files_required": false
+  },
+  "count_loc": {
+    "message": "Подсчитай строки кода в проекте",
+    "files_required": false
+  },
+  "generate_requirements": {
+    "message": "Сгенерируй/обнови requirements.txt по импортам",
+    "files_required": false
+  },
+  "git_status": {
+    "message": "Покажи git status и краткий diff",
+    "files_required": false
+  }
+}

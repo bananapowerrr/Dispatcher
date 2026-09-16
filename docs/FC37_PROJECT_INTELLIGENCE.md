@@ -20,7 +20,7 @@ QUEUE             ← «что выполняется»
 
 | ID | Scope |
 |----|--------|
-| **37A** | Project Analysis (done / gaps / risks / debt) — **quick_scan done** |
+| **37A** | Project Analysis (done / gaps / risks / debt) |
 | **37B** | Development Advisor (next 3 actions, human language) |
 | **37C** | Quick Scan (session start, cheap) |
 | **37D** | Deep Analysis (on demand / after N tasks / before night) |
@@ -72,8 +72,3 @@ FC-37     project intelligence   (advisor + interview)
 ```
 
 Implement **after** FC-32 core wait gate is green; 37A/37C first (deterministic scan, no LLM required).
-
-
-## Implemented
-
-- `intelligence/project_analysis.py` — `quick_scan()`, `AnalysisReport`, opportunities → plan hints (manual).

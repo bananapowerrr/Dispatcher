@@ -1,0 +1,83 @@
+# Model profiles — capabilities, not execution itself.
+# Workers reference a profile via `profile: <name>` or inherit from provider+tier.
+#
+# backend:
+#   aider_cli     — local/cloud via Aider search-replace (current default)
+#   opencode      — opencode harness
+#   native_tools  — OpenAI-style tool calling (cloud JSON tools)
+#
+# rag_strictness: high | medium | low
+#   high   — tight slots for ~8k models (7B)
+#   medium — balanced ~32k
+#   low    — wide context for 100k+ windows
+
+profiles:
+  local_qwen_7b:
+    provider: ollama
+    model: ollama_chat/qwen2.5-coder:7b
+    context_window: 8192
+    backend: aider_cli
+    rag_strictness: high
+    temperature: 0.1
+    max_output_tokens: 2048
+
+  local_lmstudio:
+    provider: lmstudio
+    model: local-model
+    context_window: 8192
+    backend: native_tools
+    rag_strictness: high
+    temperature: 0.1
+    max_output_tokens: 2048
+
+  local_qwen_meta:
+    provider: ollama
+    model: qwen2.5:1.5b-instruct
+    context_window: 8192
+    backend: aider_cli
+    rag_strictness: high
+    temperature: 0.0
+    max_output_tokens: 512
+
+  cloud_siliconflow:
+    provider: siliconflow
+    model: ""
+    context_window: 32768
+    backend: aider_cli
+    rag_strictness: medium
+    temperature: 0.2
+    max_output_tokens: 4096
+
+  cloud_openrouter:
+    provider: openrouter
+    model: ""
+    context_window: 128000
+    backend: native_tools
+    rag_strictness: low
+    temperature: 0.2
+    max_output_tokens: 8192
+
+  cloud_claude:
+    provider: anthropic
+    model: claude-3-5-sonnet-20241022
+    context_window: 200000
+    backend: native_tools
+    rag_strictness: low
+    temperature: 0.2
+    max_output_tokens: 8192
+
+  cloud_deepseek:
+    provider: openrouter
+    model: deepseek/deepseek-chat
+    context_window: 64000
+    backend: native_tools
+    rag_strictness: medium
+    temperature: 0.15
+    max_output_tokens: 4096
+
+# Map worker name → profile (optional overrides for workers.yaml)
+worker_profiles:
+  aider_local: local_qwen_7b
+  aider_siliconflow: cloud_siliconflow
+  aider_openrouter: cloud_openrouter
+  opencode: cloud_openrouter

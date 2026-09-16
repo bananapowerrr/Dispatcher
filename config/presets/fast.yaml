@@ -1,0 +1,7 @@
+preset:
+  name: fast
+  description: "Приоритет скорости — короткие timeout, local first"
+  priority_boost:
+    aider_local: 20
+  prefer_complexity_max: 3
+  timeout_cap: 300

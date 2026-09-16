@@ -1,0 +1,78 @@
+# Feature-flag presets (not worker presets in config/presets/)
+# Apply via: feature_flags.apply_preset("minimal") or Admin UI
+
+presets:
+  minimal:
+    description: "Только шина + skills + verify. Без автономии, RAG, conversation."
+    features:
+      conversation: false
+      session_memory: false
+      codebase_rag: false
+      semantic_memory: false
+      sub_agents: false
+      autopilot: false
+      night_scheduler: false
+      skill_learner: false
+      diff_preview: true
+      solution_cache: true
+      skills: true
+      meta_classifier: false
+      explainability: false
+      hooks: false
+      file_watcher: false
+      cost_tracker: false
+      task_decomposer: false
+      project_index: false
+      lesson_learner: false
+      attachments: true
+      verify_policy: true
+
+  balanced:
+    description: "Рабочий день: кэш, skills, RAG, conversation, без ночного автопилота."
+    features:
+      conversation: true
+      session_memory: true
+      codebase_rag: true
+      semantic_memory: true
+      sub_agents: false
+      autopilot: false
+      night_scheduler: false
+      skill_learner: true
+      diff_preview: true
+      solution_cache: true
+      skills: true
+      meta_classifier: true
+      explainability: true
+      hooks: true
+      file_watcher: false
+      cost_tracker: true
+      task_decomposer: true
+      project_index: true
+      lesson_learner: true
+      attachments: true
+      verify_policy: true
+
+  night_autonomous:
+    description: "Ночной прогон: autopilot + night + sub-agents + жёсткий verify."
+    features:
+      conversation: true
+      session_memory: true
+      codebase_rag: true
+      semantic_memory: true
+      sub_agents: true
+      autopilot: true
+      night_scheduler: true
+      skill_learner: true
+      diff_preview: true
+      solution_cache: true
+      skills: true
+      meta_classifier: true
+      explainability: true
+      hooks: true
+      file_watcher: true
+      cost_tracker: true
+      task_decomposer: true
+      project_index: true
+      lesson_learner: true
+      attachments: true
+      verify_policy: true

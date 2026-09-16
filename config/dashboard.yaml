@@ -1,0 +1,24 @@
+# AgentBus metrics dashboard (UI reads this)
+dashboard:
+  refresh_interval: 30
+  widgets:
+    - type: counter
+      metric: task_count
+      title: "Всего задач"
+    - type: counter
+      metric: success_rate
+      title: "Success rate"
+      format: percent
+    - type: rates
+      metric: hit_rates
+      title: "Cache / Skills / LLM"
+    - type: histogram
+      metric: duration_histogram
+      title: "Время выполнения"
+    - type: histogram
+      metric: retry_histogram
+      title: "Ретраи"
+    - type: chart
+      metric: worker_usage
+      chart_type: bars
+      title: "Воркеры"

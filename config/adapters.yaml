@@ -1,0 +1,71 @@
+# Сменные адаптеры runtime / harness.
+# Меняете инструмент без переписывания диспетчера: правьте только этот файл
+# и (при необходимости) workers.yaml / providers.yaml.
+#
+# principle: AgentBus = оркестратор. Ollama, LM Studio, Aider, OpenCode —
+# подключаемые драйверы, а не «жёстко вшитый стек».
+
+harnesses:
+  # Локальные правки кода через CLI (search/replace)
+  aider:
+    type: cli_harness
+    enabled: true
+    binary_env: AIDER_PATH
+    binary_default: aider
+    notes: "Основной harness для локальных и части облачных моделей"
+
+  # Агентный CLI (сложные многофайловые задачи)
+  opencode:
+    type: cli_harness
+    enabled: true
+    binary_env: OPENCODE_PATH
+    binary_default: opencode
+    notes: "Опционально; можно отключить без влияния на aider/local"
+
+  # Прямой OpenAI-compatible tool loop (без Aider)
+  native_tools:
+    type: api_harness
+    enabled: true
+    module: core.native_backend
+    notes: "Для облака / LM Studio OpenAI API; не требует Aider"
+
+local_runtimes:
+  # Серверы инференса (модели)
+  ollama:
+    type: openai_or_ollama
+    enabled: true
+    base_url: http://127.0.0.1:11434
+    base_url_env: AGENTBUS_PROVIDER_OLLAMA_BASE_URL
+    health_path: /api/tags
+    provider_id: ollama
+    notes: "Дефолт для РФ: полностью офлайн"
+
+  lmstudio:
+    type: openai_compatible
+    enabled: true
+    base_url: http://127.0.0.1:1234/v1
+    base_url_env: AGENTBUS_PROVIDER_LMSTUDIO_BASE_URL
+    health_path: /models
+    provider_id: lmstudio
+    notes: "Замена Ollama без смены кода: включите провайдер lmstudio в providers.yaml"
+
+  openai_compat_local:
+    type: openai_compatible
+    enabled: true
+    base_url_env: AGENTBUS_LOCAL_OPENAI_BASE_URL
+    health_path: /models
+    notes: "Любой локальный OpenAI-совместимый сервер (text-generation-webui, vLLM, …)"
+
+# Какой harness использовать по умолчанию для роли
+defaults:
+  code_local: aider          # можно: native_tools если только LM Studio chat API
+  code_cloud: aider          # или native_tools
+  agentic: opencode
+  meta: ollama               # классификация / 1.5b
+
+# Пресет для массового пользователя РФ (ссылка на feature preset)
+mass_market:
+  preset: beginner_ru
+  prefer_local: true
+  allow_paid_default: false
+  ui_language: ru

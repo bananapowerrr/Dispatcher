@@ -1,0 +1,31 @@
+# AgentBus feature flags
+# false = модуль не используется (graceful skip), система работает дальше.
+# Env override: AGENTBUS_FEATURE_<NAME>=0|1  (NAME в UPPER_SNAKE)
+
+features:
+  # Опциональная шина channels/ для телефона (не главный канал)
+  phone_filebus: false
+  remote_filebus: false
+
+  conversation: true
+  session_memory: true
+  codebase_rag: true
+  semantic_memory: true
+  sub_agents: true
+  autopilot: true
+  night_scheduler: true
+  skill_learner: true
+  diff_preview: true
+  solution_cache: true
+  skills: true
+  meta_classifier: true
+  explainability: true
+  hooks: true
+  file_watcher: true
+  cost_tracker: true
+  task_decomposer: true
+  project_index: true
+  lesson_learner: true
+  load_custom_skills: false
+  attachments: true
+  verify_policy: true

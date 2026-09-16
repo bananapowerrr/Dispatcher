@@ -1,0 +1,40 @@
+# Расширения AgentBus (масс-продукт).
+# Добавление модуля = запись здесь + файл в plugins/ или dotted path.
+# Ядро (bus, runtime, router) не трогаем.
+#
+# enabled: false — модуль не грузится
+# feature: имя флага в feature_flags (опционально; иначе всегда по enabled)
+# provides: теги возможностей для роутера задач
+
+extensions:
+  # Встроенные (уже в PLUGIN_MODULES) — здесь только для документации/переопределения
+  # conversation:
+  #   module: intelligence.conversation
+  #   enabled: true
+  #   provides: [chat, memory]
+
+  # Пример внешнего плагина (раскомментируйте после создания файла):
+  # hello_skill:
+  #   module: plugins.hello_skill
+  #   enabled: false
+  #   feature: hello_skill
+  #   provides: [skill]
+  #   description: "Демо: образец skill-плагина"
+
+# Каталоги для автообнаружения (относительно корня AgentBus)
+scan_paths:
+  - plugins
+  - src/plugins
+
+# Сопоставление capability → предпочтительный extension / worker role
+capability_routing:
+  code_edit:
+    prefer_harness: [aider, native_tools]
+    prefer_local: true
+  classify:
+    prefer_provider: [ollama, lmstudio]
+    max_tier: 3
+  long_context:
+    prefer_profile_rag: low
+  offline:
+    require_billing: local

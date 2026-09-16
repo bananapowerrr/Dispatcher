@@ -1,0 +1,7 @@
+preset:
+  name: quality
+  description: "Качество — сильные воркеры, выше timeout"
+  priority_boost:
+    opencode: 30
+  prefer_complexity_min: 3
+  timeout_floor: 600

@@ -1,0 +1,9 @@
+# Только локальные воркеры (ollama)
+# Применяется как фильтр enabled по имени воркера
+preset:
+  name: local_only
+  description: "Оффлайн / без облака"
+  allow_workers:
+    - aider_local
+  deny_billing: true
+  prefer_complexity_max: 3

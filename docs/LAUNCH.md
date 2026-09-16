@@ -1,60 +1,51 @@
-# AgentBus — чеклист первого запуска (LIVE)
+# Первый запуск (машина)
 
-Offline-архитектура закрыта. Этот документ — **acceptance на ПК**, не разработка.
-
-## 0. Подготовка
+## 1. Offline (без моделей)
 
 ```bash
 cd AgentBus
-pip install -r requirements.txt
-pip install -r requirements-ui.txt
-export PYTHONPATH=src:.
+python scripts/smoke_offline.py
+python scripts/live_smoke.py --mock
+bash scripts/ci_smoke.sh          # полный offline CI
 ```
 
-Опционально:
+Ожидание: `READY` / `OK (0.10-alpha offline CI)`.
+
+## 2. Doctor
+
+```bash
+python dispatcher.py --diagnose
+# или
+python -c "from core.doctor import print_doctor; print_doctor()"
+```
+
+Critical must PASS. `local_runtime` / `ui_deps` могут быть NO до установки.
+
+## 3. Локальный стек
 
 ```bash
 ollama pull qwen2.5-coder:7b
-ollama pull qwen2.5:1.5b-instruct
+ollama pull qwen2.5:1.5b-instruct   # meta
+pip install -r requirements.txt
+pip install -r requirements-ui.txt  # UI
 ```
 
-Без моделей — режим **core-only** (skills / git / verify).
-
-## 1. Диагностика
+## 4. Старт
 
 ```bash
-python dispatcher.py --doctor
+python dispatcher.py              # демон
+python dispatcher_ui.py           # чат ПК = основной канал
 ```
 
-В UI: diagnose → checklist + Configuration Advisor.
+Preset для РФ: `beginner_ru` (local, parallel=1).
 
-## 2. Тесты offline
+## 5. Первые задачи
 
-```bash
-python -m pytest -q tests/ --tb=line
-```
+1. Простая правка файла через UI  
+2. Намеренный verify fail  
+3. Retry  
+4. Skill (format / normalize newlines) без LLM  
 
-## 3. UI
+## Правило
 
-```bash
-python dispatcher_ui.py
-```
-
-Setup Wizard → проект → skill-задача в чате.
-
-## 4. LIVE минимум
-
-1. Skill-only → DONE skill  
-2. Правка файла → diff → verify → DONE  
-3. Verify FAIL → не false-DONE  
-4. Retry / deferred видны  
-5. Architecture A/B при стопоре  
-6. 5 задач подряд  
-
-## 5. Красные флаги
-
-DONE без verify · вечный processing · UI hang · concurrency>1 без worktree  
-
-## 6. Откат
-
-Feature flags выкл autopilot/night · core-only · логи `.agentbus/`
+Worker может «успеть» — **DONE** только после `gate_done` + verification.
