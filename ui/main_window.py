@@ -401,6 +401,8 @@ class MainWindow(ctk.CTk):
         self.after(3000, self._poll_app_loop)
         self._file_watcher = None
         self.bind_all("<Control-k>", lambda e: self.palette.open())
+        self.bind_all("<Control-p>", lambda e: self._quick_open())
+        self.bind_all("<Control-P>", lambda e: self._quick_open())
         self.bind_all("<Control-K>", lambda e: self.palette.open())
         self.bind_all("<Control-1>", lambda e: self.projects.channel_var.set("gpt"))
         self.bind_all("<Control-2>", lambda e: self.projects.channel_var.set("grok"))

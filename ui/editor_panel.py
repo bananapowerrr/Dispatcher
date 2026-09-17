@@ -60,6 +60,13 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._text.bind("<<Modified>>", self._on_modified)
         self._text.bind("<KeyRelease>", self._notify_active)
         self._text.bind("<ButtonRelease-1>", self._notify_active)
+        # P3 IDE foundation shortcuts
+        self._text.bind("<Control-s>", lambda e: (self.save_current(), "break")[1])
+        self._text.bind("<Control-S>", lambda e: (self.save_current(), "break")[1])
+        self.bind_all("<Control-w>", self._on_ctrl_w)
+        self.bind_all("<Control-W>", self._on_ctrl_w)
+        self.bind_all("<Control-Tab>", self._on_ctrl_tab)
+        self.bind_all("<Control-ISO_Left_Tab>", lambda e: self._on_ctrl_tab(e, reverse=True))
 
         self._status = ctk.CTkLabel(self, text="", anchor="w", text_color="gray")
         self._status.pack(fill="x", padx=8, pady=(0, 4))

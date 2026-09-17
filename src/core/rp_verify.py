@@ -71,14 +71,20 @@ class RPVerifyMixin:
                 )
                 if not gate_ok:
                     ok, verify_error = False, gate_err or "verification_gate_failed"
-            except Exception:
-                pass
+            except Exception as exp:
+                try:
+                    self.log.write(f"verification_gate: {exp}")
+                except Exception:
+                    pass
         if not ok:
             result.stderr, result.ok = verify_error, False
             try:
                 self._bump_verify_fails(task, verify_error or "")
-            except Exception:
-                pass
+            except Exception as exp:
+                try:
+                    self.log.write(f"_bump_verify_fails: {exp}")
+                except Exception:
+                    pass
             try:
                 from utils.metrics import GLOBAL_METRICS
                 meta_v = task.metadata if isinstance(getattr(task, "metadata", None), dict) else {}
@@ -147,8 +153,11 @@ class RPVerifyMixin:
         if result.ok:
             try:
                 self._reset_verify_fails(task)
-            except Exception:
-                pass
+            except Exception as exp:
+                try:
+                    self.log.write(f"_reset_verify_fails: {exp}")
+                except Exception:
+                    pass
             try:
                 from utils.metrics import GLOBAL_METRICS
                 meta_v = task.metadata if isinstance(getattr(task, "metadata", None), dict) else {}

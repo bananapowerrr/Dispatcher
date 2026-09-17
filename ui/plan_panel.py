@@ -30,6 +30,8 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         ctk.CTkButton(top, text="↓", width=32, command=lambda: self._move(1)).pack(side="right", padx=2)
         ctk.CTkButton(top, text="Cancel", width=70, command=self._cancel).pack(side="right", padx=2)
         ctk.CTkButton(top, text="+", width=32, command=self._add_step).pack(side="right", padx=2)
+        ctk.CTkButton(top, text="Note", width=48, command=self._edit_note).pack(side="right", padx=2)
+        ctk.CTkButton(top, text="Deps", width=48, command=self._edit_deps).pack(side="right", padx=2)
         row = ctk.CTkFrame(self, fg_color="transparent")
         row.pack(fill="x", padx=8, pady=2)
         self._entry = ctk.CTkEntry(row, placeholder_text="Новый шаг плана…")
@@ -38,6 +40,16 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._list.pack(fill="both", expand=True, padx=8, pady=4)
         self._status = ctk.CTkLabel(self, text="", anchor="w", text_color="gray")
         self._status.pack(fill="x", padx=8, pady=2)
+        # Open decisions (MODIFY/REPLAN) — resolve without second planner
+        dec_fr = ctk.CTkFrame(self, fg_color="transparent")
+        dec_fr.pack(fill="x", padx=8, pady=2)
+        ctk.CTkLabel(dec_fr, text="Decisions", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkButton(dec_fr, text="A", width=28, command=lambda: self._resolve_opt("A")).pack(side="right", padx=1)
+        ctk.CTkButton(dec_fr, text="B", width=28, command=lambda: self._resolve_opt("B")).pack(side="right", padx=1)
+        ctk.CTkButton(dec_fr, text="C", width=28, command=lambda: self._resolve_opt("C")).pack(side="right", padx=1)
+        self._dec_box = ctk.CTkTextbox(self, height=72, font=ctk.CTkFont(family="Consolas", size=11))
+        self._dec_box.pack(fill="x", padx=8, pady=2)
+        self._open_decision_id = ""
         self._selected = ""
         self.after(400, self.refresh)
 
@@ -59,13 +71,27 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             data = PlanService(root).list_plan()
             lines = [f"v{data.get('version')}  {data.get('summary') or ''}", ""]
             for s in data.get("steps") or []:
+                dep = s.get("depends_on") or []
+                note = (s.get("note") or "")[:40]
+                extra = ""
+                if dep:
+                    extra += f" deps={','.join(dep)}"
+                if note:
+                    extra += f" | {note}"
                 lines.append(
-                    f"[{s.get('status')}] {s.get('id')}: {s.get('action')}"
+                    f"[{s.get('status')}] {s.get('id')}: {s.get('action')}{extra}"
                 )
             self._list.insert("1.0", "\n".join(lines) or "(пустой план)")
+            dec_n = 0
+            try:
+                from app.plan_service import get_decision_queue
+                dec_n = len(get_decision_queue(root).open_items())
+            except Exception:
+                dec_n = 0
             self._status.configure(
-                text=f"active={data.get('active')} finished={data.get('finished')}"
+                text=f"active={data.get('active')} finished={data.get('finished')} decisions={dec_n}"
             )
+            self._refresh_decisions(root)
         except Exception as e:
             self._list.insert("1.0", str(e))
 
@@ -125,5 +151,52 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 pass
             self._status.configure(text=f"added {s.get('id')}")
             self.refresh()
+        except Exception as e:
+            self._status.configure(text=str(e)[:120])
+
+    def _edit_note(self) -> None:
+        sid = self._selected_id()
+        root = self._root()
+        try:
+            text = (self._entry.get() or "").strip()
+        except Exception:
+            text = ""
+        if not sid or not root:
+            self._status.configure(text="выберите шаг и текст note")
+            return
+        try:
+            from app.plan_service import PlanService
+            s = PlanService(root).edit_step(sid, note=text)
+            self._status.configure(text=f"note → {sid}" if s else "нельзя")
+            if s:
+                try:
+                    self._entry.delete(0, "end")
+                except Exception:
+                    pass
+                self.refresh()
+        except Exception as e:
+            self._status.configure(text=str(e)[:120])
+
+    def _edit_deps(self) -> None:
+        sid = self._selected_id()
+        root = self._root()
+        try:
+            text = (self._entry.get() or "").strip()
+        except Exception:
+            text = ""
+        if not sid or not root:
+            self._status.configure(text="шаг + deps через запятую")
+            return
+        deps = [x.strip() for x in text.split(",") if x.strip()]
+        try:
+            from app.plan_service import PlanService
+            s = PlanService(root).edit_step(sid, depends_on=deps)
+            self._status.configure(text=f"deps → {sid}" if s else "нельзя")
+            if s:
+                try:
+                    self._entry.delete(0, "end")
+                except Exception:
+                    pass
+                self.refresh()
         except Exception as e:
             self._status.configure(text=str(e)[:120])

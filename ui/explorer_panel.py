@@ -30,12 +30,16 @@ class ExplorerPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         ctk.CTkLabel(self, text="Explorer", font=ctk.CTkFont(weight="bold")).pack(
             anchor="w", padx=8, pady=(8, 4)
         )
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=4, pady=2)
+        ctk.CTkButton(row, text="+f", width=32, command=self._new_file).pack(side="left", padx=1)
+        ctk.CTkButton(row, text="+d", width=32, command=self._new_dir).pack(side="left", padx=1)
+        ctk.CTkButton(row, text="↻", width=32, command=self.refresh).pack(side="left", padx=1)
+        self._name_entry = ctk.CTkEntry(row, placeholder_text="name…", width=100)
+        self._name_entry.pack(side="left", fill="x", expand=True, padx=2)
         self._list = ctk.CTkTextbox(self, width=220, wrap="none")
         self._list.pack(fill="both", expand=True, padx=4, pady=4)
         self._list.bind("<Double-Button-1>", self._on_double)
-        row = ctk.CTkFrame(self, fg_color="transparent")
-        row.pack(fill="x", padx=4, pady=4)
-        ctk.CTkButton(row, text="↻", width=36, command=self.refresh).pack(side="left")
         self._paths: list[str] = []
 
     def refresh(self) -> None:
@@ -81,5 +85,48 @@ class ExplorerPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                     # skip pure dir markers without extension heuristic
                     if "." in Path(path).name or path.endswith(".py"):
                         self._on_open(path)
+        except Exception:
+            pass
+
+    def _entry_name(self) -> str:
+        try:
+            return (self._name_entry.get() or "").strip().replace("\\", "/").lstrip("/")
+        except Exception:
+            return ""
+
+    def _project_root(self) -> Path | None:
+        try:
+            r = self._get_project()
+            s = (r() if callable(r) else r) or ""
+            if not s:
+                return None
+            return Path(s)
+        except Exception:
+            return None
+
+    def _new_file(self) -> None:
+        root = self._project_root()
+        name = self._entry_name()
+        if not root or not name:
+            return
+        path = root / name
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_text("", encoding="utf-8")
+            if self._on_open:
+                self._on_open(name)
+            self.refresh()
+        except Exception:
+            pass
+
+    def _new_dir(self) -> None:
+        root = self._project_root()
+        name = self._entry_name()
+        if not root or not name:
+            return
+        try:
+            (root / name).mkdir(parents=True, exist_ok=True)
+            self.refresh()
         except Exception:
             pass
