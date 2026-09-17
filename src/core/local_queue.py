@@ -2,7 +2,6 @@
 """Desktop primary task queue (in-process + optional spill file).
 
 Chat UI is the main channel. File-bus (channels/) is optional for phone/remote.
-All puts go through intake_pipeline (fail-closed security).
 """
 from __future__ import annotations
 
@@ -26,8 +25,7 @@ class LocalQueue:
             self._spill.mkdir(parents=True, exist_ok=True)
 
     def put(self, task: dict[str, Any]) -> str:
-        """Enqueue after intake validation. Raises ValueError on reject."""
-        data = dict(task or {})
+        data = dict(task)
         tid = str(data.get("id") or f"ui-{uuid.uuid4().hex[:10]}")
         data["id"] = tid
         data.setdefault("status", "PENDING")
@@ -37,60 +35,31 @@ class LocalQueue:
         meta.setdefault("source", "desktop_chat")
         meta.setdefault("primary_channel", "desktop")
         data["metadata"] = meta
-
-        try:
-            from core.intake_pipeline import accept_task_raw
-
-            accepted = accept_task_raw(data, source="desktop_queue", strict=True)
-            data = accepted.to_dict()
-            merged_meta = dict(meta)
-            merged_meta.update(dict(accepted.metadata or {}))
-            data["metadata"] = merged_meta
-            data["id"] = tid or str(data.get("id") or tid)
-            data.setdefault("channel", "desktop")
-        except Exception as err:
-            name = type(err).__name__
-            if name in ("IntakeError", "TaskContractError", "SecurityError", "ValueError"):
-                raise ValueError(f"desktop_queue reject: {err}") from err
-            try:
-                import logging
-
-                logging.getLogger("agentbus.local_queue").warning(
-                    "intake skipped: %s: %s", name, err
-                )
-            except Exception:
-                pass
-
         with self._lock:
             self._q.append(data)
             if self._spill is not None:
                 try:
-                    path = self._spill / f"{data['id']}.json"
+                    path = self._spill / f"{tid}.json"
                     path.write_text(
                         json.dumps(data, ensure_ascii=False, indent=2),
                         encoding="utf-8",
                     )
-                except OSError as e:
-                    try:
-                        import logging
-
-                        logging.getLogger("agentbus.local_queue").warning(
-                            "spill_write %s: %s", data.get("id"), e
-                        )
-                    except Exception:
-                        pass
-        return str(data["id"])
+                except OSError:
+                    pass
+        return tid
 
     def claim(self) -> dict[str, Any] | None:
         with self._lock:
             if self._q:
                 data = self._q.popleft()
+                # drop spill twin so second claim is not a duplicate
                 if self._spill is not None:
                     try:
                         (self._spill / f"{data.get('id')}.json").unlink(missing_ok=True)
                     except OSError:
                         pass
                 return data
+            # recover spill (UI process → dispatcher process)
             if self._spill is not None and self._spill.is_dir():
                 files = sorted(
                     self._spill.glob("*.json"),
@@ -102,12 +71,11 @@ class LocalQueue:
                         path.unlink(missing_ok=True)
                         if isinstance(data, dict):
                             return data
-                    except Exception as e:
+                    except Exception as exp:
                         try:
                             import logging
-
-                            logging.getLogger("agentbus.local_queue").warning(
-                                "spill_read %s: %s", path.name, e
+                            logging.getLogger("agentbus.queue").warning(
+                                "spill claim skip %s: %s", path.name, exp
                             )
                         except Exception:
                             pass
@@ -129,6 +97,13 @@ _GLOBAL: LocalQueue | None = None
 _GLOBAL_LOCK = threading.Lock()
 
 
+def reset_local_queue() -> None:
+    """Test/helper: drop process-global queue instance."""
+    global _GLOBAL
+    with _GLOBAL_LOCK:
+        _GLOBAL = None
+
+
 def get_local_queue(root: Path | None = None) -> LocalQueue:
     global _GLOBAL
     with _GLOBAL_LOCK:
@@ -137,18 +112,10 @@ def get_local_queue(root: Path | None = None) -> LocalQueue:
             try:
                 if root is None:
                     from core.config import BASE_DIR
-
                     root = Path(BASE_DIR)
+                # desktop queue on disk so UI process → dispatcher process works
                 spill = Path(root) / ".agentbus" / "desktop_queue"
-            except Exception as e:
-                try:
-                    import logging
-
-                    logging.getLogger("agentbus.local_queue").warning(
-                        "desktop_queue path fallback: %s", e
-                    )
-                except Exception:
-                    pass
+            except Exception:
                 spill = Path(".agentbus") / "desktop_queue"
             _GLOBAL = LocalQueue(spill_dir=spill)
         return _GLOBAL

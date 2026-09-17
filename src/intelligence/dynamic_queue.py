@@ -272,5 +272,12 @@ def notify_plan_task_terminal(
         if ok:
             save_living_plan(root, plan)
         return ok
-    except Exception:
+    except Exception as exp:
+        try:
+            import logging
+            logging.getLogger("agentbus.plan").warning(
+                "notify_plan_task_terminal failed: %s: %s", type(exp).__name__, exp
+            )
+        except Exception:
+            pass
         return False

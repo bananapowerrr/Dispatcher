@@ -26,6 +26,10 @@ class AppFacade:
         from app.tasks_service import TasksService
         return TasksService(self.root)
 
+    def plan(self):
+        from app.plan_service import PlanService
+        return PlanService(self.root)
+
     def agent(self):
         from app.agent_service import AgentService
         return AgentService(self.root)

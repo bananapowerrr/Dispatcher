@@ -29,6 +29,11 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         ctk.CTkButton(top, text="↑", width=32, command=lambda: self._move(-1)).pack(side="right", padx=2)
         ctk.CTkButton(top, text="↓", width=32, command=lambda: self._move(1)).pack(side="right", padx=2)
         ctk.CTkButton(top, text="Cancel", width=70, command=self._cancel).pack(side="right", padx=2)
+        ctk.CTkButton(top, text="+", width=32, command=self._add_step).pack(side="right", padx=2)
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=8, pady=2)
+        self._entry = ctk.CTkEntry(row, placeholder_text="Новый шаг плана…")
+        self._entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
         self._list = ctk.CTkTextbox(self, height=180, font=ctk.CTkFont(family="Consolas", size=12))
         self._list.pack(fill="both", expand=True, padx=8, pady=4)
         self._status = ctk.CTkLabel(self, text="", anchor="w", text_color="gray")
@@ -97,6 +102,28 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             from app.plan_service import PlanService
             ok = PlanService(root).cancel_step(sid, reason="cancelled from Plan UI")
             self._status.configure(text="cancelled" if ok else "cannot cancel")
+            self.refresh()
+        except Exception as e:
+            self._status.configure(text=str(e)[:120])
+
+    def _add_step(self) -> None:
+        root = self._root()
+        text = ""
+        try:
+            text = (self._entry.get() or "").strip()
+        except Exception:
+            text = ""
+        if not root or not text:
+            self._status.configure(text="нужны проект и текст шага")
+            return
+        try:
+            from app.plan_service import PlanService
+            s = PlanService(root).add_step(action=text)
+            try:
+                self._entry.delete(0, "end")
+            except Exception:
+                pass
+            self._status.configure(text=f"added {s.get('id')}")
             self.refresh()
         except Exception as e:
             self._status.configure(text=str(e)[:120])
