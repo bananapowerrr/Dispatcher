@@ -141,11 +141,24 @@ class HistoryPanel(ctk.CTkFrame):
                 w.destroy()
             self._rows = list(rows or [])
             if not self._rows:
+                try:
+                    from app.facade import AppFacade
+                    empty = AppFacade().empty_message("history")
+                except Exception:
+                    empty = _t("history_empty", default="Пока пусто — отправь задачу из чата")
                 ctk.CTkLabel(
                     self.scroll,
-                    text=_t("history_empty", default="Пока пусто — отправь задачу из чата"),
+                    text=empty,
                     text_color="gray",
-                ).pack(anchor="w", padx=8, pady=20)
+                ).pack(anchor="w", padx=8, pady=(20, 4))
+                ctk.CTkLabel(
+                    self.scroll,
+                    text=_t(
+                        "history_empty_hint",
+                        default="Результаты появятся после DONE / ERROR",
+                    ),
+                    text_color="gray",
+                ).pack(anchor="w", padx=8, pady=(0, 20))
                 return
             counts: dict[str, int] = {}
             for r in self._rows:

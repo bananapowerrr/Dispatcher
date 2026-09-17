@@ -21,16 +21,24 @@ Intelligence предлагает → Runtime решает → Verify закры
 
 Task DONE ≠ Project READY.
 
-## Что ещё усиливает «продукт» (без live)
+## Сделано в product-polish (offline)
 
-1. **Единый first-run** — wizard + профиль + первый Health/Suggest на одном экране.
-2. **Settings ↔ Agent behavior** — те же профили, что в popover.
-3. **Пустые состояния** — везде один тон (queue/history/changes).
-4. **Composer UI** — явная форма задачи поверх `task_composer` (не только чат).
-5. **Changes → Undo** в одном клике из Report и из Changes panel.
-6. **Документация пользователя** (README / Getting Started), не audit dumps.
-7. **EN/RU parity** всех строк UI.
-8. **Устойчивость панелей** — любая панель через AppFacade, без падения UI при сбое модуля.
+- [x] First-run wizard + profile + Health/Suggest briefing
+- [x] Settings → вкладка Agent (те же профили)
+- [x] Composer UI + Ctrl+K
+- [x] Changes → Undo
+- [x] GETTING_STARTED.md + README
+- [x] Progressive tabs (beginner)
+- [x] Footer + Agent label
+- [x] AppFacade + soft panel refresh
+- [x] Empty states queue/history/changes
+
+## Что ещё можно шлифовать (низкий риск)
+
+1. Больше панелей только через AppFacade (единый стиль ошибок).
+2. Скрытие Metrics для beginner (опционально).
+3. Toast при DONE согласован с Report.
+4. Полный EN-проход всех старых строк UI.
 
 ## Что сознательно отложено до машины
 
@@ -41,3 +49,5 @@ Ollama/Aider live, parallel workers, MCP, embeddings RAG, autopilot night load.
 - `python dispatcher.py` — runtime
 - `python dispatcher_ui.py` / `python -m ui.main_window` — desktop
 - `python dispatcher.py --doctor` — окружение
+
+См. также: [GETTING_STARTED.md](GETTING_STARTED.md).

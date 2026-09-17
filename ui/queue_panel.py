@@ -158,11 +158,24 @@ def _build_queue_panel_class():
                 except Exception:
                     pass
                 if not items:
+                    try:
+                        from app.facade import AppFacade
+                        empty = AppFacade().empty_message("queue")
+                    except Exception:
+                        empty = _t("queue_empty", default="Очередь пуста")
                     ctk.CTkLabel(
                         self.scroll,
-                        text=_t("queue_empty", default="Очередь пуста"),
+                        text=empty,
                         text_color="gray",
-                    ).pack(anchor="w", padx=8, pady=16)
+                    ).pack(anchor="w", padx=8, pady=(16, 4))
+                    ctk.CTkLabel(
+                        self.scroll,
+                        text=_t(
+                            "queue_empty_hint",
+                            default="Напиши в чат или Ctrl+K → Composer",
+                        ),
+                        text_color="gray",
+                    ).pack(anchor="w", padx=8, pady=(0, 16))
                     return
                 for row in items:
                     self._render_row(row)

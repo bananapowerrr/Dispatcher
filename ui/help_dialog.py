@@ -42,6 +42,9 @@ NVCode — среда разработки с локальным агентом
 ЭКОНОМИЯ
   Skills + кэш без LLM · local_only + Ollama
 
+ДОКУМЕНТАЦИЯ
+  Ctrl+K → Getting Started · docs/GETTING_STARTED.md
+
 ДИАГНОСТИКА
   «Диагностика» слева · python dispatcher.py --doctor
 """.strip()
