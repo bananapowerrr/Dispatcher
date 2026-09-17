@@ -16,12 +16,13 @@ except ImportError:  # pragma: no cover
 
 
 class _TabState:
-    __slots__ = ("path", "original", "dirty")
+    __slots__ = ("path", "original", "dirty", "buffer")
 
     def __init__(self, path: str, original: str):
         self.path = path
         self.original = original
         self.dirty = False
+        self.buffer: str | None = None
 
 
 class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
@@ -107,6 +108,7 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             st = self._tabs[self._current]
             st.original = body
             st.dirty = False
+            st.buffer = None
             self._rebuild_tab_bar()
             self._path_label.configure(text=self._current)
             self._status.configure(text="Сохранено")
@@ -162,10 +164,10 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             st_old.dirty = buf != st_old.original
             # keep unsaved buffer in a side field via original only when not dirty;
             # store buffer on dirty by overwriting a runtime attr
-            st_old._buffer = buf  # type: ignore[attr-defined]
+            st_old.buffer = buf
         self._current = path
         st = self._tabs[path]
-        body = getattr(st, "_buffer", None) or st.original
+        body = st.buffer if st.buffer is not None else st.original
         self._text.delete("1.0", "end")
         self._text.insert("1.0", body)
         st.dirty = body != st.original
