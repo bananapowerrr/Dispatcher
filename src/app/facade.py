@@ -30,6 +30,18 @@ class AppFacade:
         from app.plan_service import PlanService
         return PlanService(self.root)
 
+    def apply_plan_input(self, message: str, **kw):
+        from app.plan_service import apply_input_policy
+        if not self.root:
+            return {"ok": False, "error": "no project"}
+        return apply_input_policy(self.root, message, **kw)
+
+    def resolve_plan_decision(self, decision_id: str, option_id: str):
+        from app.plan_service import resolve_plan_decision
+        if not self.root:
+            return {"ok": False, "error": "no project"}
+        return resolve_plan_decision(self.root, decision_id, option_id)
+
     def agent(self):
         from app.agent_service import AgentService
         return AgentService(self.root)

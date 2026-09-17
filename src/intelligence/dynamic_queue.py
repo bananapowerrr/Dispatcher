@@ -101,6 +101,21 @@ def sync_plan_to_queue(
 ) -> EmitResult:
     """Project eligible plan steps into queues. Idempotent per step meta."""
     result = EmitResult()
+    # P0: do not emit while open plan decisions block the project
+    if project_root is not None:
+        try:
+            from app.plan_service import get_decision_queue
+            dq = get_decision_queue(project_root)
+            # block if any open decision for this project root (project id optional)
+            if dq.open_items() and (
+                dq.has_blocking("")
+                or dq.has_blocking(project or plan.project_id or "")
+                or dq.has_blocking(str(project_root))
+            ):
+                result.errors.append("blocked: open WAITING_DECISION")
+                return result
+        except Exception:
+            pass
     eligible = plan.eligible_for_queue()
     emitted_n = 0
 

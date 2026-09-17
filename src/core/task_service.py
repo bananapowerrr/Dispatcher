@@ -125,10 +125,17 @@ def submit_payload(
             except IntakeError as e:
                 return None, str(e)
     except ImportError:
-        pass
+        pass  # intake optional in minimal installs
     except Exception as exc:
         if not soft_intake:
             return None, f"intake: {type(exc).__name__}: {exc}"
+        try:
+            import logging
+            logging.getLogger("agentbus.task_service").warning(
+                "intake soft-fail: %s: %s", type(exc).__name__, exc
+            )
+        except Exception:
+            pass
 
     base = _resolve_root(root)
     try:
