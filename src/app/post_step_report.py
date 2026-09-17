@@ -128,14 +128,56 @@ def continue_selected(
     selected_ids: list[str],
     report: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Enqueue only user-checked next steps (explicit). Returns enqueue results."""
+    """Continue existing plan / checked steps — not invent a new goal.
+
+    Preference: LivingPlan eligible steps via DynamicQueue; else report checklist.
+    """
     root = Path(project_root)
+    results: list[dict] = []
+    selected = [str(x) for x in (selected_ids or [])]
+
+    try:
+        from intelligence.living_plan import load_living_plan
+        from intelligence.dynamic_queue import sync_plan_to_queue
+
+        plan = load_living_plan(root)
+        plan_ids = {s.id for s in plan.steps}
+        want_plan = (not selected) or any(
+            s in ("plan", "continue", "next", "living_plan") for s in selected
+        )
+        selected_plan_steps = [s for s in selected if s in plan_ids]
+        if want_plan or selected_plan_steps:
+            er = sync_plan_to_queue(
+                plan,
+                project_root=root,
+                project=plan.project_id or str(root),
+                max_emit=2,
+                use_desktop_queue=True,
+                use_filebus=False,
+                persist=True,
+            )
+            results.append(
+                {
+                    "ok": bool(er.emitted),
+                    "source": "living_plan",
+                    "emitted": list(er.emitted),
+                    "errors": list(er.errors),
+                    "skipped": list(er.skipped),
+                }
+            )
+            if er.emitted:
+                return results
+    except Exception as exp:
+        results.append({"ok": False, "source": "living_plan", "error": str(exp)})
+
     report = report or build_post_step_report(root)
     steps = {s["id"]: s for s in (report.get("next_steps") or [])}
-    results = []
     from app.project_workflow import ProjectWorkflow
+
     wf = ProjectWorkflow(root)
-    for sid in selected_ids:
+    for sid in selected:
+        if sid in ("plan", "continue", "next", "living_plan"):
+            continue
         s = steps.get(sid)
         if not s:
             continue

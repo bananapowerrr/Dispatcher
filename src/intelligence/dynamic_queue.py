@@ -121,6 +121,7 @@ def sync_plan_to_queue(
         tid: str | None = None
 
         if use_desktop_queue:
+            # P0: only TaskService intake — fail-closed, no LocalQueue.put bypass
             try:
                 from core.task_service import submit_payload
 
@@ -130,22 +131,14 @@ def sync_plan_to_queue(
                     source="living_plan",
                     root=root,
                     mirror_phone=False,
+                    soft_intake=False,
                 )
                 if err or not tid:
-                    # fallback: local queue direct
-                    tid = None
-                    raise RuntimeError(err or "submit failed")
-            except Exception as exp:
-                try:
-                    from core.local_queue import get_local_queue
-                    from core.config import BASE_DIR
-
-                    root = Path(project_root or BASE_DIR or ".")
-                    q = get_local_queue(root)
-                    tid = q.put(payload)
-                except Exception as exp2:
-                    result.errors.append(f"{step.id}: {exp2}")
+                    result.errors.append(f"{step.id}: intake/queue: {err or 'no task id'}")
                     continue
+            except Exception as exp:
+                result.errors.append(f"{step.id}: {type(exp).__name__}: {exp}")
+                continue
 
         if use_filebus:
             try:
@@ -207,8 +200,9 @@ def on_task_terminal(
     task_id: str = "",
     plan_step_id: str = "",
     status: str = "DONE",
+    message: str = "",
 ) -> bool:
-    """Update plan step when worker finishes (call from runtime hook later)."""
+    """Update plan step when worker finishes (runtime terminal hook)."""
     step = None
     if plan_step_id:
         step = plan.get(plan_step_id)
@@ -217,7 +211,6 @@ def on_task_terminal(
             if (s.meta or {}).get("task_id") == task_id:
                 step = s
                 break
-            # plan-{ver}-{id} pattern
             if task_id.endswith(f"-{s.id}") or task_id == s.id:
                 step = s
                 break
@@ -230,6 +223,54 @@ def on_task_terminal(
         step.status = "ERROR"
     elif st in ("CANCELLED", "CANCELED"):
         step.status = "CANCELLED"
+    elif st in ("DEFERRED", "RETRY"):
+        # keep step active / ready — not terminal for plan progress
+        step.meta = dict(step.meta or {})
+        step.meta["last_runtime_status"] = st
+        if message:
+            step.meta["last_message"] = str(message)[:300]
+        return True
     else:
         return False
+    step.meta = dict(step.meta or {})
+    step.meta["last_runtime_status"] = step.status
+    step.meta["terminal_at"] = time.time()
+    if message:
+        step.meta["last_message"] = str(message)[:300]
     return True
+
+
+def notify_plan_task_terminal(
+    project_root: str | Path | None,
+    *,
+    task_id: str = "",
+    plan_step_id: str = "",
+    status: str = "DONE",
+    message: str = "",
+    metadata: dict | None = None,
+) -> bool:
+    """Load plan from disk, apply terminal, persist. Safe no-op if no plan/step."""
+    if not project_root:
+        return False
+    root = Path(project_root)
+    meta = metadata or {}
+    psid = plan_step_id or str(meta.get("plan_step_id") or "")
+    tid = task_id or str(meta.get("task_id") or "")
+    if not psid and not tid:
+        return False
+    # only plan-sourced tasks
+    src = str(meta.get("source") or "")
+    if src and src not in ("living_plan", "plan", "post_step_continue", "dynamic_queue"):
+        # still try if plan_step_id present
+        if not psid and not str(tid).startswith("plan-"):
+            return False
+    try:
+        plan = load_living_plan(root)
+        ok = on_task_terminal(
+            plan, task_id=tid, plan_step_id=psid, status=status, message=message
+        )
+        if ok:
+            save_living_plan(root, plan)
+        return ok
+    except Exception:
+        return False
