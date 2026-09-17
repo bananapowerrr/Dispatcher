@@ -75,3 +75,94 @@ class ChangesService:
             "files": files,
             "paths": [f["path"] for f in files],
         }
+
+    def pending_task_ids(self) -> list[str]:
+        """Task ids with stored pending diffs (Apply/Reject/Undo available)."""
+        try:
+            from safety.diff_engine import list_pending
+            items = list_pending()
+            if isinstance(items, dict):
+                return sorted(str(k) for k in items.keys())
+            if isinstance(items, list):
+                out = []
+                for it in items:
+                    if isinstance(it, dict):
+                        out.append(str(it.get("task_id") or it.get("id") or ""))
+                    else:
+                        out.append(str(it))
+                return [x for x in out if x]
+        except Exception:
+            pass
+        return []
+
+    def can_undo(self, task_id: str | None = None) -> bool:
+        ids = self.pending_task_ids()
+        if task_id:
+            return str(task_id) in ids
+        return bool(ids)
+
+    def undo(self, task_id: str) -> dict[str, Any]:
+        """Safe undo via diff_engine (restores backup) — does not touch DONE gate."""
+        try:
+            from safety.diff_engine import undo_apply
+            root = self._root()
+            return undo_apply(str(task_id), project_root=str(root)) or {"ok": False}
+        except Exception as exp:
+            return {"ok": False, "error": str(exp)}
+
+    def post_done_actions(self, task_id: str | None = None) -> dict[str, Any]:
+        """FC-45C: what user can do after a successful task.
+
+        Returns actions for UI: Review / Continue / Undo.
+        Intelligence/UX only — does not change Runtime FSM.
+        """
+        files = self.list_changes()
+        pending = self.pending_task_ids()
+        tid = str(task_id or (pending[0] if pending else "") or "")
+        actions = []
+        if files:
+            actions.append({
+                "id": "review",
+                "label": "Review",
+                "enabled": True,
+                "hint": f"{len(files)} file(s) changed",
+            })
+        else:
+            actions.append({
+                "id": "review",
+                "label": "Review",
+                "enabled": False,
+                "hint": "No open git changes",
+            })
+        actions.append({
+            "id": "continue",
+            "label": "Continue",
+            "enabled": True,
+            "hint": "Ask agent for next step",
+        })
+        undo_ok = bool(tid) and (tid in pending or self.can_undo(tid))
+        actions.append({
+            "id": "undo",
+            "label": "Undo",
+            "enabled": undo_ok or bool(pending),
+            "hint": f"task={tid}" if tid else ("pending available" if pending else "no pending backup"),
+            "task_id": tid or (pending[0] if pending else ""),
+        })
+        return {
+            "task_id": tid,
+            "changed_files": [f.get("path") for f in files],
+            "pending_ids": pending,
+            "actions": actions,
+        }
+
+    def format_post_done(self, task_id: str | None = None) -> str:
+        d = self.post_done_actions(task_id)
+        lines = ["After DONE — available actions:"]
+        for a in d.get("actions") or []:
+            mark = "✓" if a.get("enabled") else "·"
+            lines.append(f"  {mark} {a.get('label')}: {a.get('hint')}")
+        paths = d.get("changed_files") or []
+        if paths:
+            lines.append("Files: " + ", ".join(paths[:8]))
+        return "\n".join(lines)
+

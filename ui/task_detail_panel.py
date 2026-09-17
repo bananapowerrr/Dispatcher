@@ -90,3 +90,17 @@ class TaskDetailPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 self._on_open_diff(self._task_id)
             except Exception:
                 pass
+
+    def show_post_done_hint(self, task_id: str = "") -> str:
+        """FC-45C: text for Continue/Review/Undo after DONE."""
+        try:
+            from app.changes_service import ChangesService
+            root = ""
+            if hasattr(self, "_get_project") and self._get_project:
+                r = self._get_project()
+                root = (r() if callable(r) else r) or ""
+            if not root and hasattr(self, "project_root"):
+                root = str(getattr(self, "project_root") or "")
+            return ChangesService(root or ".").format_post_done(task_id or None)
+        except Exception as exp:
+            return f"post_done unavailable: {exp}"

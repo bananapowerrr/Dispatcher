@@ -144,3 +144,74 @@ def tab_allowed(mode_id: str, tab_name: str) -> bool:
         if a.lower() in n or n in a.lower():
             return True
     return False
+
+
+def panel_visibility(mode_id: str) -> dict[str, bool]:
+    """FC-45G: full panel → visible map for progressive workspace."""
+    m = get_mode(mode_id)
+    if m.id == "full":
+        return {
+            PANEL_EXPLORER: True,
+            PANEL_EDITOR: True,
+            PANEL_CHAT: True,
+            PANEL_QUEUE: True,
+            PANEL_TASK: True,
+            PANEL_CHANGES: True,
+            PANEL_DIFF: True,
+            PANEL_PROJECT: True,
+            PANEL_LOGS: True,
+            PANEL_HISTORY: True,
+            PANEL_METRICS: True,
+            PANEL_WORKERS: True,
+            PANEL_SKILLS: True,
+            PANEL_RECIPES: True,
+            PANEL_PEV: True,
+            PANEL_SENTINEL: True,
+            PANEL_PHONE: True,
+            PANEL_EXTENSIONS: True,
+        }
+    # base from mode flags
+    vis = {
+        PANEL_EXPLORER: m.show_explorer,
+        PANEL_EDITOR: m.show_editor,
+        PANEL_CHAT: m.show_chat,
+        PANEL_QUEUE: tab_allowed(mode_id, "Queue") or tab_allowed(mode_id, "Очередь"),
+        PANEL_TASK: tab_allowed(mode_id, "Task") or m.id == "agent",
+        PANEL_CHANGES: tab_allowed(mode_id, "Changes"),
+        PANEL_DIFF: tab_allowed(mode_id, "Diff"),
+        PANEL_PROJECT: tab_allowed(mode_id, "Project") or tab_allowed(mode_id, "Проект"),
+        PANEL_LOGS: tab_allowed(mode_id, "Логи") or tab_allowed(mode_id, "Logs"),
+        PANEL_HISTORY: tab_allowed(mode_id, "История") or tab_allowed(mode_id, "History"),
+        PANEL_METRICS: m.id in ("full", "project"),
+        PANEL_WORKERS: m.id in ("full", "agent"),
+        PANEL_SKILLS: m.id == "full",
+        PANEL_RECIPES: m.id == "full",
+        PANEL_PEV: m.id == "full",
+        PANEL_SENTINEL: m.id == "full",
+        PANEL_PHONE: m.id == "full",
+        PANEL_EXTENSIONS: m.id == "full",
+    }
+    if m.id == "code":
+        vis[PANEL_CHAT] = False
+        vis[PANEL_QUEUE] = False
+        vis[PANEL_CHANGES] = True
+        vis[PANEL_DIFF] = True
+    elif m.id == "agent":
+        vis[PANEL_CHAT] = True
+        vis[PANEL_QUEUE] = True
+        vis[PANEL_TASK] = True
+        vis[PANEL_DIFF] = True
+    elif m.id == "project":
+        vis[PANEL_PROJECT] = True
+        vis[PANEL_HISTORY] = True
+        vis[PANEL_CHAT] = True
+    return vis
+
+
+def format_mode_help(mode_id: str = "") -> str:
+    """Human blurb for current progressive mode."""
+    m = get_mode(mode_id or resolve_beginner_mode())
+    vis = panel_visibility(m.id)
+    on = [k for k, v in vis.items() if v]
+    return f"Mode {m.label}: {m.description}\nPanels: {', '.join(on[:12])}"
+

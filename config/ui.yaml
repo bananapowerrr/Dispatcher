@@ -11,3 +11,12 @@ agent:
   suggestions: important  # all | important | none
   architecture: ask       # ask | auto | off
   verification: automatic # automatic | always_ask
+
+# FC-46 workspace layout
+layout:
+  mode: agent
+  left_width: 260
+  right_width: 360
+  show_left: true
+  show_right: true
+  preset: agent

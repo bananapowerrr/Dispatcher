@@ -126,8 +126,56 @@ def build_commands(app: Any) -> list[Command]:
         except Exception as exp:
             app.chat.append("System", f"recipe: {exp}", kind="error")
 
-    return [
-        Command("recipe_refactor", "Рецепт: рефакторинг", "Рецепты", None, run_recipe_refactor, ["recipe", "рефакторинг"]),
+    
+    def layout_agent():
+        try:
+            from app.layout_prefs import apply_layout_preset
+            apply_layout_preset("agent")
+            if hasattr(app, "apply_workspace_mode"):
+                app.apply_workspace_mode("agent")
+            app.chat.append("System", "Layout: Agent")
+        except Exception as exc:
+            app.chat.append("System", f"layout: {exc}")
+
+    def layout_code():
+        try:
+            from app.layout_prefs import apply_layout_preset
+            apply_layout_preset("code")
+            if hasattr(app, "apply_workspace_mode"):
+                app.apply_workspace_mode("code")
+            app.chat.append("System", "Layout: Code")
+        except Exception as exc:
+            app.chat.append("System", f"layout: {exc}")
+
+    def layout_focus():
+        try:
+            from app.layout_prefs import apply_layout_preset
+            apply_layout_preset("focus")
+            if hasattr(app, "apply_workspace_mode"):
+                app.apply_workspace_mode("code")
+            app.chat.append("System", "Layout: Focus")
+        except Exception as exc:
+            app.chat.append("System", f"layout: {exc}")
+
+    def show_suggestions_cmd():
+        try:
+            if hasattr(app, "chat") and hasattr(app.chat, "show_suggestions"):
+                app.chat.show_suggestions()
+            else:
+                from app.agent_service import AgentService
+                root = getattr(app, "project_root", None) or ""
+                text = AgentService(root).suggestions().get("text") or ""
+                app.chat.append("System", text)
+        except Exception as exc:
+            app.chat.append("System", f"suggest: {exc}")
+
+return [
+        
+        Command("layout.agent", "Layout: Agent", "Layout", None, layout_agent, ["layout", "agent", "режим"]),
+        Command("layout.code", "Layout: Code", "Layout", None, layout_code, ["layout", "code", "редактор"]),
+        Command("layout.focus", "Layout: Focus", "Layout", None, layout_focus, ["layout", "focus"]),
+        Command("agent.suggest", "Suggestions", "Agent", None, show_suggestions_cmd, ["suggest", "совет", "что дальше"]),
+Command("recipe_refactor", "Рецепт: рефакторинг", "Рецепты", None, run_recipe_refactor, ["recipe", "рефакторинг"]),
         Command("recipes_help", "Рецепты — справка", "Рецепты", None, open_recipes_tab, ["recipe", "рецепт"]),
 
         Command("new_task", "Фокус на ввод задачи", "Чат", "Ctrl+N", focus_chat, ["задача", "task"]),

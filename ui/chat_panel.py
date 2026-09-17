@@ -1172,3 +1172,26 @@ class ChatPanel(ctk.CTkFrame):
             self.input.focus_set()
         except Exception:
             pass
+
+    def show_suggestions(self) -> None:
+        """FC-45D: print advisor suggestions into chat (no auto-run)."""
+        try:
+            from app.agent_service import AgentService
+            root = ""
+            if hasattr(self, "_get_project") and self._get_project:
+                r = self._get_project()
+                root = (r() if callable(r) else r) or ""
+            svc = AgentService(root or None)
+            if hasattr(self, "active_file"):
+                svc.set_editor_context(active_file=getattr(self, "active_file", "") or "")
+            data = svc.suggestions()
+            text = data.get("text") or "No suggestions."
+            if hasattr(self, "_append"):
+                self._append("system", "Suggestions\n" + text)
+            elif hasattr(self, "append_message"):
+                self.append_message("system", "Suggestions\n" + text)
+            elif hasattr(self, "_log"):
+                self._log(text)
+        except Exception as exp:
+            if hasattr(self, "_append"):
+                self._append("system", f"Suggestions error: {exp}")

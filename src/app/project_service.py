@@ -95,3 +95,96 @@ class ProjectService:
             pass
         return out
 
+
+    def get_health(self) -> dict[str, Any]:
+        """FC-45B Project Health — one payload for UI (snapshot + audit + advice).
+
+        Intelligence data only; does not mutate Runtime / queue.
+        """
+        root = self._require_root()
+        out: dict[str, Any] = {
+            "project": str(root),
+            "status": "unknown",
+            "headline": "",
+            "next_steps": [],
+            "risks": [],
+            "snapshot": {},
+            "audit": {},
+            "advice": {},
+            "architecture_banner": "",
+            "decisions_open": 0,
+            "errors": [],
+        }
+        try:
+            snap = self.get_snapshot(include_capabilities=False)
+            out["snapshot"] = snap
+            # soft status from snapshot keys if present
+            out["status"] = str(snap.get("status") or snap.get("health") or "ok")
+        except Exception as exp:
+            out["errors"].append(f"snapshot: {exp}")
+        try:
+            out["audit"] = self.run_audit()
+        except Exception as exp:
+            out["errors"].append(f"audit: {exp}")
+        try:
+            from intelligence.development_advisor import advise
+            rep = advise(root)
+            if hasattr(rep, "to_dict"):
+                out["advice"] = rep.to_dict()
+            elif isinstance(rep, dict):
+                out["advice"] = rep
+            # next steps
+            steps = []
+            if hasattr(rep, "recommendations"):
+                for r in (rep.recommendations or [])[:5]:
+                    if hasattr(r, "title"):
+                        steps.append({"title": r.title, "why": getattr(r, "why", "") or ""})
+                    elif isinstance(r, dict):
+                        steps.append({"title": r.get("title") or r.get("action") or str(r), "why": r.get("why") or ""})
+            elif isinstance(out["advice"], dict):
+                for r in (out["advice"].get("recommendations") or out["advice"].get("items") or [])[:5]:
+                    if isinstance(r, dict):
+                        steps.append({"title": r.get("title") or r.get("action") or "?", "why": r.get("why") or ""})
+            out["next_steps"] = steps
+            if hasattr(rep, "situation"):
+                out["headline"] = str(rep.situation or "")[:300]
+            elif isinstance(out["advice"], dict):
+                out["headline"] = str(out["advice"].get("situation") or out["advice"].get("summary") or "")[:300]
+            if hasattr(rep, "risks"):
+                out["risks"] = list(rep.risks or [])[:5]
+        except Exception as exp:
+            out["errors"].append(f"advice: {exp}")
+        try:
+            out["architecture_banner"] = self.architecture_banner()
+        except Exception:
+            pass
+        try:
+            from app.tasks_service import TasksService
+            ts = TasksService(root)
+            out["decisions_open"] = len(ts.open_decisions() or [])
+            q = ts.list_queue_summary() if hasattr(ts, "list_queue_summary") else {}
+            out["queue"] = q
+        except Exception as exp:
+            out["errors"].append(f"queue: {exp}")
+        if out["errors"] and out["status"] == "ok":
+            out["status"] = "degraded"
+        if not out["headline"]:
+            out["headline"] = f"Проект: {root.name}"
+        return out
+
+    def get_health_text(self) -> str:
+        h = self.get_health()
+        lines = [
+            f"[{h.get('status')}] {h.get('headline') or ''}",
+            f"decisions_open={h.get('decisions_open', 0)}",
+        ]
+        for i, s in enumerate(h.get("next_steps") or [], 1):
+            title = s.get("title") if isinstance(s, dict) else str(s)
+            lines.append(f"  {i}. {title}")
+        banner = (h.get("architecture_banner") or "").strip()
+        if banner:
+            lines.append(banner[:400])
+        for e in h.get("errors") or []:
+            lines.append(f"! {e}")
+        return "\n".join(lines)
+

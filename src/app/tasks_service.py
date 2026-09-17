@@ -267,3 +267,83 @@ class TasksService:
             lines.append(f"ERROR   {d['error']}")
         return "\n".join(lines)
 
+    def runtime_feedback(self, task_id: str | None = None) -> dict[str, Any]:
+        """FC-45E: compact run status for UI (phase, worker, verify, outcome).
+
+        Read-only aggregation — does not drive Runtime.
+        """
+        out: dict[str, Any] = {
+            "task_id": task_id or "",
+            "status": "idle",
+            "phase": "",
+            "worker": "",
+            "verify": "",
+            "label": "Готов",
+            "detail": "",
+            "supervisor": {},
+        }
+        try:
+            out["supervisor"] = self.supervisor_status()
+        except Exception:
+            pass
+        # queue headline
+        try:
+            q = self.list_queue_summary()
+            running = q.get("running") or q.get("processing") or []
+            if isinstance(running, int):
+                out["queue_running"] = running
+            elif isinstance(running, list) and running:
+                out["queue_running"] = len(running)
+                if not task_id and isinstance(running[0], dict):
+                    task_id = str(running[0].get("id") or running[0].get("task_id") or "")
+                    out["task_id"] = task_id
+            else:
+                out["queue_running"] = 0
+        except Exception:
+            out["queue_running"] = 0
+        if task_id:
+            try:
+                d = self.get_task_detail(task_id)
+                out["status"] = str(d.get("status") or d.get("state") or "unknown")
+                out["phase"] = str(d.get("phase") or "")
+                if not out["phase"] and d.get("phases"):
+                    ph = d["phases"]
+                    out["phase"] = str(ph[-1] if isinstance(ph, list) and ph else ph)
+                out["worker"] = str(d.get("worker") or d.get("worker_id") or "")
+                v = d.get("verification") or d.get("verify") or {}
+                if isinstance(v, dict):
+                    out["verify"] = str(v.get("status") or v.get("result") or v.get("level") or "")
+                else:
+                    out["verify"] = str(v or "")
+                out["detail"] = str(d.get("summary") or d.get("result_summary") or "")[:300]
+            except Exception as exp:
+                out["detail"] = str(exp)[:200]
+        # human label
+        st = (out["status"] or "").lower()
+        if st in ("done", "success"):
+            out["label"] = "Готово"
+        elif st in ("error", "failed", "errors"):
+            out["label"] = "Ошибка"
+        elif st in ("processing", "running", "claimed", "verifying"):
+            out["label"] = f"В работе: {out['phase'] or st}"
+        elif st in ("deferred",):
+            out["label"] = "Отложено"
+        elif out.get("supervisor", {}).get("reason") not in (None, "ready", "unknown"):
+            out["label"] = out["supervisor"].get("label") or out["status"]
+        else:
+            out["label"] = "Готов" if not out.get("queue_running") else "Очередь"
+        return out
+
+    def format_runtime_feedback(self, task_id: str | None = None) -> str:
+        f = self.runtime_feedback(task_id)
+        parts = [f"● {f.get('label')}"]
+        if f.get("task_id"):
+            parts.append(f"task={str(f['task_id'])[:12]}")
+        if f.get("worker"):
+            parts.append(f"worker={f['worker']}")
+        if f.get("verify"):
+            parts.append(f"verify={f['verify']}")
+        if f.get("detail"):
+            parts.append(str(f["detail"])[:120])
+        return " | ".join(parts)
+

@@ -50,7 +50,8 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         row.pack(fill="x", padx=12, pady=8)
         ctk.CTkButton(row, text="Обновить", width=90, command=self.refresh).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Аудит", width=90, command=self._run_audit).pack(side="left", padx=3)
-        ctk.CTkButton(row, text="Что дальше?", width=100, command=self._what_next).pack(side="left", padx=3)
+        ctk.CTkButton(row, text="Что дальше?", width=100, command=self._what_next)
+        ctk.CTkButton(row, text="Health", width=70, command=self._health_refresh).pack(side="left", padx=3)
         ctk.CTkButton(row, text="План", width=70, command=self._show_plan).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Решения", width=90, command=self._show_decisions).pack(side="left", padx=3)
 
@@ -242,3 +243,20 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             self._fire("show_decisions")
         except Exception as exp:
             self._status.configure(text=f"Решения: {exp}")
+
+    def _health_refresh(self) -> None:
+        """FC-45B: show Project Health (snapshot + advice) in body."""
+        root = self._root()
+        if not root:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", "Выберите проект")
+            return
+        try:
+            from app.project_service import ProjectService
+            text = ProjectService(root).get_health_text()
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", text)
+            self._status.configure(text="Project Health")
+        except Exception as exp:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", f"Health error: {exp}")
