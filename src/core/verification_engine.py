@@ -162,8 +162,12 @@ class VerificationEngine:
                 rep = VerificationReport(passed=True, checks=checks, reason="all_passed")
         try:
             rep.duration_sec = max(0.0, _time.monotonic() - _t0)
-        except Exception:
-            pass
+        except Exception as exp:
+            try:
+                from utils.safe_log import warn
+                warn("agentbus.verify", "duration_sec: %s", exp)
+            except Exception:
+                pass
         return finalize_report(rep)
 
     def _check_syntax(self, root: Path, files: list[str]) -> CheckResult:

@@ -105,6 +105,148 @@ class RPLlmMixin:
             pass
         return pool
 
+
+
+    def _llm_classify_exec_error(self, result) -> tuple[str, str, str]:
+        """Map ExecutionResult flags → (err_type, event_name, health_fail_status)."""
+        fail_status = "LOOP" if getattr(result, "loop_error", False) else "ERROR"
+        if result.timed_out:
+            err_type = "TIMEOUT"
+        elif getattr(result, "loop_error", False):
+            err_type = "LOOP"
+        elif getattr(result, "rate_limit_error", False):
+            err_type = "RATE_LIMIT"
+        elif getattr(result, "billing_error", False):
+            err_type = "BILLING"
+        else:
+            err_type = fail_status
+        if result.timed_out:
+            evt = "TIMEOUT"
+        elif getattr(result, "loop_error", False):
+            evt = "LOOP"
+        elif getattr(result, "rate_limit_error", False):
+            evt = "RATE_LIMIT"
+        else:
+            evt = "ERROR"
+        return err_type, evt, fail_status
+
+    def _llm_record_worker_failure(
+        self, worker, task, result, error: str, err_type: str, fail_status: str,
+        *, complexity: int, task_type: str,
+    ) -> None:
+        """Budget/metrics/health/ranker/capacity after a failed worker attempt."""
+        try:
+            from utils.budget import GLOBAL_TRACKER
+            from utils.metrics import GLOBAL_METRICS
+            GLOBAL_TRACKER.record_error(
+                worker.name, err_type, provider=worker.provider)
+            GLOBAL_METRICS.record("llm_fail")
+            GLOBAL_METRICS.record_task(
+                task, worker.name, False,
+                getattr(result, "latency", 0.0) or 0.0,
+                status=err_type, error_type=err_type)
+            self.log.log_task_fail(
+                task.id, worker.name, err_type, task.attempts,
+                channel=task.channel, detail=error[-200:])
+        except Exception:
+            pass
+        self.health.failure(
+            worker.name, error, result.timed_out,
+            status=fail_status,
+            billing_error=bool(getattr(result, "billing_error", False)))
+        try:
+            self.ranker.learn(worker.harness, worker.provider, worker.model,
+                              ok=False, latency=result.latency,
+                              complexity=complexity, task_type=task_type)
+        except Exception:
+            pass
+        try:
+            pkey = f"{worker.provider}:{worker.model}" if worker.model else worker.provider
+            self.capacity.record_text_error(pkey, error, worker.provider, worker.model)
+        except Exception:
+            pass
+
+
+    def _llm_emit_worker_fallback(self, tried: list[str], worker) -> None:
+        """Record FALLBACK event when switching workers mid-task."""
+        if len(tried) <= 1:
+            return
+        try:
+            self._emit(
+                "FALLBACK",
+                f"{tried[-2]} → {worker.name}",
+                task_id=getattr(self, "_current_task_id", None) or "",
+                worker=worker.name,
+                payload={
+                    "from": tried[-2],
+                    "to": worker.name,
+                    "tried": list(tried),
+                    "reason": "next_worker_after_failure",
+                },
+            )
+            from utils.metrics import GLOBAL_METRICS
+            GLOBAL_METRICS.record("worker_fallback")
+        except Exception:
+            pass
+
+    def _llm_build_worker_message(self, worker, message: str, attempt_messages: dict, ctx) -> str:
+        """Resolve per-worker message and inject tool gateway block."""
+        worker_message = attempt_messages.get(worker.name, message)
+        try:
+            from core.tool_registry import UnifiedToolGateway
+            root = str(getattr(ctx, "root", ctx) or ".")
+            worker_message = UnifiedToolGateway(root).inject_text_block(
+                worker_message, worker, allow_write=True
+            )
+        except Exception:
+            pass
+        return worker_message
+
+    def _llm_preflight_swap(self, worker, tried: list[str]):
+        """If local CLI/runtime is dead, switch to suggested alternate worker.
+
+        Returns the (possibly new) worker instance, or None to skip this slot.
+        """
+        try:
+            from core.preflight import preflight_worker, suggest_alternate
+            ok_pf, reason_pf = preflight_worker(worker)
+            if ok_pf:
+                return worker
+            alt = suggest_alternate(worker, self.workers)
+            try:
+                self._emit(
+                    "PREFLIGHT",
+                    f"{worker.name} недоступен ({reason_pf})"
+                    + (f" → {alt.name}" if alt is not None else ""),
+                    task_id=str(getattr(self, "_current_task_id", "") or ""),
+                    worker=worker.name,
+                )
+            except Exception:
+                pass
+            if alt is None or alt.name in tried:
+                try:
+                    self.health.end_task(worker.name, ok=False)
+                except Exception as exp:
+                    try:
+                        self.log.write(f"health.end_task: {exp}")
+                    except Exception:
+                        pass
+                return None
+            try:
+                self.health.end_task(worker.name, ok=False)
+            except Exception as exp:
+                try:
+                    self.log.write(f"health.end_task: {exp}")
+                except Exception:
+                    pass
+            if not self.health.begin_task(alt.name):
+                return None
+            tried.append(alt.name)
+            return alt
+        except Exception:
+            return worker
+
+
     def _stage_llm_pipeline(
         self, raw: dict, task, proj, ctx, tests, gitops, cbuilder, task_type: str
     ) -> str | None:
@@ -145,22 +287,10 @@ class RPLlmMixin:
                 continue
             if len(tried) > 1:
                 try:
-                    self._emit(
-                        "FALLBACK",
-                        f"{tried[-2]} → {worker.name}",
-                        task_id=task.id,
-                        worker=worker.name,
-                        payload={
-                            "from": tried[-2],
-                            "to": worker.name,
-                            "tried": list(tried),
-                            "reason": "next_worker_after_failure",
-                        },
-                    )
-                    from utils.metrics import GLOBAL_METRICS
-                    GLOBAL_METRICS.record("worker_fallback")
+                    self._current_task_id = task.id
                 except Exception:
                     pass
+                self._llm_emit_worker_fallback(tried, worker)
             attempted = True
             try:
                 from utils.metrics import GLOBAL_METRICS
@@ -174,40 +304,21 @@ class RPLlmMixin:
                     channel=task.channel, task_type=task_type)
             except Exception:
                 pass
-            worker_message = attempt_messages.get(worker.name, message)
-            try:
-                from core.tool_registry import UnifiedToolGateway
-                worker_message = UnifiedToolGateway(str(ctx.root)).inject_text_block(
-                    worker_message, worker, allow_write=True
-                )
-            except Exception:
-                pass
+            worker_message = self._llm_build_worker_message(
+                worker, message, attempt_messages, ctx
+            )
             exec_timeout = min(worker.timeout, WORKER_TIMEOUT)
             commit_sha = ""
             try:
                 # Hot-swap: soft preflight — if local runtime/CLI dead, try alternate
                 try:
-                    from core.preflight import preflight_worker, suggest_alternate
-                    ok_pf, reason_pf = preflight_worker(worker)
-                    if not ok_pf:
-                        alt = suggest_alternate(worker, self.workers)
-                        self._emit(
-                            "PREFLIGHT",
-                            f"{worker.name} недоступен ({reason_pf})"
-                            + (f" → {alt.name}" if alt is not None else ""),
-                            task_id=task.id, worker=worker.name,
-                        )
-                        if alt is not None and alt.name not in tried:
-                            try:
-                                self.health.end_task(worker.name, ok=False)
-                            except Exception:
-                                pass
-                            worker = alt
-                            tried.append(worker.name)
-                            if not self.health.begin_task(worker.name):
-                                continue
+                    self._current_task_id = task.id
                 except Exception:
                     pass
+                swapped = self._llm_preflight_swap(worker, tried)
+                if swapped is None:
+                    continue
+                worker = swapped
                 self._emit("START", f"{worker.harness}/{worker.provider} · {task_type}",
                            task_id=task.id, worker=worker.name,
                            executor=worker.harness, provider=worker.provider,
@@ -510,56 +621,11 @@ class RPLlmMixin:
                 self.health.end_task(worker.name)
 
             error = result.stderr or result.stdout or "ошибка исполнителя"
-            fail_status = "LOOP" if getattr(result, "loop_error", False) else "ERROR"
-            if result.timed_out:
-                err_type = "TIMEOUT"
-            elif getattr(result, "loop_error", False):
-                err_type = "LOOP"
-            elif getattr(result, "rate_limit_error", False):
-                err_type = "RATE_LIMIT"
-            elif getattr(result, "billing_error", False):
-                err_type = "BILLING"
-            else:
-                err_type = fail_status
-            try:
-                from utils.budget import GLOBAL_TRACKER
-                from utils.metrics import GLOBAL_METRICS
-                GLOBAL_TRACKER.record_error(
-                    worker.name, err_type, provider=worker.provider)
-                GLOBAL_METRICS.record("llm_fail")
-                GLOBAL_METRICS.record_task(
-                    task, worker.name, False,
-                    getattr(result, "latency", 0.0) or 0.0,
-                    status=err_type, error_type=err_type)
-                self.log.log_task_fail(
-                    task.id, worker.name, err_type, task.attempts,
-                    channel=task.channel, detail=error[-200:])
-            except Exception:
-                pass
-            self.health.failure(
-                worker.name, error, result.timed_out,
-                status=fail_status,
-                billing_error=bool(getattr(result, "billing_error", False)))
-            try:
-                self.ranker.learn(worker.harness, worker.provider, worker.model,
-                                  ok=False, latency=result.latency,
-                                  complexity=complexity, task_type=task_type)
-            except Exception:
-                pass
-            try:
-                pkey = f"{worker.provider}:{worker.model}" if worker.model else worker.provider
-                self.capacity.record_text_error(pkey, error, worker.provider, worker.model)
-            except Exception:
-                pass
-
-            if result.timed_out:
-                evt = "TIMEOUT"
-            elif getattr(result, "loop_error", False):
-                evt = "LOOP"
-            elif getattr(result, "rate_limit_error", False):
-                evt = "RATE_LIMIT"
-            else:
-                evt = "ERROR"
+            err_type, evt, fail_status = self._llm_classify_exec_error(result)
+            self._llm_record_worker_failure(
+                worker, task, result, error, err_type, fail_status,
+                complexity=complexity, task_type=task_type,
+            )
             self._emit(evt, error[-300:], task_id=task.id, worker=worker.name,
                        executor=worker.harness, provider=worker.provider, model=worker.model,
                        payload={"timed_out": result.timed_out,

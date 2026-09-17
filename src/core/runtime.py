@@ -378,8 +378,11 @@ class Runtime(RuntimeOps, RuntimeProcess, RuntimeDaemonMixin):
             if is_sub and files_lock:
                 try:
                     self.file_locks.release(tid, files_lock)
-                except Exception:
-                    pass
+                except Exception as exp:
+                    try:
+                        self.log.write(f"file_locks.release: {exp}")
+                    except Exception:
+                        pass
             self.project_lock.release(project_key, tid)
             if fp:
                 with self._dedupe_lock:

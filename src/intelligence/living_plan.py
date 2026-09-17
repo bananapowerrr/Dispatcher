@@ -384,8 +384,12 @@ def load_living_plan(project_root: str | Path) -> LivingPlan:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             return LivingPlan.from_dict(data)
-    except Exception:
-        pass
+    except Exception as exp:
+        try:
+            from utils.safe_log import warn
+            warn("agentbus.plan", "load_living_plan failed %s: %s: %s", path, type(exp).__name__, exp)
+        except Exception:
+            pass
     return LivingPlan()
 
 
@@ -394,12 +398,24 @@ def save_living_plan(project_root: str | Path, plan: LivingPlan) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     plan.touch()
     path = living_plan_path(project_root)
-    path.write_text(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        path.write_text(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exp:
+        try:
+            from utils.safe_log import error
+            error("agentbus.plan", "save_living_plan failed %s: %s: %s", path, type(exp).__name__, exp)
+        except Exception:
+            pass
+        raise
     # mirror markdown for humans / pev panel
     try:
         (d / "living_plan.md").write_text(plan.to_markdown(), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exp:
+        try:
+            from utils.safe_log import warn
+            warn("agentbus.plan", "living_plan.md mirror failed: %s", exp)
+        except Exception:
+            pass
     return path
 
 
