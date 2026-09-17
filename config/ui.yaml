@@ -1,5 +1,13 @@
-# AgentBus UI defaults
+# NVCode / AgentBus UI defaults
 active_preset: local_only
 theme: system
 autostart_dispatcher: false
 language: ru
+workspace_mode: agent
+
+# FC-45 Agent Behavior (not a separate product mode — controls how Agent acts)
+agent:
+  autonomy: auto          # off | suggest | auto
+  suggestions: important  # all | important | none
+  architecture: ask       # ask | auto | off
+  verification: automatic # automatic | always_ask

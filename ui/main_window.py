@@ -218,6 +218,14 @@ class MainWindow(ctk.CTk):
             command=self._set_workspace_mode,
             width=110,
         ).pack(side="right")
+        try:
+            from app.agent_behavior import behavior_summary, load_agent_behavior
+            self._agent_label = ctk.CTkLabel(
+                mode_row, text=behavior_summary(load_agent_behavior()), text_color="gray"
+            )
+            self._agent_label.pack(side="right", padx=8)
+        except Exception:
+            self._agent_label = None
         nav_row = ctk.CTkFrame(left, fg_color="transparent")
         nav_row.pack(fill="x", padx=8, pady=2)
         ctk.CTkButton(nav_row, text="←", width=36, command=self._nav_back).pack(side="left", padx=2)

@@ -10,6 +10,7 @@ AgentBus/
 ├── recipes/               # JSON-сценарии для UI/CLI
 ├── plugins/               # user plugins (example_hello.py)
 ├── src/
+│   ├── app/               # Application API (UI façade)
 │   ├── core/              # runtime, bus, router, executor, doctor…
 │   │   ├── runtime.py / runtime_daemon.py           # оркестратор (+ daemon mixin)
 │   │   ├── runtime_ops.py       # exec/verify (+ mixins)
@@ -45,7 +46,8 @@ AgentBus/
 ├── ui/                    # CustomTkinter (chat, recipes, metrics…)
 ├── tests/
 ├── scripts/               # bootstrap, build_exe, benchmark_harness
-├── docs/                  # INDEX, ONBOARDING_RU, INSTALL_WINDOWS, PLUGIN_SDK…
+├── docs/                  # active docs (INDEX is SoT map)
+│   └── archive/           # HISTORICAL only — not architecture SoT
 └── channels/              # optional phone file-bus
 ```
 

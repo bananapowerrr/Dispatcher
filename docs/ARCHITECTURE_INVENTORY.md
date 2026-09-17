@@ -514,3 +514,49 @@ Controlled cleanup (no runtime changes):
 5. **`start_*.bat`:** root vs `scripts/` differ (not identical) — kept both; root is user entrypoint.
 
 Runtime / `rp_*` / FSM / verify / intake **untouched**.
+
+---
+
+## Cleanup pass (2026-09-17) — final repository hardening
+
+### Deleted / removed from worktree
+
+| Item | Action | Reason |
+|------|--------|--------|
+| `workers_state.json` (root) | removed | Runtime-generated; already in `.gitignore` |
+| `docs/FC44_UI_WORKFLOW.md` | → `docs/archive/` | FC narrative, not active architecture |
+| `src/_archive_candidates/cfg_builder.py` | → `docs/archive/dead_code/` | Zero imports |
+| `src/_archive_candidates/updater.py` | → `docs/archive/dead_code/` | Zero imports |
+
+### Restored to active `docs/`
+
+`CONTRACTS.md`, `LIVE_ACCEPTANCE.md`, `STATUS_OFFLINE.md`, `ROADMAP_0.10.md`, `PRODUCT_PATH.md`, `PRODUCT_BACKLOG.md`
+
+### Retained (intentional)
+
+- All `src/core/runtime*.py`, `rp_*.py` — intentional split, **not** merge targets
+- All FC-named tests — protect live contracts
+- Root `start.bat` / `start.sh` + thin `start_ui.bat` / `start_doctor.bat`
+- `scripts/*` smoke/doctor/live tools
+
+### Duplicate responsibilities (layers, not merge)
+
+| Zone | Canonical | Supporting | Note |
+|------|-----------|------------|------|
+| Routing | `core/router.py` | `ranking.py`, `capability_router` | score vs route |
+| Verify | `verify_policy` + `verification_engine` | `rp_verify`, `syntax_guard` | ladder stages |
+| Tasks | `task_contract` / FSM | `task_result`, `task_service` | model vs UX |
+| Project intel | `project_state` / `project_snapshot` | audit, analysis, index | different layers |
+| Skills | `skills/registry` + `matcher` | classifiers, builtin/* | match vs execute |
+
+### UI → App API debt
+
+Many `ui/*` panels still import `core.*` / `intelligence.*` directly.  
+Canonical path: `ui → src/app/*Service → core/intelligence`.  
+**Do not mass-rewrite in cleanup** — track as progressive FC-45+ debt.
+
+### Technical debt (do not fix in cleanup)
+
+1. UI direct imports of intelligence/core
+2. Multiple start launchers (root vs scripts/) — both thin, OK
+3. Parent sandbox `/artifacts` outside this repo still has upload_* noise (not part of product tree)

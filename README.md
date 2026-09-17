@@ -16,6 +16,7 @@ pip install -r requirements-ui.txt   # GUI
 
 python dispatcher.py --init
 python dispatcher.py --doctor
+bash scripts/ci_smoke.sh          # offline CI (mock + tests)
 
 python dispatcher.py          # движок (терминал 1)
 python dispatcher_ui.py       # чат (терминал 2)
@@ -45,6 +46,8 @@ Windows: `scripts/start_ui.bat`, `scripts/start_doctor.bat`
 ## Документация
 
 См. **[docs/INDEX.md](docs/INDEX.md)** — онбординг, структура, каналы, API, флаги, UI, troubleshooting.
+
+Пошагово до live: **[docs/LAUNCH.md](docs/LAUNCH.md)**.
 
 ## Корень проекта
 
