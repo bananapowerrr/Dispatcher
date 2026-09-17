@@ -371,6 +371,7 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
         self.after(600, self._apply_onboarding_cfg)
+        self.after(3000, self._poll_app_loop)
         self._file_watcher = None
         self.bind_all("<Control-k>", lambda e: self.palette.open())
         self.bind_all("<Control-K>", lambda e: self.palette.open())
@@ -1071,6 +1072,10 @@ class MainWindow(ctk.CTk):
         if c in ("/help", "/?"):
             self.chat.append(
                 "System",
+                "Язык UI: ? почему · ⚠ проблема · → действие · ↶ Undo\n"
+                "Agent · … — профиль · Ctrl+K — палитра\n"
+                "После DONE: Review / Continue / Undo\n"
+                "\n"
                 "Команды:\n"
                 "/help — справка\n"
                 "/status — dispatcher + очередь\n"
@@ -1155,9 +1160,37 @@ class MainWindow(ctk.CTk):
         try:
             from app.app_runner import stop_app
             r = stop_app()
-            self.chat.append("System", f"Stop: {r}")
+            tail = (r.get("tail") or "").strip()
+            msg = f"Stop: running={r.get('running')} code={r.get('returncode')}"
+            if tail:
+                msg += "\n--- output ---\n" + tail[-1500:]
+            self.chat.append("System", msg)
         except Exception as exp:
             self.chat.append("System", f"Stop error: {exp}")
+
+    def _poll_app_loop(self) -> None:
+        try:
+            self._poll_app_exit()
+        except Exception:
+            pass
+        try:
+            self.after(3000, self._poll_app_loop)
+        except Exception:
+            pass
+
+    def _poll_app_exit(self) -> None:
+        try:
+            from app.app_runner import poll_exit
+            r = poll_exit()
+            if r.get("exited") and r.get("failed"):
+                tail = (r.get("tail") or "")[-1200:]
+                self.chat.append(
+                    "System",
+                    f"Application exited with code {r.get('returncode')}\n{tail}\n"
+                    "Можно: «исправь эту ошибку» в чате.",
+                )
+        except Exception:
+            pass
 
     def _open_agent_popover(self) -> None:
         try:

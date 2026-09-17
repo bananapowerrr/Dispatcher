@@ -137,3 +137,13 @@ PYTHONPATH=src python scripts/product_path_check.py
 # RESULT: GREEN
 ```
 
+## Progressive UX (offline-ready, verify on PC)
+
+- [ ] Wizard: step profile (beginner/developer/advanced/auto)
+- [ ] Click **Agent · …** → change autonomy / suggestions
+- [ ] Task DONE → Report with checkboxes → Continue enqueues only checked
+- [ ] Health **?** opens HelpPopover
+- [ ] Ctrl+K palette: Layout Agent / Code / Focus
+- [ ] ▶ Run / ■ Stop on project with main.py (optional)
+- [ ] After 5 Continues — one soft habit message (no silent profile change)
+- [ ] `/help` shows UI language (? ⚠ → ↶)

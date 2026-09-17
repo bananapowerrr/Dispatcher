@@ -1,55 +1,64 @@
 # -*- coding: utf-8 -*-
-"""Справка AgentBus (окно)."""
+"""Справка NVCode / AgentBus (окно)."""
 from __future__ import annotations
-
-import customtkinter as ctk
 
 from ui.i18n_ui import t as _t
 
-HELP_RU = """AgentBus — локальный AI-агент для кода
+HELP_RU = """
+NVCode — среда разработки с локальным агентом
+
+ЦИКЛ РАБОТЫ
+  вводные → агент → проверка → отчёт
+  → Review / Continue / Undo → дальше
+
+ЯЗЫК ИНТЕРФЕЙСА
+  ?   почему (пояснение)
+  ⚠   проблема
+  →   действие
+  ↶   откат изменений агента
+  Agent · …  — профиль и автономность (клик)
 
 ГЛАВНОЕ
-• Задачи пишутся в чат (центр) — основной канал
-• Слева: проекты и запуск диспетчера (нужен для обработки)
-• Справа: история, метрики, рецепты, diff, воркеры
+  • Задачи — в чат (центр)
+  • Слева: проект, диспетчер, Run/Stop
+  • Справа: очередь, changes, diff, метрики
+  • Project Center: Health, Workflow, ?
+
+ПРОФИЛЬ (wizard или Agent · …)
+  Новичок / Разработчик / Продвинутый / Авто
+  Автономность и подсказки — разные настройки
 
 ГОРЯЧИЕ КЛАВИШИ
-Ctrl+Enter  — отправить задачу
-Ctrl+K      — палитра команд
-Ctrl+L      — очистить чат
-Ctrl+,      — настройки
-F5          — обновить панели
-Ctrl+1..4   — каналы (gpt/grok/gemini/autopilot)
+  Ctrl+Enter  отправить
+  Ctrl+K      палитра команд
+  Ctrl+L      очистить чат
+  Ctrl+,      настройки
+  Ctrl+1..4   каналы
 
-СЛЕШ-КОМАНДЫ В ЧАТЕ
-/help /status /workers /metrics /clear /compact
-
-НАСТРОЙКИ
-Политика: local_only (только ПК) · balanced · quality · cheap
-Флаги: выключение RAG, автопилота, телефонной шины и т.д.
-Интерфейс: тема, toast, автозапуск диспетчера
+СЛЕШ-КОМАНДЫ
+  /help /suggest /status /workers /metrics
+  /clear /compact /init /diff /apply /undo
 
 ЭКОНОМИЯ
-Skills и кэш решают рутину без LLM
-local_only + Ollama = 0 ₽ за токены
+  Skills + кэш без LLM · local_only + Ollama
 
 ДИАГНОСТИКА
-Кнопка «Диагностика» слева или команда в палитре
-CLI: python dispatcher.py --doctor
-"""
+  «Диагностика» слева · python dispatcher.py --doctor
+""".strip()
 
 
 def show_help(master) -> None:
+    import customtkinter as ctk
     win = ctk.CTkToplevel(master)
-    win.title(_t("help_title", default="Справка AgentBus"))
-    win.geometry("560x520")
+    win.title(_t("help_title", default="Справка NVCode"))
+    win.geometry("580x560")
     try:
         win.transient(master)
     except Exception:
         pass
     box = ctk.CTkTextbox(win, wrap="word", font=ctk.CTkFont(size=13))
     box.pack(fill="both", expand=True, padx=12, pady=12)
-    box.insert("1.0", HELP_RU.strip())
+    box.insert("1.0", HELP_RU)
     box.configure(state="disabled")
     ctk.CTkButton(win, text=_t("close", default="Закрыть"), command=win.destroy, width=120).pack(
         pady=(0, 12)

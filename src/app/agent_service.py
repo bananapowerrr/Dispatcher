@@ -82,9 +82,9 @@ class AgentService:
 
         Does not enqueue tasks or touch Runtime — UI decides what to run.
         """
-        from app.agent_behavior import load_agent_behavior, SUGGESTIONS_NONE, SUGGESTIONS_ALL
+        from app.agent_behavior import effective_behavior, SUGGESTIONS_NONE, SUGGESTIONS_ALL
 
-        behavior = load_agent_behavior()
+        behavior = effective_behavior()
         out: dict[str, Any] = {
             "enabled": behavior.suggestions != SUGGESTIONS_NONE,
             "level": behavior.suggestions,

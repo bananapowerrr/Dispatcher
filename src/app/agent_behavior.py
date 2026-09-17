@@ -136,7 +136,7 @@ def save_agent_behavior(behavior: AgentBehavior, root: Path | None = None) -> Pa
 
 def behavior_summary(b: AgentBehavior | None = None) -> str:
     """One-line label for toolbar, e.g. 'Agent · Auto'."""
-    b = (b or load_agent_behavior()).normalize()
+    b = (b or effective_behavior()).normalize()
     labels = {
         AUTONOMY_OFF: "Off",
         AUTONOMY_SUGGEST: "Suggest",
@@ -180,4 +180,25 @@ def list_profiles() -> list[dict[str, str]]:
         {"id": PROFILE_ADVANCED, "label": "Продвинутый", "hint": "Максимум контроля и trade-off"},
         {"id": PROFILE_AUTO, "label": "Авто", "hint": "Сам выбирает уровень вмешательства"},
     ]
+
+
+# Session-level override (not persisted until save_agent_behavior)
+_SESSION_OVERRIDE: AgentBehavior | None = None
+
+
+def set_session_override(behavior: AgentBehavior | None) -> None:
+    """Temporary override for current UI session; None clears."""
+    global _SESSION_OVERRIDE
+    _SESSION_OVERRIDE = behavior.normalize() if behavior is not None else None
+
+
+def clear_session_override() -> None:
+    set_session_override(None)
+
+
+def effective_behavior(root: Path | None = None) -> AgentBehavior:
+    """Session override wins over ui.yaml profile."""
+    if _SESSION_OVERRIDE is not None:
+        return _SESSION_OVERRIDE
+    return load_agent_behavior(root)
 

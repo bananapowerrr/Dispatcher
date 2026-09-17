@@ -151,6 +151,18 @@ def _cmd_reject(args: list[str], ctx: dict[str, Any]) -> str:
 
 def _cmd_help(args: list[str], ctx: dict[str, Any]) -> str:
     return (
+        "NVCode — язык интерфейса:\n"
+        "  ?  почему / пояснение\n"
+        "  ⓘ  информация о состоянии\n"
+        "  ⚠  проблема\n"
+        "  →  действие\n"
+        "  ↶  Undo изменений агента\n"
+        "\n"
+        "После задачи: Report → Review / Continue / Undo\n"
+        "Agent · … — профиль и автономность (клик)\n"
+        "Ctrl+K — палитра команд\n"
+        "\n"
+        "Команды:\n"
         "/clear — новая сессия\n"
         "/compact — сжать историю диалога\n"
         "/init — создать .agentbus/MEMORY.md\n"
@@ -166,8 +178,25 @@ def _cmd_help(args: list[str], ctx: dict[str, Any]) -> str:
         "/undo [id] — откатить Apply\n"
         "/session — id текущей сессии\n"
         "/hooks — список hooks проекта\n"
+        "/suggest — подсказки advisor\n"
         "/help — эта справка"
     )
+
+
+def _cmd_suggest(args: list[str], ctx: dict[str, Any]) -> str:
+    project = ctx.get("project") or ""
+    try:
+        from app.agent_service import AgentService
+        root = None
+        if project:
+            try:
+                from core.config import resolve_project
+                root = resolve_project(project)
+            except Exception:
+                root = project
+        return AgentService(root).suggestions().get("text") or "No suggestions."
+    except Exception as exc:
+        return f"suggest: {exc}"
 
 
 def _cmd_hooks(args: list[str], ctx: dict[str, Any]) -> str:
@@ -320,6 +349,7 @@ COMMANDS: dict[str, Handler] = {
     "/reject": _cmd_reject,
     "/undo": _cmd_undo,
     "/help": _cmd_help,
+    "/suggest": _cmd_suggest,
     "/hooks": _cmd_hooks,
     "/session": _cmd_session,
 }

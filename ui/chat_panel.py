@@ -1277,5 +1277,13 @@ class ChatPanel(ctk.CTkFrame):
                 results = continue_selected(root or ".", ids, rep)
                 ok = sum(1 for x in results if x.get("ok"))
                 self.append("System", f"Continue: поставлено в очередь {ok}/{len(results)}")
+                try:
+                    from app.habit import record_continue_accept
+                    # only count when user kept defaults (all checked were checked_default)
+                    hab = record_continue_accept(root or None)
+                    if hab.get("suggest_profile") and hab.get("message"):
+                        self.append("System", hab["message"])
+                except Exception:
+                    pass
         except Exception as exp:
             self.append("System", f"{action}: {exp}")
