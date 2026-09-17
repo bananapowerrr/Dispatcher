@@ -255,7 +255,11 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             return
         try:
             from app.project_service import ProjectService
-            text = ProjectService(root).get_health_text()
+            try:
+                from app.facade import AppFacade
+                text = AppFacade(root).health_text()
+            except Exception:
+                text = ProjectService(root).get_health_text()
             self._body.delete("1.0", "end")
             self._body.insert("1.0", text)
             self._status.configure(text="Project Health")

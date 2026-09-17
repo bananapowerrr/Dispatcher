@@ -76,14 +76,30 @@ def phase_label(phase: str | None) -> str:
     return phase or _tr("chat_ready", "Ready for a task")
 
 
-def format_footer(*, dispatcher_on: bool, queue_n: int | None = None, busy: bool = False) -> str:
+def format_footer(
+    *,
+    dispatcher_on: bool,
+    queue_n: int | None = None,
+    busy: bool = False,
+    agent_label: str | None = None,
+    profile: str | None = None,
+) -> str:
     """Main window footer line."""
     n = 0 if queue_n is None else int(queue_n)
     if not dispatcher_on:
-        return _tr("footer_off", "dispatcher: OFF  ·  queue: {n}").replace("{n}", str(n))
+        base = _tr("footer_off", "dispatcher: OFF  ·  queue: {n}").replace("{n}", str(n))
+        if agent_label:
+            base = f"{base}  ·  {agent_label}"
+        return base
     if busy:
-        return _tr("footer_busy", "dispatcher: ON  ·  task in progress")
-    return _tr("footer_on", "dispatcher: ON  ·  queue: {n}").replace("{n}", str(n))
+        base = _tr("footer_busy", "dispatcher: ON  ·  task in progress")
+        if agent_label:
+            base = f"{base}  ·  {agent_label}"
+        return base
+    base = _tr("footer_on", "dispatcher: ON  ·  queue: {n}").replace("{n}", str(n))
+    if agent_label:
+        base = f"{base}  ·  {agent_label}"
+    return base
 
 
 def format_queue_counts(counts: dict[str, Any] | None) -> str:

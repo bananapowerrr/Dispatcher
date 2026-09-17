@@ -47,6 +47,7 @@ class ChangesPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         ctk.CTkButton(btn, text="Review", width=90, command=self.review_selected).pack(side="left", padx=4)
         ctk.CTkButton(btn, text="Open", width=90, command=self.open_selected).pack(side="left", padx=4)
         ctk.CTkButton(btn, text="Review all", width=100, command=self.review_all).pack(side="left", padx=4)
+        ctk.CTkButton(btn, text="Undo", width=80, command=self._undo_selected).pack(side="left", padx=4)
 
         self._status = ctk.CTkLabel(self, text="", anchor="w", text_color="gray")
         self._status.pack(fill="x", padx=8, pady=(0, 4))
@@ -75,7 +76,12 @@ class ChangesPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             files = ChangesService(root).list_changes()
             self._paths = [f["path"] for f in files]
             if not files:
-                self._list.insert("1.0", "(нет изменений в git)")
+                try:
+                    from app.facade import AppFacade
+                    empty = AppFacade(root).empty_message("changes")
+                except Exception:
+                    empty = "(нет изменений в git)"
+                self._list.insert("1.0", empty)
                 self._count.configure(text="0")
                 self._status.configure(text="")
                 return
@@ -143,3 +149,26 @@ class ChangesPanel(ctk.CTkFrame if ctk else object):  # type: ignore
 
     def _on_double(self, _event=None) -> None:
         self.review_selected()
+
+    def _undo_selected(self) -> None:
+        """Undo last agent apply via ChangesService (git-aware)."""
+        try:
+            from app.changes_service import ChangesService
+            root = self._root() or "."
+            svc = ChangesService(root)
+            ids = []
+            try:
+                ids = list(svc.pending_task_ids() or [])
+            except Exception:
+                ids = []
+            tid = ids[0] if ids else ""
+            if not tid:
+                self._status.configure(text="Нет task_id для Undo")
+                return
+            r = svc.undo(tid)
+            ok = bool(r.get("ok")) if isinstance(r, dict) else bool(r)
+            self._status.configure(text=f"Undo {tid}: {'ok' if ok else r}")
+            self.refresh()
+        except Exception as e:
+            self._status.configure(text=str(e)[:120])
+

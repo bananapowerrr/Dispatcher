@@ -315,7 +315,15 @@ def maybe_run_wizard(master) -> None:
     if not wizard_needed():
         return
     try:
-        SetupWizard(master)
+        def _done():
+            post_wizard_briefing(master)
+        SetupWizard(master, on_done=_done)
+    except TypeError:
+        try:
+            SetupWizard(master)
+            # briefing deferred if ctor has no on_done
+        except Exception:
+            mark_setup_complete()
     except Exception:
         mark_setup_complete()
 
@@ -327,3 +335,33 @@ def _beginner_welcome_text() -> str:
         "• исправь синтаксическую ошибку\n"
         "• отформатируй код в src/"
     )
+
+
+def post_wizard_briefing(master) -> None:
+    """After first-run: Health + one suggestion into chat (no auto tasks)."""
+    try:
+        chat = getattr(master, "chat", None)
+        if chat is None:
+            return
+        root = None
+        try:
+            root = master.projects.selected_project()
+        except Exception:
+            pass
+        from app.facade import AppFacade
+        fac = AppFacade(root)
+        health = fac.health_text()
+        if health:
+            chat.append("System", "Health:\n" + health[:1200])
+        sug = fac.suggestions_text()
+        if sug:
+            chat.append("System", "Suggest:\n" + sug[:1200])
+        chat.append(
+            "System",
+            "Готово. Пиши задачу в чат или Ctrl+K → Composer. Agent · … — профиль.",
+        )
+    except Exception as exp:
+        try:
+            master.chat.append("System", f"briefing: {exp}")
+        except Exception:
+            pass

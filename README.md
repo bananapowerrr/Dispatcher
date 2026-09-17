@@ -90,3 +90,7 @@ DONE = terminal
 python scripts/project_audit.py
 python scripts/project_audit.py --pytest
 ```
+
+### Composer
+
+`Ctrl+K` → **Composer — новая задача** — явная форма (очередь, не прямой worker).

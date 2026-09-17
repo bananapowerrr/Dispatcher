@@ -25,6 +25,7 @@ class SettingsPanel(ctk.CTkFrame):
         tabview.pack(fill="both", expand=True, padx=12, pady=12)
         self._build_providers_tab(tabview.add(_t("settings_tab_providers", default="Провайдеры")))
         self._build_workers_tab(tabview.add(_t("settings_tab_workers", default="Воркеры")))
+        self._build_agent_behavior_section(tabview.add(_t("settings_tab_agent", default="Agent")))
         self._build_context_tab(tabview.add(_t("settings_tab_context", default="Контекст")))
         self._build_prompt_tab(tabview.add(_t("settings_tab_prompt", default="Промпт")))
         self._build_language_tab(tabview.add(_t("settings_tab_language", default="Язык")))
@@ -529,3 +530,32 @@ class SettingsPanel(ctk.CTkFrame):
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w")
 
+
+    def _build_agent_behavior_section(self, parent) -> None:
+        """Named profiles — defaults only; does not invent new FSM."""
+        try:
+            import customtkinter as ctk
+            from app.agent_behavior import (
+                PROFILE_LABELS,
+                apply_profile,
+                load_agent_behavior,
+                behavior_summary,
+            )
+            frame = ctk.CTkFrame(parent)
+            frame.pack(fill="x", padx=10, pady=10)
+            ctk.CTkLabel(frame, text="Agent / профиль", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=4)
+            ctk.CTkLabel(frame, text=behavior_summary(), text_color="gray").pack(anchor="w", padx=8)
+            row = ctk.CTkFrame(frame)
+            row.pack(fill="x", padx=8, pady=6)
+            for pid, label in PROFILE_LABELS.items():
+                def _mk(p=pid):
+                    def _apply():
+                        apply_profile(p)
+                        try:
+                            self.master.event_generate("<<AgentBehaviorChanged>>")
+                        except Exception:
+                            pass
+                    return _apply
+                ctk.CTkButton(row, text=label, width=100, command=_mk()).pack(side="left", padx=4)
+        except Exception:
+            pass

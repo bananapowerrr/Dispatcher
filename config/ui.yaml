@@ -21,3 +21,6 @@ layout:
   show_left: true
   show_right: true
   preset: agent
+
+# true/false overrides profile; omit = profile-driven
+# show_advanced_tabs: false

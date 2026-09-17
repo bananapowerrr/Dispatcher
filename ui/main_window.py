@@ -284,31 +284,46 @@ class MainWindow(ctk.CTk):
             self.queue_panel.pack(fill="both", expand=True)
         except Exception:
             self.queue_panel = None
-        wrk_tab = tabs.add(_t("tab_workers", default="Воркеры"))
-        self.workers_panel = WorkersPanel(wrk_tab)
-        sk_tab = tabs.add(_t("tab_skills", default="Навыки"))
-        rec_tab = tabs.add(_t("tab_recipes", default="Рецепты"))
-        ext_tab = tabs.add(_t("tab_extensions", default="Расширения"))
-        phone_tab = tabs.add(_t("tab_phone", default="Телефон"))
-        self.phone_bus_panel = PhoneBusPanel(phone_tab)
-        self.phone_bus_panel.pack(fill="both", expand=True)
-        self.extensions_panel = ExtensionsPanel(ext_tab)
-        self.extensions_panel.pack(fill="both", expand=True)
-        self.skills_panel = SkillsPanel(sk_tab)
-        self.recipes_panel = RecipesPanel(
-            rec_tab,
-            on_enqueue=lambda d: self.chat.append(
-                "System", f"Рецепт «{d.get('recipe')}» в очереди", kind="info"
-            ) if hasattr(self, "chat") else None,
-            get_project=self._recipe_project,
-        )
-        pev_tab = tabs.add(_t("tab_pev", default="PEV"))
-        self.pev_panel = PevPanel(pev_tab)
-        sent_tab = tabs.add(_t("tab_sentinel", default="Санитар"))
-        self.sentinel_panel = SentinelPanel(
-            sent_tab,
-            get_project=self._current_project_root,
-        )
+        self.workers_panel = None
+        self.skills_panel = None
+        self.recipes_panel = None
+        self.extensions_panel = None
+        self.phone_bus_panel = None
+        self.pev_panel = None
+        self.sentinel_panel = None
+        if self._should_show_advanced_tabs():
+            wrk_tab = tabs.add(_t("tab_workers", default="Воркеры"))
+            self.workers_panel = WorkersPanel(wrk_tab)
+            self.workers_panel.pack(fill="both", expand=True)
+            sk_tab = tabs.add(_t("tab_skills", default="Навыки"))
+            rec_tab = tabs.add(_t("tab_recipes", default="Рецепты"))
+            ext_tab = tabs.add(_t("tab_extensions", default="Расширения"))
+            phone_tab = tabs.add(_t("tab_phone", default="Телефон"))
+            self.phone_bus_panel = PhoneBusPanel(phone_tab)
+            self.phone_bus_panel.pack(fill="both", expand=True)
+            self.extensions_panel = ExtensionsPanel(ext_tab)
+            self.extensions_panel.pack(fill="both", expand=True)
+            self.skills_panel = SkillsPanel(sk_tab)
+            self.skills_panel.pack(fill="both", expand=True)
+            self.recipes_panel = RecipesPanel(
+                rec_tab,
+                on_enqueue=lambda d: self.chat.append(
+                    "System", f"Рецепт «{d.get('recipe')}» в очереди", kind="info"
+                )
+                if hasattr(self, "chat")
+                else None,
+                get_project=self._recipe_project,
+            )
+            self.recipes_panel.pack(fill="both", expand=True)
+            pev_tab = tabs.add(_t("tab_pev", default="PEV"))
+            self.pev_panel = PevPanel(pev_tab)
+            self.pev_panel.pack(fill="both", expand=True)
+            sent_tab = tabs.add(_t("tab_sentinel", default="Санитар"))
+            self.sentinel_panel = SentinelPanel(
+                sent_tab,
+                get_project=self._current_project_root,
+            )
+            self.sentinel_panel.pack(fill="both", expand=True)
         diff_tab = tabs.add(_t("tab_diff", default="Diff"))
         self.diff_panel = DiffPanel(
             diff_tab,
@@ -386,6 +401,7 @@ class MainWindow(ctk.CTk):
         if cfg.get("auto_start_dispatcher"):
             self.after(500, self._start_dispatcher)
         self.after(800, self._welcome_desktop)
+        self.after(1500, self._footer_loop)
 
 
     def _resend_task(self, row: dict) -> None:
@@ -610,6 +626,50 @@ class MainWindow(ctk.CTk):
         self._set_theme(nxt)
 
 
+    def _submit_composer_task(self, task: dict) -> None:
+        """Enqueue composer task into local/desktop intake — not execute worker."""
+        try:
+            from pathlib import Path
+            import json
+            from ui.paths import agentbus_root
+            root = Path(agentbus_root())
+            incoming = root / "channels" / "desktop" / "incoming"
+            incoming.mkdir(parents=True, exist_ok=True)
+            tid = task.get("id") or "task"
+            path = incoming / f"{tid}.json"
+            path.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
+            try:
+                self.chat.append("System", f"Composer → queue: {tid}")
+            except Exception:
+                pass
+        except Exception as exp:
+            try:
+                self.chat.append("System", f"Composer error: {exp}")
+            except Exception:
+                pass
+
+    def _open_composer(self) -> None:
+        import customtkinter as ctk
+        win = ctk.CTkToplevel(self)
+        win.title("Composer")
+        win.geometry("520x480")
+        try:
+            win.transient(self)
+        except Exception:
+            pass
+        from ui.composer_panel import ComposerPanel
+        def _proj():
+            try:
+                return self.projects.selected_project()
+            except Exception:
+                try:
+                    return getattr(self.projects, "_selected", None) or None
+                except Exception:
+                    return None
+        ComposerPanel(win, get_project=_proj, on_submit=self._submit_composer_task).pack(
+            fill="both", expand=True
+        )
+
     def _show_help(self) -> None:
         try:
             from ui.help_dialog import show_help
@@ -718,17 +778,54 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
 
-    def _welcome_desktop(self) -> None:
+
+
+
+    def _safe_refresh(self, name: str) -> None:
+        """Refresh optional panel if present (beginner may hide advanced tabs)."""
         try:
-            self.chat.append(
-                "System",
-                "Добро пожаловать в AgentBus.\n"
-                "• Пишите задачу в чат — это главный канал\n"
-                "• Запустите диспетчер слева, если ещё не запущен\n"
-                "• Рецепты — вкладка справа; /help — команды\n"
-                "• Локальные модели = 0 ₽ · skills/cache экономят лимиты",
-                kind="system",
-            )
+            p = getattr(self, name, None)
+            if p is not None and hasattr(p, "refresh"):
+                p.refresh()
+        except Exception:
+            pass
+
+    def _footer_loop(self) -> None:
+        try:
+            self._update_footer()
+        except Exception:
+            pass
+        try:
+            self.after(2500, self._footer_loop)
+        except Exception:
+            pass
+
+    def _welcome_desktop(self) -> None:
+        """One-shot product tip into chat (not a second onboarding)."""
+        try:
+            if getattr(self, "_welcomed", False):
+                return
+            self._welcomed = True
+            from ui.i18n_ui import t as _t
+            tips = [
+                _t("welcome_1", default="NVCode: чат — основной ввод. Ctrl+K — Composer и команды."),
+                _t("welcome_2", default="После задачи: Report → Review / Continue / Undo."),
+                _t("welcome_3", default="Agent · … — профиль. ? у Health — почему."),
+            ]
+            try:
+                from app.agent_behavior import behavior_summary, effective_behavior, PROFILE_BEGINNER
+                tips.append(behavior_summary())
+                if effective_behavior().profile == PROFILE_BEGINNER:
+                    tips.append(
+                        _t(
+                            "welcome_beginner_tabs",
+                            default="Профиль Новичок: технические вкладки скрыты. Ctrl+K → Show all tabs.",
+                        )
+                    )
+            except Exception:
+                pass
+            self.chat.append("System", "\n".join(tips))
+            self._update_footer()
         except Exception:
             pass
 
@@ -937,7 +1034,7 @@ class MainWindow(ctk.CTk):
         self.status.configure(text=_t("project_label", default="Проект: {name}", name=name))
         self._start_project_watcher(name)
         try:
-            self.sentinel_panel.refresh()
+            self._safe_refresh("sentinel_panel")
         except Exception:
             pass
         # New project → new conversation session (avoid cross-project context leak)
