@@ -17,6 +17,7 @@ from ui.settings_panel import SettingsPanel
 from ui.command_palette import CommandPalette
 from ui.commands import build_commands
 from ui.diff_panel import DiffPanel
+from ui.plan_panel import PlanPanel
 from ui.changes_panel import ChangesPanel
 from ui.task_detail_panel import TaskDetailPanel
 from ui.pev_panel import PevPanel
@@ -336,6 +337,17 @@ class MainWindow(ctk.CTk):
             on_rejected=lambda tid: self._after_diff_action("rejected", tid),
         )
         self.diff_panel.pack(fill="both", expand=True)
+        try:
+            plan_tab = tabs.add(_t("tab_plan", default="Plan"))
+            self.plan_panel = PlanPanel(
+                plan_tab,
+                get_project=lambda: self.projects.selected_project()
+                if callable(getattr(self.projects, "selected_project", None))
+                else getattr(self.projects, "selected_project", ""),
+            )
+            self.plan_panel.pack(fill="both", expand=True)
+        except Exception:
+            self.plan_panel = None
         try:
             ch_tab = tabs.add("Changes")
             self.changes_panel = ChangesPanel(
