@@ -190,6 +190,8 @@ class MainWindow(ctk.CTk):
         ctk.CTkButton(ctl, text=_t("dispatcher_start", default="▶ Запустить диспетчер"), command=self._start_dispatcher, height=28).pack(fill="x", pady=2)
         ctk.CTkButton(ctl, text=_t("btn_diagnose", default="Диагностика"), command=self._run_diagnose, height=28, fg_color="gray30").pack(fill="x", pady=2)
         ctk.CTkButton(ctl, text=_t("btn_help", default="Справка"), command=self._show_help, height=28, fg_color="gray30").pack(fill="x", pady=2)
+        ctk.CTkButton(ctl, text="▶ Run", command=self._run_project_app, height=28, fg_color="gray30").pack(fill="x", pady=2)
+        ctk.CTkButton(ctl, text="■ Stop", command=self._stop_project_app, height=28, fg_color="gray40").pack(fill="x", pady=2)
         ctk.CTkButton(ctl, text=_t("dispatcher_stop", default="■ Остановить"), command=self._stop_dispatcher, height=28, fg_color="gray40").pack(
             fill="x", pady=2
         )
@@ -224,6 +226,11 @@ class MainWindow(ctk.CTk):
                 mode_row, text=behavior_summary(load_agent_behavior()), text_color="gray"
             )
             self._agent_label.pack(side="right", padx=8)
+            self._agent_label.bind("<Button-1>", lambda e: self._open_agent_popover())
+            try:
+                self._agent_label.configure(cursor="hand2")
+            except Exception:
+                pass
         except Exception:
             self._agent_label = None
         nav_row = ctk.CTkFrame(left, fg_color="transparent")
@@ -1131,6 +1138,47 @@ class MainWindow(ctk.CTk):
                 self.chat.append("System", str(exc))
             return True
         return False
+
+    def _run_project_app(self) -> None:
+        try:
+            from app.app_runner import start_app, run_status
+            root = getattr(self, "project_root", None) or ""
+            if not root:
+                self.chat.append("System", "Сначала откройте проект")
+                return
+            r = start_app(root)
+            self.chat.append("System", f"Run: {r}")
+        except Exception as exp:
+            self.chat.append("System", f"Run error: {exp}")
+
+    def _stop_project_app(self) -> None:
+        try:
+            from app.app_runner import stop_app
+            r = stop_app()
+            self.chat.append("System", f"Stop: {r}")
+        except Exception as exp:
+            self.chat.append("System", f"Stop error: {exp}")
+
+    def _open_agent_popover(self) -> None:
+        try:
+            from ui.agent_popover import AgentPopover
+            from app.agent_behavior import behavior_summary, load_agent_behavior
+            def _refresh():
+                if getattr(self, "_agent_label", None) is not None:
+                    try:
+                        self._agent_label.configure(text=behavior_summary(load_agent_behavior()))
+                    except Exception:
+                        pass
+            AgentPopover(
+                self,
+                on_change=_refresh,
+                project_root=lambda: getattr(self, "project_root", None) or "",
+            ).open()
+        except Exception as exp:
+            try:
+                self.chat.append("System", f"Agent settings: {exp}")
+            except Exception:
+                pass
 
     def _open_settings(self) -> None:
         if self._settings_win is not None and self._settings_win.winfo_exists():

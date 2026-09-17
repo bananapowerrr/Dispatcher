@@ -523,6 +523,10 @@ class ChatPanel(ctk.CTkFrame):
         msg = detail or task_id or "задача"
         self.append("Agent", f"DONE: {msg}", kind="done")
         try:
+            self._show_post_step_report(str(task_id or ""))
+        except Exception:
+            pass
+        try:
             self.phase_label.configure(text="✓ " + _t("phase_done", default="готово"))
         except Exception:
             pass
@@ -1195,3 +1199,83 @@ class ChatPanel(ctk.CTkFrame):
         except Exception as exp:
             if hasattr(self, "_append"):
                 self._append("system", f"Suggestions error: {exp}")
+
+    def _show_post_step_report(self, task_id: str = "") -> None:
+        """After DONE: report + Continue/Review/Undo (no auto-enqueue)."""
+        try:
+            from app.post_step_report import build_post_step_report
+            root = ""
+            if hasattr(self, "_get_project") and self._get_project:
+                r = self._get_project()
+                root = (r() if callable(r) else r) or ""
+            if not root and hasattr(self, "project_root"):
+                root = str(getattr(self, "project_root") or "")
+            rep = build_post_step_report(root or None, task_id=task_id or None)
+            text = rep.get("text") or ""
+            self.append("System", text, kind="report")
+            self._last_report = rep
+            # action row
+            if getattr(self, "_report_actions", None) is not None:
+                try:
+                    self._report_actions.destroy()
+                except Exception:
+                    pass
+            import customtkinter as ctk
+            fr = ctk.CTkFrame(self)
+            fr.pack(fill="x", padx=12, pady=4)
+            self._report_check_vars = {}
+            steps = rep.get("next_steps") or []
+            if steps and rep.get("show_suggestions", True):
+                box = ctk.CTkFrame(fr, fg_color="transparent")
+                box.pack(fill="x", pady=(0, 4))
+                for s in steps[:6]:
+                    sid = str(s.get("id") or "")
+                    title = str(s.get("title") or sid)[:60]
+                    var = ctk.BooleanVar(value=bool(s.get("checked_default")))
+                    self._report_check_vars[sid] = var
+                    ctk.CTkCheckBox(box, text=title, variable=var).pack(anchor="w")
+            btnrow = ctk.CTkFrame(fr, fg_color="transparent")
+            btnrow.pack(fill="x")
+            ctk.CTkButton(btnrow, text="Review", width=80,
+                          command=lambda: self._post_report_action("review")).pack(side="left", padx=2)
+            ctk.CTkButton(btnrow, text="Continue", width=90,
+                          command=lambda: self._post_report_action("continue")).pack(side="left", padx=2)
+            ctk.CTkButton(btnrow, text="Undo", width=70,
+                          command=lambda: self._post_report_action("undo")).pack(side="left", padx=2)
+            self._report_actions = fr
+        except Exception as exp:
+            try:
+                self.append("System", f"report: {exp}")
+            except Exception:
+                pass
+
+    def _post_report_action(self, action: str) -> None:
+        rep = getattr(self, "_last_report", None) or {}
+        root = ""
+        if hasattr(self, "_get_project") and self._get_project:
+            r = self._get_project()
+            root = (r() if callable(r) else r) or ""
+        try:
+            if action == "review":
+                self.append("System", "Откройте панель Changes / Diff для ревью.")
+            elif action == "undo":
+                from app.changes_service import ChangesService
+                tid = str(rep.get("task_id") or "")
+                r = ChangesService(root or ".").undo(tid) if tid else {"ok": False, "error": "no task_id"}
+                self.append("System", f"Undo: {r}")
+            elif action == "continue":
+                from app.post_step_report import continue_selected
+                vars_map = getattr(self, "_report_check_vars", None) or {}
+                ids = [sid for sid, var in vars_map.items() if var.get()]
+                if not ids:
+                    ids = [s["id"] for s in (rep.get("next_steps") or []) if s.get("checked_default")]
+                if not ids and rep.get("next_steps"):
+                    ids = [rep["next_steps"][0]["id"]]
+                if not ids:
+                    self.append("System", "Нет выбранных следующих шагов. Включите Suggestions или задайте задачу в чате.")
+                    return
+                results = continue_selected(root or ".", ids, rep)
+                ok = sum(1 for x in results if x.get("ok"))
+                self.append("System", f"Continue: поставлено в очередь {ok}/{len(results)}")
+        except Exception as exp:
+            self.append("System", f"{action}: {exp}")

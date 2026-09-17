@@ -7,6 +7,7 @@ workspace_mode: agent
 
 # FC-45 Agent Behavior (not a separate product mode — controls how Agent acts)
 agent:
+  profile: auto
   autonomy: auto          # off | suggest | auto
   suggestions: important  # all | important | none
   architecture: ask       # ask | auto | off

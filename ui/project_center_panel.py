@@ -51,7 +51,9 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         ctk.CTkButton(row, text="Обновить", width=90, command=self.refresh).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Аудит", width=90, command=self._run_audit).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Что дальше?", width=100, command=self._what_next)
-        ctk.CTkButton(row, text="Health", width=70, command=self._health_refresh).pack(side="left", padx=3)
+        ctk.CTkButton(row, text="Health", width=70, command=self._health_refresh)
+        ctk.CTkButton(row, text="?", width=28, command=self._health_why)
+        ctk.CTkButton(row, text="Workflow", width=80, command=self._workflow_preview).pack(side="left", padx=3)
         ctk.CTkButton(row, text="План", width=70, command=self._show_plan).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Решения", width=90, command=self._show_decisions).pack(side="left", padx=3)
 
@@ -260,3 +262,47 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         except Exception as exp:
             self._body.delete("1.0", "end")
             self._body.insert("1.0", f"Health error: {exp}")
+
+    def _workflow_preview(self) -> None:
+        """FC-48: Audit→Advisor→Plan preview (no auto-enqueue)."""
+        root = self._root()
+        if not root:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", "Выберите проект")
+            return
+        try:
+            from app.project_workflow import ProjectWorkflow
+            text = ProjectWorkflow(root).format_preview()
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", text)
+            self._status.configure(text="Workflow preview")
+        except Exception as exp:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", f"Workflow error: {exp}")
+
+    def _health_why(self) -> None:
+        """Explain current health headline via HelpPopover."""
+        root = self._root()
+        body = "Откройте проект для анализа."
+        title = "Почему?"
+        try:
+            if root:
+                from app.project_service import ProjectService
+                from app.agent_service import AgentService
+                h = ProjectService(root).get_health()
+                parts = [str(h.get("headline") or "")]
+                for s in (h.get("next_steps") or [])[:3]:
+                    if isinstance(s, dict):
+                        parts.append(f"• {s.get('title')}: {s.get('why') or ''}")
+                expl = AgentService(root).explain_context("health")
+                if expl.get("text"):
+                    parts.append(expl["text"])
+                body = "\n".join(p for p in parts if p) or body
+        except Exception as exp:
+            body = str(exp)
+        try:
+            from ui.help_popover import HelpPopover
+            HelpPopover.show(self, title=title, body=body, anchor_widget=self._status)
+        except Exception:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", body)

@@ -27,9 +27,44 @@ ARCH_OFF = "off"
 VERIFY_AUTO = "automatic"
 VERIFY_ASK = "always_ask"
 
+# Named UX profiles (defaults only — user can override fields anytime)
+PROFILE_BEGINNER = "beginner"
+PROFILE_DEVELOPER = "developer"
+PROFILE_ADVANCED = "advanced"
+PROFILE_AUTO = "auto"
+
+PROFILE_PRESETS: dict[str, dict[str, str]] = {
+    PROFILE_BEGINNER: {
+        "autonomy": AUTONOMY_AUTO,
+        "suggestions": SUGGESTIONS_ALL,
+        "architecture": ARCH_AUTO,
+        "verification": VERIFY_AUTO,
+    },
+    PROFILE_DEVELOPER: {
+        "autonomy": AUTONOMY_AUTO,
+        "suggestions": SUGGESTIONS_IMPORTANT,
+        "architecture": ARCH_ASK,
+        "verification": VERIFY_AUTO,
+    },
+    PROFILE_ADVANCED: {
+        "autonomy": AUTONOMY_SUGGEST,
+        "suggestions": SUGGESTIONS_IMPORTANT,
+        "architecture": ARCH_ASK,
+        "verification": VERIFY_ASK,
+    },
+    PROFILE_AUTO: {
+        "autonomy": AUTONOMY_AUTO,
+        "suggestions": SUGGESTIONS_IMPORTANT,
+        "architecture": ARCH_ASK,
+        "verification": VERIFY_AUTO,
+    },
+}
+
+
 
 @dataclass
 class AgentBehavior:
+    profile: str = PROFILE_AUTO
     autonomy: str = AUTONOMY_AUTO
     suggestions: str = SUGGESTIONS_IMPORTANT
     architecture: str = ARCH_ASK
@@ -47,6 +82,8 @@ class AgentBehavior:
             self.architecture = ARCH_ASK
         if self.verification not in (VERIFY_AUTO, VERIFY_ASK):
             self.verification = VERIFY_AUTO
+        if self.profile not in PROFILE_PRESETS:
+            self.profile = PROFILE_AUTO
         return self
 
 
@@ -69,6 +106,7 @@ def load_agent_behavior(root: Path | None = None) -> AgentBehavior:
     if not isinstance(data, dict):
         data = {}
     b = AgentBehavior(
+        profile=str(data.get("profile") or PROFILE_AUTO),
         autonomy=str(data.get("autonomy") or AUTONOMY_AUTO),
         suggestions=str(data.get("suggestions") or SUGGESTIONS_IMPORTANT),
         architecture=str(data.get("architecture") or ARCH_ASK),
@@ -118,3 +156,28 @@ def apply_behavior_to_policy_hints(b: AgentBehavior) -> dict[str, Any]:
         "architecture_mode": b.architecture,
         "verify_always_ask": b.verification == VERIFY_ASK,
     }
+
+
+def apply_profile(profile_id: str, root: Path | None = None) -> AgentBehavior:
+    """Apply named profile defaults and persist."""
+    pid = (profile_id or PROFILE_AUTO).lower().strip()
+    preset = PROFILE_PRESETS.get(pid) or PROFILE_PRESETS[PROFILE_AUTO]
+    b = AgentBehavior(
+        profile=pid if pid in PROFILE_PRESETS else PROFILE_AUTO,
+        autonomy=preset["autonomy"],
+        suggestions=preset["suggestions"],
+        architecture=preset["architecture"],
+        verification=preset["verification"],
+    ).normalize()
+    save_agent_behavior(b, root=root)
+    return b
+
+
+def list_profiles() -> list[dict[str, str]]:
+    return [
+        {"id": PROFILE_BEGINNER, "label": "Новичок", "hint": "Больше подсказок, безопасные решения сам"},
+        {"id": PROFILE_DEVELOPER, "label": "Разработчик", "hint": "Спрашивает при архитектуре"},
+        {"id": PROFILE_ADVANCED, "label": "Продвинутый", "hint": "Максимум контроля и trade-off"},
+        {"id": PROFILE_AUTO, "label": "Авто", "hint": "Сам выбирает уровень вмешательства"},
+    ]
+

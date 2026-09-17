@@ -56,13 +56,14 @@ class SetupWizard(ctk.CTkToplevel if ctk else object):  # type: ignore
             raise RuntimeError("customtkinter required")
         super().__init__(master)
         self.title("AgentBus — настройка")
-        self.geometry("560x480")
+        self.geometry("560x520")
         self.resizable(False, False)
         self.transient(master)
         self.grab_set()
         self._on_done = on_done
         self._step = 0
         self._project_var = ctk.StringVar(value="")
+        self._profile_var = ctk.StringVar(value="auto")
         self._runtime_status = ctk.StringVar(value="Проверка…")
 
         self._header = ctk.CTkLabel(
@@ -97,15 +98,19 @@ class SetupWizard(ctk.CTkToplevel if ctk else object):  # type: ignore
         self._clear_body()
         self._btn_back.configure(state="normal" if step > 0 else "disabled")
         if step == 0:
-            self._header.configure(text="Шаг 1 из 3 — Локальные модели")
+            self._header.configure(text="Шаг 1 из 4 — Локальные модели")
             self._step_runtime()
             self._btn_next.configure(text="Далее →")
         elif step == 1:
-            self._header.configure(text="Шаг 2 из 3 — Какую модель тянуть")
+            self._header.configure(text="Шаг 2 из 4 — Какую модель тянуть")
             self._step_model()
             self._btn_next.configure(text="Далее →")
+        elif step == 2:
+            self._header.configure(text="Шаг 3 из 4 — Как вы хотите работать")
+            self._step_profile()
+            self._btn_next.configure(text="Далее →")
         else:
-            self._header.configure(text="Шаг 3 из 3 — Рабочий проект")
+            self._header.configure(text="Шаг 4 из 4 — Рабочий проект")
             self._step_project()
             self._btn_next.configure(text="Готово")
 
@@ -199,6 +204,36 @@ class SetupWizard(ctk.CTkToplevel if ctk else object):  # type: ignore
         except Exception as exc:
             self._runtime_status.set(f"Не удалось запустить pull: {exc}")
 
+
+    def _step_profile(self) -> None:
+        """UX profile: beginner / developer / advanced / auto."""
+        ctk.CTkLabel(
+            self._body,
+            text="Выберите стиль работы (потом можно сменить кликом по «Agent · …»):",
+            wraplength=480,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 12))
+        try:
+            from app.agent_behavior import list_profiles
+            profiles = list_profiles()
+        except Exception:
+            profiles = [
+                {"id": "beginner", "label": "Новичок", "hint": "Больше подсказок"},
+                {"id": "developer", "label": "Разработчик", "hint": "Спрашивает при архитектуре"},
+                {"id": "advanced", "label": "Продвинутый", "hint": "Максимум контроля"},
+                {"id": "auto", "label": "Авто", "hint": "Сам выбирает уровень"},
+            ]
+        for p in profiles:
+            pid = p.get("id") or "auto"
+            label = p.get("label") or pid
+            hint = p.get("hint") or ""
+            ctk.CTkRadioButton(
+                self._body,
+                text=f"{label} — {hint}",
+                variable=self._profile_var,
+                value=pid,
+            ).pack(anchor="w", pady=4)
+
     def _step_project(self) -> None:
         ctk.CTkLabel(
             self._body,
@@ -239,7 +274,7 @@ class SetupWizard(ctk.CTkToplevel if ctk else object):  # type: ignore
             self._show_step(self._step - 1)
 
     def _next(self) -> None:
-        if self._step < 2:
+        if self._step < 3:
             self._show_step(self._step + 1)
         else:
             self._finish()
@@ -255,6 +290,12 @@ class SetupWizard(ctk.CTkToplevel if ctk else object):  # type: ignore
         os.environ.setdefault("AGENTBUS_ALLOW_PAID", "0")
         try:
             os.environ.setdefault("AGENTBUS_FEATURE_PRESET", "beginner_ru")
+        except Exception:
+            pass
+        try:
+            from app.agent_behavior import apply_profile
+            apply_profile(self._profile_var.get() or "auto")
+            extra["agent_profile"] = self._profile_var.get() or "auto"
         except Exception:
             pass
         mark_setup_complete(extra)
