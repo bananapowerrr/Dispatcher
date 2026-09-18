@@ -41,6 +41,8 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         super().__init__(master, **kwargs)
         self._get_project = get_project or (lambda: "")
         self._on_active = on_active_change  # (path, selection_or_empty)
+        self._recent: list[str] = []
+        self._wrap = False
         self._tabs: dict[str, _TabState] = {}
         self._order: list[str] = []
         self._current: str = ""
@@ -120,6 +122,13 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         rel_path = rel_path.replace("\\", "/").lstrip("./")
         if rel_path in self._tabs:
             self._switch(rel_path)
+            try:
+                if rel_path in self._recent:
+                    self._recent.remove(rel_path)
+                self._recent.insert(0, rel_path)
+                self._recent = self._recent[:20]
+            except Exception:
+                pass
             if line is not None and line > 0:
                 try:
                     self._text.mark_set("insert", f"{int(line)}.0")
@@ -142,6 +151,13 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._order.append(rel_path)
         self._rebuild_tab_bar()
         self._switch(rel_path)
+        try:
+            if rel_path in self._recent:
+                self._recent.remove(rel_path)
+            self._recent.insert(0, rel_path)
+            self._recent = self._recent[:20]
+        except Exception:
+            pass
         if line is not None and line > 0:
             try:
                 self._text.mark_set("insert", f"{int(line)}.0")
@@ -480,6 +496,20 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             self._status.configure(text=f"строка {n}")
         except Exception as exp:
             self._status.configure(text=str(exp)[:80])
+
+
+    def recent_files(self) -> list[str]:
+        return list(getattr(self, "_recent", []) or [])
+
+    def toggle_word_wrap(self) -> bool:
+        """Toggle text wrap; returns new state."""
+        self._wrap = not getattr(self, "_wrap", False)
+        try:
+            self._text.configure(wrap="word" if self._wrap else "none")
+        except Exception:
+            pass
+        self._status.configure(text="wrap: ON" if self._wrap else "wrap: OFF")
+        return self._wrap
 
     def dirty_paths(self) -> list[str]:
         """Relative paths with unsaved changes (for exit guard)."""

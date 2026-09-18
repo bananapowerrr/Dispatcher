@@ -466,6 +466,7 @@ def build_commands(app: Any) -> list[Command]:
         Command("plan_enqueue", "Plan: в очередь (первый PENDING)", "Plan", None, enqueue_plan, ["enqueue", "очередь"]),
         Command("continue", "Continue — следующий шаг плана", "Plan", None, continue_work, ["continue", "далее"]),
         Command("symbol", "Go to Symbol (Ctrl+Shift+O)", "Editor", "Ctrl+Shift+O", lambda: app._goto_symbol(), ["symbol", "outline", "def"]),
+        Command("wrap", "Toggle word wrap", "Editor", "Alt+Z", lambda: app._toggle_wrap(), ["wrap", "wordwrap"]),
         Command("autosave", "Toggle autosave", "Editor", None, lambda: app._toggle_autosave(), ["autosave"]),
         Command("quick_open", "Quick Open (Ctrl+P)", "Editor", "Ctrl+P", lambda: app._quick_open(), ["open", "файл", "goto"]),
         Command("open_file", "Editor: активный файл", "Editor", None, open_active_file, ["file", "открыть"]),

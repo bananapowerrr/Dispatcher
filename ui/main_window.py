@@ -459,6 +459,7 @@ class MainWindow(ctk.CTk):
         self.bind_all("<Control-k>", lambda e: self.palette.open())
         self.bind_all("<Control-p>", lambda e: self._quick_open())
         self.bind_all("<Control-Shift-O>", lambda e: self._goto_symbol())
+        self.bind_all("<Alt-z>", lambda e: self._toggle_wrap())
         self.bind_all("<Control-Shift-F>", lambda e: self._open_search())
         self.bind_all("<Control-Alt-1>", lambda e: self._apply_layout_preset("agent"))
         self.bind_all("<Control-Alt-2>", lambda e: self._apply_layout_preset("code"))
@@ -599,7 +600,17 @@ class MainWindow(ctk.CTk):
         except Exception as exp:
             self.chat.append("System", f"autosave: {exp}")
 
+    def _toggle_wrap(self) -> None:
+        try:
+            ed = getattr(self, "editor", None)
+            if ed and hasattr(ed, "toggle_word_wrap"):
+                on = ed.toggle_word_wrap()
+                self.chat.append("System", f"Word wrap: {'ON' if on else 'OFF'}", kind="info")
+        except Exception as exp:
+            self.chat.append("System", f"wrap: {exp}")
+
     def _goto_symbol(self) -> None:
+
         try:
             ed = getattr(self, "editor", None)
             if ed and hasattr(ed, "goto_symbol"):
@@ -639,11 +650,26 @@ class MainWindow(ctk.CTk):
             files = FilesService(root).list_files_flat(max_files=1500)
         except Exception as exp:
             box.insert("1.0", f"error: {exp}")
-        shown: list[str] = list(files[:80])
+        recent: list[str] = []
+        try:
+            ed = getattr(self, "editor", None)
+            if ed is not None and hasattr(ed, "recent_files"):
+                recent = [p for p in ed.recent_files() if p in files or True][:8]
+        except Exception:
+            recent = []
+        # recent first, then rest without dups
+        rest = [f for f in files if f not in recent]
+        ordered = recent + rest
+        shown: list[str] = list(ordered[:80])
+        self._qo_recent = set(recent)
 
         def render(items: list[str]) -> None:
             box.delete("1.0", "end")
-            box.insert("1.0", "\n".join(items) if items else "(no matches)")
+            rec = getattr(self, "_qo_recent", set()) or set()
+            lines = []
+            for it in items:
+                lines.append(("⏱ " if it in rec else "   ") + it)
+            box.insert("1.0", "\n".join(lines) if lines else "(no matches)")
 
         render(shown)
 
@@ -662,6 +688,10 @@ class MainWindow(ctk.CTk):
                 line = shown[0] if shown else ""
             if not line or line.startswith("("):
                 return
+            if line.startswith("⏱ "):
+                line = line[2:].strip()
+            else:
+                line = line.strip()
             try:
                 self._open_in_editor(line)
             except Exception:
@@ -1851,7 +1881,11 @@ class MainWindow(ctk.CTk):
             except Exception as exp:
                 self.chat.append("System", f"run: {exp}")
             return True
+        if c in ("/wrap", "/wordwrap"):
+            self._toggle_wrap()
+            return True
         if c == "/autosave":
+
             self._toggle_autosave()
             return True
         if c in ("/symbol", "/outline"):
