@@ -67,9 +67,22 @@ class RPVerifyMixin:
         except Exception:
             pass
 
-        ok, verify_error = self._verify_escalating(
-            task, ctx, tests, worker_name=getattr(worker, "name", "")
-        )
+        # Verification itself is a terminal safety gate. If the verifier
+        # cannot run, do not let the successful worker result fall through
+        # to commit/DONE.
+        try:
+            ok, verify_error = self._verify_escalating(
+                task, ctx, tests, worker_name=getattr(worker, "name", "")
+            )
+        except Exception as exp:
+            ok = False
+            verify_error = (
+                f"verification_exception: {type(exp).__name__}: {exp}"
+            )
+            try:
+                self.log.write(verify_error)
+            except Exception:
+                pass
 
         # DONE Gate: verification-engine failures are fail-closed.
         if ok:
