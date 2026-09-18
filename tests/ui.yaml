@@ -1,0 +1,34 @@
+# NVCode / AgentBus UI defaults
+active_preset: local_only
+theme: system
+autostart_dispatcher: false
+language: ru
+workspace_mode: agent
+
+# FC-45 Agent Behavior (not a separate product mode — controls how Agent acts)
+agent:
+  profile: auto
+  autonomy: auto          # off | suggest | auto
+  suggestions: important  # all | important | none
+  architecture: ask       # ask | auto | off
+  verification: automatic # automatic | always_ask
+
+# FC-46 / P4 workspace layout (Ctrl+Alt+1..4 presets, Ctrl+Alt+S save)
+# presets: agent | code | focus | full
+layout:
+  mode: agent
+  left_width: 260
+  right_width: 360
+  show_left: true
+  show_right: true
+  preset: agent
+
+# true/false overrides profile; omit = profile-driven
+# show_advanced_tabs: false
+
+# Editor
+autosave: false
+autosave_interval_ms: 8000
+
+# Editor font (Ctrl+= / Ctrl+-)
+editor_font_size: 13
