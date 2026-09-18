@@ -146,6 +146,41 @@ class PlanService:
             self.save(plan)
         return ok
 
+    def set_step_status(
+        self,
+        step_id: str,
+        status: str,
+        *,
+        note: str | None = None,
+        task_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Update step status (IN_PROGRESS after enqueue, DONE after verify, etc.)."""
+        from intelligence.living_plan import is_finished, normalize_status
+
+        plan = self.load()
+        s = plan.get(step_id)
+        if not s:
+            return {"ok": False, "error": "step not found"}
+        new_st = normalize_status(status)
+        old = normalize_status(s.status)
+        if is_finished(old) and new_st not in ("DONE", "ERROR") and new_st != old:
+            return {"ok": False, "error": f"frozen status {old}"}
+        s.status = new_st
+        if note is not None:
+            s.note = (s.note + " | " if s.note else "") + str(note)[:300]
+        if task_id:
+            meta = dict(s.meta or {})
+            meta["task_id"] = str(task_id)
+            s.meta = meta
+        path = self.save(plan)
+        return {
+            "ok": True,
+            "step_id": step_id,
+            "status": new_st,
+            "path": str(path),
+        }
+
+
     def replan(
         self,
         *,

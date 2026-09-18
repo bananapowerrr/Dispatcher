@@ -26,6 +26,8 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         top.pack(fill="x", padx=8, pady=4)
         ctk.CTkLabel(top, text="Plan", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
         ctk.CTkButton(top, text="↻", width=36, command=self.refresh).pack(side="right")
+        ctk.CTkButton(top, text="В очередь", width=90, command=self._enqueue_selected).pack(side="right", padx=2)
+        ctk.CTkButton(top, text="DONE", width=56, command=self._mark_done).pack(side="right", padx=2)
         ctk.CTkButton(top, text="↑", width=32, command=lambda: self._move(-1)).pack(side="right", padx=2)
         ctk.CTkButton(top, text="↓", width=32, command=lambda: self._move(1)).pack(side="right", padx=2)
         ctk.CTkButton(top, text="Cancel", width=70, command=self._cancel).pack(side="right", padx=2)
@@ -94,6 +96,55 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             self._refresh_decisions(root)
         except Exception as e:
             self._list.insert("1.0", str(e))
+
+
+    def _enqueue_selected(self) -> None:
+        """Enqueue selected plan step (or first pending)."""
+        root = self._root()
+        if not root:
+            return
+        try:
+            sid = self._selected_id()
+            from app.plan_service import PlanService
+            from app.project_workflow import ProjectWorkflow
+            if sid:
+                step = PlanService(root).get_step(sid)
+                if step:
+                    msg = str(step.get("action") or step.get("title") or "")
+                    files = list(step.get("files") or [])
+                    r = ProjectWorkflow(root).enqueue_step(
+                        msg, files=files, source="plan_panel"
+                    )
+                    if r.get("ok"):
+                        PlanService(root).set_step_status(
+                            sid, "IN_PROGRESS", note="enqueued", task_id=str(r.get("task_id") or "")
+                        )
+                        self._status.configure(text=f"queued {r.get('task_id')}")
+                    else:
+                        self._status.configure(text=str(r.get("error") or "fail")[:60])
+                    self.refresh()
+                    return
+            r = ProjectWorkflow(root).enqueue_first_pending()
+            self._status.configure(
+                text=(f"queued {r.get('task_id')}" if r.get("ok") else str(r.get("error") or "")[:60])
+            )
+            self.refresh()
+        except Exception as exp:
+            self._status.configure(text=str(exp)[:60])
+
+    def _mark_done(self) -> None:
+        root = self._root()
+        sid = self._selected_id()
+        if not root or not sid:
+            self._status.configure(text="select a step")
+            return
+        try:
+            from app.plan_service import PlanService
+            r = PlanService(root).set_step_status(sid, "DONE", note="manual")
+            self._status.configure(text="DONE" if r.get("ok") else str(r.get("error"))[:40])
+            self.refresh()
+        except Exception as exp:
+            self._status.configure(text=str(exp)[:60])
 
     def _selected_id(self) -> str:
         try:

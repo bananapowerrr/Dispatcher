@@ -178,6 +178,52 @@ class ProjectWorkflow:
             "blockers": analysis.get("blockers") or [],
         }
 
+
+    def enqueue_first_pending(self) -> dict[str, Any]:
+        """Enqueue first PENDING LivingPlan step (explicit user action)."""
+        root = self._require()
+        try:
+            from app.plan_service import PlanService
+            data = PlanService(root).list_plan()
+            steps = data.get("steps") if isinstance(data, dict) else []
+        except Exception as exp:
+            return {"ok": False, "error": f"plan load: {exp}"}
+        target = None
+        for s in steps or []:
+            if not isinstance(s, dict):
+                continue
+            st = str(s.get("status") or "").upper()
+            if st in ("PENDING", "READY", "TODO", ""):
+                target = s
+                break
+        if not target:
+            return {"ok": False, "error": "no pending plan step"}
+        msg = str(target.get("action") or target.get("title") or target.get("message") or "").strip()
+        if not msg:
+            return {"ok": False, "error": "empty step action"}
+        files = list(target.get("files") or [])
+        result = self.enqueue_step(
+            msg,
+            files=files,
+            source="project_workflow.plan_step",
+        )
+        if result.get("ok"):
+            result["step_id"] = target.get("id")
+            result["step_action"] = msg
+            sid = str(target.get("id") or "")
+            if sid:
+                try:
+                    from app.plan_service import PlanService
+                    PlanService(root).set_step_status(
+                        sid,
+                        "IN_PROGRESS",
+                        note="enqueued",
+                        task_id=str(result.get("task_id") or ""),
+                    )
+                except Exception as exp:
+                    result["status_warn"] = str(exp)[:200]
+        return result
+
     def format_preview(self, *, limit: int = 5) -> str:
         d = self.run_preview(limit=limit)
         lines = ["=== Project workflow (FC-48) ==="]

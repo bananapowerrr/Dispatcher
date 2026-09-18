@@ -237,6 +237,47 @@ def build_commands(app: Any) -> list[Command]:
         except Exception as exp:
             app.chat.append("System", f"refresh: {exp}", kind="error")
 
+
+    def run_audit_cmd() -> None:
+        try:
+            root = ""
+            if hasattr(app, "_current_project_root"):
+                root = app._current_project_root()
+            from app.project_service import ProjectService
+            text = ProjectService(root).run_audit_text()
+            app.chat.append("System", (text or "")[:4000], kind="system")
+        except Exception as exp:
+            app.chat.append("System", f"audit: {exp}", kind="error")
+
+    def run_workflow_cmd() -> None:
+        try:
+            root = app._current_project_root() if hasattr(app, "_current_project_root") else ""
+            from app.project_workflow import ProjectWorkflow
+            app.chat.append("System", ProjectWorkflow(root).format_preview()[:4000], kind="system")
+        except Exception as exp:
+            app.chat.append("System", f"workflow: {exp}", kind="error")
+
+    def run_enqueue_cmd() -> None:
+        try:
+            root = app._current_project_root() if hasattr(app, "_current_project_root") else ""
+            from app.project_workflow import ProjectWorkflow
+            r = ProjectWorkflow(root).enqueue_first_pending()
+            if r.get("ok"):
+                app.chat.append("System", f"Enqueued {r.get('task_id')}: {r.get('step_action')}", kind="info")
+            else:
+                app.chat.append("System", f"enqueue: {r.get('error')}", kind="error")
+        except Exception as exp:
+            app.chat.append("System", f"enqueue: {exp}", kind="error")
+
+    def run_health_cmd() -> None:
+
+        try:
+            root = app._current_project_root() if hasattr(app, "_current_project_root") else ""
+            from app.project_service import ProjectService
+            app.chat.append("System", ProjectService(root).get_health_text()[:4000], kind="system")
+        except Exception as exp:
+            app.chat.append("System", f"health: {exp}", kind="error")
+
     return [
         Command("layout.agent", "Layout: Agent", "Layout", "Ctrl+Alt+1", layout_agent, ["layout", "agent", "режим"]),
         Command("layout.code", "Layout: Code", "Layout", "Ctrl+Alt+2", layout_code, ["layout", "code", "редактор"]),
@@ -248,6 +289,11 @@ def build_commands(app: Any) -> list[Command]:
         Command("terminal.open", "Terminal", "View", None, open_terminal, ["terminal", "консоль"]),
         Command("refresh", "Refresh all panels", "View", "F5", refresh_all, ["refresh", "обновить"]),
         Command("agent.suggest", "Suggestions", "Agent", None, show_suggestions_cmd, ["suggest", "совет"]),
+        Command("project.audit", "Project Audit", "Project", None, run_audit_cmd, ["audit", "аудит"]),
+        Command("project.workflow", "Workflow preview", "Project", None, run_workflow_cmd, ["workflow", "план"]),
+        Command("project.health", "Project Health", "Project", None, run_health_cmd, ["health"]),
+        Command("project.enqueue", "Enqueue first plan step", "Project", None, run_enqueue_cmd, ["enqueue", "очередь"]),
+
         Command("recipe_refactor", "Рецепт: рефакторинг", "Рецепты", None, run_recipe_refactor, ["recipe", "рефакторинг"]),
         Command("recipes_help", "Рецепты — справка", "Рецепты", None, open_recipes_tab, ["recipe", "рецепт"]),
         Command("new_task", "Фокус на ввод задачи", "Чат", "Ctrl+N", focus_chat, ["задача", "task"]),

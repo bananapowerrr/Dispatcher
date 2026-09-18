@@ -50,10 +50,12 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         row.pack(fill="x", padx=12, pady=8)
         ctk.CTkButton(row, text="Обновить", width=90, command=self.refresh).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Аудит", width=90, command=self._run_audit).pack(side="left", padx=3)
-        ctk.CTkButton(row, text="Что дальше?", width=100, command=self._what_next)
-        ctk.CTkButton(row, text="Health", width=70, command=self._health_refresh)
-        ctk.CTkButton(row, text="?", width=28, command=self._health_why)
+        ctk.CTkButton(row, text="Что дальше?", width=100, command=self._what_next).pack(side="left", padx=3)
+        ctk.CTkButton(row, text="Health", width=70, command=self._health_refresh).pack(side="left", padx=3)
+        ctk.CTkButton(row, text="?", width=28, command=self._health_why).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Workflow", width=80, command=self._workflow_preview).pack(side="left", padx=3)
+        ctk.CTkButton(row, text="В план", width=70, command=self._advice_to_plan).pack(side="left", padx=3)
+        ctk.CTkButton(row, text="В очередь", width=90, command=self._enqueue_first_step).pack(side="left", padx=3)
         ctk.CTkButton(row, text="План", width=70, command=self._show_plan).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Решения", width=90, command=self._show_decisions).pack(side="left", padx=3)
 
@@ -266,6 +268,40 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         except Exception as exp:
             self._body.delete("1.0", "end")
             self._body.insert("1.0", f"Health error: {exp}")
+
+
+    def _enqueue_first_step(self) -> None:
+        """P6: user-gated enqueue of first pending LivingPlan step."""
+        root = self._root()
+        if not root:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", "Выберите проект")
+            return
+        try:
+            self._sys_path()
+            from app.project_workflow import ProjectWorkflow
+            result = ProjectWorkflow(root).enqueue_first_pending()
+            if result.get("ok"):
+                tid = result.get("task_id") or ""
+                action = result.get("step_action") or ""
+                self._body.delete("1.0", "end")
+                self._body.insert(
+                    "1.0",
+                    f"Enqueued\ntask: {tid}\nstep: {action}",
+                )
+                self._status.configure(text=f"Queued {tid[:12]}" if tid else "Queued")
+                self._fire("step_enqueued")
+            else:
+                err = result.get("error") or "failed"
+                self._body.delete("1.0", "end")
+                self._body.insert(
+                    "1.0",
+                    f"В очередь: {err}\n\nСначала «В план» или добавьте шаги в Plan.",
+                )
+                self._status.configure(text="Enqueue blocked")
+        except Exception as exp:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", f"В очередь: {exp}")
 
     def _workflow_preview(self) -> None:
         """FC-48: Audit→Advisor→Plan preview (no auto-enqueue)."""

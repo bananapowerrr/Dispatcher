@@ -526,6 +526,16 @@ class ChatPanel(ctk.CTkFrame):
             self._show_post_step_report(str(task_id or ""))
         except Exception:
             pass
+        # P5: inline ChangeSet preview + Apply/Reject when pending diff exists
+        try:
+            if task_id:
+                self.show_inline_diff(str(task_id))
+        except Exception:
+            pass
+        try:
+            self._show_continue_actions(str(task_id or ""))
+        except Exception:
+            pass
         try:
             self.phase_label.configure(text="✓ " + _t("phase_done", default="готово"))
         except Exception:
@@ -947,6 +957,52 @@ class ChatPanel(ctk.CTkFrame):
             self._diff_actions = fr
         except Exception:
             pass
+
+    
+    def _show_continue_actions(self, task_id: str = "") -> None:
+        """P5: after DONE — Continue next plan step / Open changes."""
+        try:
+            if getattr(self, "_continue_actions", None) is not None:
+                try:
+                    self._continue_actions.destroy()
+                except Exception:
+                    pass
+            if ctk is None:
+                return
+            fr = ctk.CTkFrame(self, fg_color=("gray90", "gray20"))
+            ctk.CTkLabel(fr, text="Next").pack(side="left", padx=6)
+            ctk.CTkButton(
+                fr, text="Continue", width=90, fg_color="#1d3557",
+                command=lambda: self._continue_action("continue"),
+            ).pack(side="left", padx=2)
+            ctk.CTkButton(
+                fr, text="Changes", width=80,
+                command=lambda: self._continue_action("changes"),
+            ).pack(side="left", padx=2)
+            if task_id:
+                ctk.CTkButton(
+                    fr, text="Trace", width=70,
+                    command=lambda tid=task_id: self._continue_action("trace", tid),
+                ).pack(side="left", padx=2)
+            fr.pack(fill="x", padx=8, pady=2)
+            self._continue_actions = fr
+        except Exception:
+            pass
+
+    def _continue_action(self, action: str, task_id: str = "") -> None:
+        try:
+            cb = getattr(self, "on_continue", None)
+            if callable(cb):
+                cb(action, task_id)
+                return
+            if action == "continue":
+                self.append("System", "Continue: send next message or use Plan → next step")
+            elif action == "changes":
+                self.append("System", "Open Changes / Diff panel to review files")
+            elif action == "trace" and task_id:
+                self.append("System", f"Trace: {task_id}")
+        except Exception as exp:
+            self.append("System", f"continue: {exp}")
 
     def _diff_action(self, action: str, task_id: str) -> None:
         try:

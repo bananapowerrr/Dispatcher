@@ -67,6 +67,7 @@ class ProblemsPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         *,
         get_project: Callable[[], str] | None = None,
         on_open_file: Callable[[str], None] | None = None,
+        on_open_task: Callable[[str], None] | None = None,
         **kwargs: Any,
     ):
         if ctk is None:
@@ -74,6 +75,7 @@ class ProblemsPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         super().__init__(master, **kwargs)
         self._get_project = get_project or (lambda: "")
         self._on_open = on_open_file
+        self._on_open_task = on_open_task
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=8, pady=4)
         ctk.CTkLabel(top, text="Problems", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
@@ -114,14 +116,22 @@ class ProblemsPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._status.configure(text=f"{len(items)} problem(s)")
 
     def _on_double(self, _event=None) -> None:
+        """Open file in editor; if task_id present — also notify task open."""
         try:
             line = self._list.get("insert linestart", "insert lineend").strip()
             if not line or not line[0].isdigit():
                 return
             idx = int(line.split(".", 1)[0]) - 1
             if 0 <= idx < len(self._rows):
-                f = self._rows[idx].get("file") or ""
+                row = self._rows[idx]
+                f = row.get("file") or ""
+                tid = str(row.get("task_id") or "")
                 if f and self._on_open:
                     self._on_open(f)
+                if tid and getattr(self, "_on_open_task", None):
+                    try:
+                        self._on_open_task(tid)
+                    except Exception:
+                        pass
         except Exception:
             pass

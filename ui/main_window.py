@@ -277,6 +277,8 @@ class MainWindow(ctk.CTk):
             get_channel=lambda: self.projects.selected_channel,
             on_command=self._on_chat_command,
             get_editor_context=self._editor_context_for_chat,
+                # on_continue set below
+
             on_sent=self._on_task_sent,
         )
         self.chat.pack(fill="both", expand=True, padx=2, pady=(0, 2))
@@ -376,6 +378,7 @@ class MainWindow(ctk.CTk):
                 if callable(getattr(self.projects, "selected_project", None))
                 else getattr(self.projects, "selected_project", ""),
                 on_open_file=self._open_in_editor if hasattr(self, "_open_in_editor") else None,
+                on_open_task=self._open_task_from_problem,
             )
             self.problems_panel.pack(fill="both", expand=True)
         except Exception:
@@ -444,6 +447,10 @@ class MainWindow(ctk.CTk):
         self.after(600, self._apply_onboarding_cfg)
         self.after(800, self._poll_app_loop)
         self._file_watcher = None
+        try:
+            self.chat.on_continue = self._on_continue
+        except Exception:
+            pass
         self.bind_all("<Control-k>", lambda e: self.palette.open())
         self.bind_all("<Control-p>", lambda e: self._quick_open())
         self.bind_all("<Control-Shift-F>", lambda e: self._open_search())
@@ -1192,6 +1199,22 @@ class MainWindow(ctk.CTk):
                 self.chat.append("System", f"Project: {action_id}", kind="info")
         except Exception:
             pass
+        # Keep Plan / Queue in sync after workflow actions
+        try:
+            if action_id in ("plan_from_advice", "show_plan"):
+                if getattr(self, "plan_panel", None) and hasattr(self.plan_panel, "refresh"):
+                    self.plan_panel.refresh()
+            if action_id in ("step_enqueued",):
+                if getattr(self, "plan_panel", None) and hasattr(self.plan_panel, "refresh"):
+                    self.plan_panel.refresh()
+                if getattr(self, "queue_panel", None) and hasattr(self.queue_panel, "refresh"):
+                    self.queue_panel.refresh()
+                try:
+                    self._term("queue", "plan step enqueued")
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _on_queue_select(self, task_id: str) -> None:
         try:
@@ -1214,7 +1237,15 @@ class MainWindow(ctk.CTk):
             pass
         return {}
 
+    def _open_task_from_problem(self, task_id: str) -> None:
+        try:
+            if task_id and getattr(self, "task_detail_panel", None):
+                self.task_detail_panel.show_task(task_id)
+        except Exception:
+            pass
+
     def _open_in_editor(self, rel_path: str) -> None:
+
         try:
             if getattr(self, "editor", None):
                 self.editor.open_file(rel_path)
@@ -1357,7 +1388,89 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
 
+    def _on_continue(self, action: str, task_id: str = "") -> None:
+        """P5: Continue / Changes / Trace from chat after DONE."""
+        try:
+            if action == "continue":
+                # User clicked Continue = explicit consent to enqueue next plan step
+                try:
+                    root = self._current_project_root()
+                    from app.project_workflow import ProjectWorkflow
+                    r = ProjectWorkflow(root).enqueue_first_pending()
+                    if r.get("ok"):
+                        tid = r.get("task_id") or ""
+                        step = r.get("step_action") or ""
+                        self.chat.append(
+                            "System",
+                            f"Continue → queued {tid}\n{step}",
+                            kind="info",
+                        )
+                        try:
+                            if getattr(self, "queue_panel", None):
+                                self.queue_panel.refresh()
+                            if getattr(self, "plan_panel", None):
+                                self.plan_panel.refresh()
+                            self._term("queue", f"continue enqueued {tid}")
+                        except Exception:
+                            pass
+                    else:
+                        err = r.get("error") or "no pending step"
+                        self.chat.append(
+                            "System",
+                            f"Continue: {err}\nОпишите следующую задачу в чате или /compose",
+                            kind="info",
+                        )
+                        try:
+                            self.chat.input.focus_force()
+                        except Exception:
+                            pass
+                except Exception as exp:
+                    self.chat.append("System", f"Continue: {exp}")
+            elif action == "changes":
+                try:
+                    if hasattr(self, "_on_activity_select"):
+                        self._on_activity_select("git")
+                    if getattr(self, "changes_panel", None):
+                        self.changes_panel.refresh()
+                    if task_id and getattr(self, "diff_panel", None):
+                        self.diff_panel.show_for_task(task_id)
+                except Exception as exp:
+                    self.chat.append("System", f"changes: {exp}")
+            elif action == "trace":
+                try:
+                    if task_id and getattr(self, "task_detail_panel", None):
+                        self.task_detail_panel.show_task(task_id)
+                        if hasattr(self, "_on_activity_select"):
+                            self._on_activity_select("plan")
+                except Exception:
+                    pass
+        except Exception as exp:
+            try:
+                self.chat.append("System", f"on_continue: {exp}")
+            except Exception:
+                pass
+
+
+    def _sync_plan_step_for_task(self, task_id: str, *, status: str = "DONE") -> None:
+        """If LivingPlan step meta.task_id matches, update step status."""
+        if not task_id:
+            return
+        try:
+            root = self._current_project_root()
+            from app.plan_service import PlanService
+            data = PlanService(root).list_plan()
+            for s in data.get("steps") or []:
+                meta = s.get("meta") or {}
+                if str(meta.get("task_id") or "") == str(task_id):
+                    PlanService(root).set_step_status(str(s.get("id")), status, note=f"task {status}")
+                    if getattr(self, "plan_panel", None):
+                        self.plan_panel.refresh()
+                    break
+        except Exception:
+            pass
+
     def _on_done(self, task_id: str, detail: str) -> None:
+
         exp = self._load_task_explanation(task_id)
         self.chat.notify_done(task_id, detail, explanation=exp)
         try:
@@ -1378,6 +1491,10 @@ class MainWindow(ctk.CTk):
             notify(_t("toast_done", default="AgentBus · DONE"), detail or task_id or "задача выполнена", dedupe_key=f"done:{task_id}")
         self._sync_after_task(task_id)
         try:
+            self._sync_plan_step_for_task(task_id, status="DONE")
+        except Exception:
+            pass
+        try:
             self._term("done", f"{task_id}: {detail}")
         except Exception:
             pass
@@ -1388,7 +1505,16 @@ class MainWindow(ctk.CTk):
             self._term("error", f"{task_id}: {detail}")
         except Exception:
             pass
+        try:
+            if getattr(self, "problems_panel", None):
+                self.problems_panel.refresh()
+        except Exception:
+            pass
         self._sync_after_task(task_id)
+        try:
+            self._sync_plan_step_for_task(task_id, status="ERROR")
+        except Exception:
+            pass
         if self._toast:
             notify(_t("toast_error", default="AgentBus · ERROR"), detail or task_id or "ошибка", dedupe_key=f"err:{task_id}")
         try:
@@ -1408,6 +1534,11 @@ class MainWindow(ctk.CTk):
                 "Команды:\n"
                 "/help — справка\n"
                 "/status — dispatcher + очередь\n"
+                "/compose — форма новой задачи\n"
+                "/audit — аудит проекта\n"
+                "/health — project health\n"
+                "/plan — текущий LivingPlan\n"
+                "/workflow — Audit→Advisor→Plan\n"
                 "/workers — workers.yaml\n"
                 "/metrics — обновить метрики\n"
                 "/history — обновить историю\n"
@@ -1416,6 +1547,84 @@ class MainWindow(ctk.CTk):
             return True
         if c == "/clear":
             self.chat._clear_history()
+            return True
+
+        if c in ("/compose", "/composer"):
+            try:
+                self._open_composer()
+            except Exception as exp:
+                self.chat.append("System", f"compose: {exp}")
+            return True
+        if c == "/audit":
+            try:
+                root = self._current_project_root()
+                from app.project_service import ProjectService
+                text = ProjectService(root).run_audit_text()
+                self.chat.append("System", (text or "empty audit")[:4000], kind="system")
+            except Exception as exp:
+                self.chat.append("System", f"audit: {exp}")
+            return True
+        if c == "/health":
+            try:
+                root = self._current_project_root()
+                from app.project_service import ProjectService
+                text = ProjectService(root).get_health_text()
+                self.chat.append("System", (text or "no health")[:4000], kind="system")
+            except Exception as exp:
+                self.chat.append("System", f"health: {exp}")
+            return True
+        if c == "/plan":
+            try:
+                root = self._current_project_root()
+                from app.plan_service import PlanService
+                data = PlanService(root).list_plan()
+                steps = data.get("steps") if isinstance(data, dict) else data
+                if not isinstance(steps, list):
+                    steps = []
+                lines_out = ["LivingPlan:"]
+                for s in steps[:20]:
+                    if isinstance(s, dict):
+                        lines_out.append(
+                            f"  [{s.get('status')}] {s.get('title') or s.get('action') or s.get('id')}"
+                        )
+                    else:
+                        lines_out.append(f"  {s}")
+                if len(lines_out) == 1:
+                    lines_out.append("  (empty)")
+                self.chat.append("System", "\n".join(lines_out), kind="system")
+            except Exception as exp:
+                self.chat.append("System", f"plan: {exp}")
+            return True
+        if c == "/enqueue":
+            try:
+                root = self._current_project_root()
+                from app.project_workflow import ProjectWorkflow
+                r = ProjectWorkflow(root).enqueue_first_pending()
+                if r.get("ok"):
+                    self.chat.append(
+                        "System",
+                        f"Enqueued {r.get('task_id')}: {r.get('step_action')}",
+                        kind="info",
+                    )
+                    try:
+                        if getattr(self, "queue_panel", None):
+                            self.queue_panel.refresh()
+                    except Exception:
+                        pass
+                else:
+                    self.chat.append("System", f"enqueue: {r.get('error')}", kind="error")
+            except Exception as exp:
+                self.chat.append("System", f"enqueue: {exp}")
+            return True
+        if c == "/workflow":
+
+            try:
+                root = self._current_project_root()
+                from app.project_workflow import ProjectWorkflow
+                text = ProjectWorkflow(root).format_preview()
+                self.chat.append("System", (text or "empty")[:4000], kind="system")
+            except Exception as exp:
+                self.chat.append("System", f"workflow: {exp}")
             return True
         if c == "/metrics":
             try:
