@@ -37,10 +37,14 @@ class RPVerifyMixin:
     ) -> tuple[str, dict, str]:
         """VERIFY ladder + diff budget + git commit. Mutates result.ok/stderr."""
         commit_sha = ""
+
         try:
             self._set_phase(task, "verify")
-        except Exception:
-            pass
+        except Exception as exp:
+            try:
+                self.log.write(f"verify phase marker failed: {type(exp).__name__}: {exp}")
+            except Exception:
+                pass
 
         if not getattr(result, "ok", False):
             return message, attempt_messages, commit_sha
@@ -54,7 +58,10 @@ class RPVerifyMixin:
             )
             try:
                 from utils.pipeline_events import verify_started
-                verify_started(str(getattr(task, "id", "")), str(getattr(worker, "name", "")))
+                verify_started(
+                    str(getattr(task, "id", "")),
+                    str(getattr(worker, "name", "")),
+                )
             except Exception:
                 pass
         except Exception:
@@ -63,39 +70,64 @@ class RPVerifyMixin:
         ok, verify_error = self._verify_escalating(
             task, ctx, tests, worker_name=getattr(worker, "name", "")
         )
-        # DONE Gate: structured VerificationEngine (anti false-DONE + report)
+
+        # DONE Gate: verification-engine failures are fail-closed.
         if ok:
             try:
                 gate_ok, gate_err = self._verification_engine_gate(
                     task, ctx, execution_ok=True
                 )
                 if not gate_ok:
-                    ok, verify_error = False, gate_err or "verification_gate_failed"
+                    ok, verify_error = (
+                        False,
+                        gate_err or "verification_gate_failed",
+                    )
             except Exception as exp:
+                ok = False
+                verify_error = (
+                    f"verification_gate_exception: "
+                    f"{type(exp).__name__}: {exp}"
+                )
                 try:
-                    self.log.write(f"verification_gate: {exp}")
+                    self.log.write(verify_error)
                 except Exception:
                     pass
+
         if not ok:
             result.stderr, result.ok = verify_error, False
             try:
                 self._bump_verify_fails(task, verify_error or "")
             except Exception as exp:
                 try:
-                    self.log.write(f"_bump_verify_fails: {exp}")
+                    self.log.write(
+                        f"_bump_verify_fails: {type(exp).__name__}: {exp}"
+                    )
                 except Exception:
                     pass
             try:
                 from utils.metrics import GLOBAL_METRICS
-                meta_v = task.metadata if isinstance(getattr(task, "metadata", None), dict) else {}
-                lvl = int(meta_v.get("verify_ladder") or meta_v.get("verify_max_level") or 0)
-                GLOBAL_METRICS.record_verify_ladder(success=False, level=lvl)
+                meta_v = (
+                    task.metadata
+                    if isinstance(getattr(task, "metadata", None), dict)
+                    else {}
+                )
+                lvl = int(
+                    meta_v.get("verify_ladder")
+                    or meta_v.get("verify_max_level")
+                    or 0
+                )
+                GLOBAL_METRICS.record_verify_ladder(
+                    success=False,
+                    level=lvl,
+                )
             except Exception:
                 pass
             try:
                 from intelligence.pev_loop import verify_retry_message
                 message = verify_retry_message(
-                    message, verify_error or "", int(task.attempts or 1)
+                    message,
+                    verify_error or "",
+                    int(task.attempts or 1),
                 )
                 attempt_messages = {}
             except Exception:
@@ -110,6 +142,7 @@ class RPVerifyMixin:
         if plan is not None and getattr(plan, "stage", None):
             try:
                 from core.task_safety import check_diff_budget
+
                 budget = check_diff_budget(
                     root=str(ctx.root),
                     stage_paths=list(plan.stage or []),
@@ -117,7 +150,10 @@ class RPVerifyMixin:
                 )
                 if not budget.get("ok", True):
                     result.ok = False
-                    result.stderr = str(budget.get("reason") or "diff budget exceeded")
+                    result.stderr = str(
+                        budget.get("reason")
+                        or "diff budget exceeded"
+                    )
                     try:
                         self._emit(
                             "DIFF_BUDGET",
@@ -134,35 +170,76 @@ class RPVerifyMixin:
                     except Exception:
                         pass
                     return message, attempt_messages, commit_sha
+
             except Exception as exc:
+                # Diff-budget is a safety gate. If it cannot be evaluated,
+                # never continue as if verification succeeded.
+                result.ok = False
+                result.stderr = (
+                    f"diff_budget_check_exception: "
+                    f"{type(exc).__name__}: {exc}"
+                )
                 try:
-                    self.log.write(f"diff budget: {exc}")
+                    self.log.write(result.stderr)
                 except Exception:
                     pass
+                return message, attempt_messages, commit_sha
 
-        # commit if ok
+        # Commit is part of the verified terminal path.
+        # A commit failure must invalidate the successful execution.
         if result.ok and plan is not None and gitops is not None:
             try:
-                commit_sha = gitops.commit_plan(plan, task=task) or ""
+                commit_sha = gitops.commit_plan(
+                    plan,
+                    task=task,
+                ) or ""
             except Exception as exc:
+                result.ok = False
+                result.stderr = (
+                    f"git_commit_failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
                 try:
-                    self.log.write(f"commit: {exc}")
+                    self.log.write(result.stderr)
                 except Exception:
                     pass
+                return message, attempt_messages, commit_sha
+
+            if not commit_sha:
+                result.ok = False
+                result.stderr = "git_commit_failed: empty commit SHA"
+                try:
+                    self.log.write(result.stderr)
+                except Exception:
+                    pass
+                return message, attempt_messages, commit_sha
 
         if result.ok:
             try:
                 self._reset_verify_fails(task)
             except Exception as exp:
                 try:
-                    self.log.write(f"_reset_verify_fails: {exp}")
+                    self.log.write(
+                        f"_reset_verify_fails: {type(exp).__name__}: {exp}"
+                    )
                 except Exception:
                     pass
             try:
                 from utils.metrics import GLOBAL_METRICS
-                meta_v = task.metadata if isinstance(getattr(task, "metadata", None), dict) else {}
-                lvl = int(meta_v.get("verify_ladder") or meta_v.get("verify_max_level") or 0)
-                GLOBAL_METRICS.record_verify_ladder(success=True, level=lvl)
+                meta_v = (
+                    task.metadata
+                    if isinstance(getattr(task, "metadata", None), dict)
+                    else {}
+                )
+                lvl = int(
+                    meta_v.get("verify_ladder")
+                    or meta_v.get("verify_max_level")
+                    or 0
+                )
+                GLOBAL_METRICS.record_verify_ladder(
+                    success=True,
+                    level=lvl,
+                )
             except Exception:
                 pass
 
@@ -185,11 +262,20 @@ class RPVerifyMixin:
         Returns Path to quarantine JSON when written, else status string "ERROR".
         """
         msg = (reason or error or "verify budget exhausted").strip()
+        failures: list[str] = []
+
         try:
             if gitops is not None and before_snapshot is not None:
-                self._rollback_task(gitops, before_snapshot, task)
-        except Exception:
-            pass
+                self._rollback_task(
+                    gitops,
+                    before_snapshot,
+                    task,
+                )
+        except Exception as exp:
+            failures.append(
+                f"rollback: {type(exp).__name__}: {exp}"
+            )
+
         try:
             self._save(
                 task,
@@ -203,26 +289,40 @@ class RPVerifyMixin:
                     **(extra or {}),
                 },
             )
-        except Exception:
-            pass
+        except Exception as exp:
+            failures.append(
+                f"save_errors: {type(exp).__name__}: {exp}"
+            )
+
         try:
             ch = getattr(task, "channel", None) or "gpt"
-            self.bus.move(ch, "processing", "errors", f"{task.id}.json")
-        except Exception:
-            pass
+            self.bus.move(
+                ch,
+                "processing",
+                "errors",
+                f"{task.id}.json",
+            )
+        except Exception as exp:
+            failures.append(
+                f"bus_move: {type(exp).__name__}: {exp}"
+            )
+
         qpath = None
         try:
             from pathlib import Path as _P
             import json as _json
             import time as _time
+
             try:
                 from core.config import BUS_ROOT
                 base = _P(BUS_ROOT)
             except Exception:
                 base = _P(".agentbus")
+
             qdir = base / "quarantine"
             qdir.mkdir(parents=True, exist_ok=True)
             qpath = qdir / f"{getattr(task, 'id', 'task')}.json"
+
             payload = {
                 "id": getattr(task, "id", ""),
                 "channel": getattr(task, "channel", ""),
@@ -240,9 +340,41 @@ class RPVerifyMixin:
                 },
                 "ts": _time.time(),
             }
-            qpath.write_text(_json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
+            if failures:
+                payload["quarantine_warnings"] = list(failures)
+
+            qpath.write_text(
+                _json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except Exception as exp:
+            failures.append(
+                f"quarantine_write: {type(exp).__name__}: {exp}"
+            )
             qpath = None
+
+        if failures:
+            detail = "; ".join(failures)[:800]
+            try:
+                self.log.write(
+                    f"quarantine incomplete: {detail}"
+                )
+            except Exception:
+                pass
+            try:
+                self._emit(
+                    "QUARANTINE_INCOMPLETE",
+                    detail,
+                    task_id=getattr(task, "id", ""),
+                    worker=worker,
+                )
+            except Exception:
+                pass
+
         try:
             self._emit(
                 "QUARANTINE",
@@ -252,4 +384,7 @@ class RPVerifyMixin:
             )
         except Exception:
             pass
-        return qpath if qpath is not None else "ERROR"
+
+        if qpath is None:
+            return "ERROR"
+        return qpath

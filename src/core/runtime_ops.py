@@ -33,8 +33,6 @@ from .tasks import Task
 from .router import select_executor, task_complexity
 from .repair import decide_failure, categorize
 from .workers import Worker
-from .runtime_ops_claim import RuntimeOpsClaim
-from .runtime_ops_git import RuntimeOpsGit
 
 try:
     from skills.test_runner import TestRunner, _pytest_status
@@ -49,8 +47,8 @@ except Exception:  # pragma: no cover
     def is_enabled(name: str, default: bool = True) -> bool:
         return default
 
-class RuntimeOps(RuntimeOpsClaim, RuntimeOpsGit):
-    """Mixin: provider checks, exec, verify + claim/git mixins."""
+class RuntimeOps:
+    """Mixin: provider checks, exec, verify, recover, rollback."""
 
 
     def _set_phase(self, task, phase: str, **extra) -> None:
@@ -181,74 +179,6 @@ class RuntimeOps(RuntimeOpsClaim, RuntimeOpsGit):
                 return False, f"Команда не прошла: {command}\n{check.output[-10000:]}"
         return True, ""
 
-
-    def _verification_engine_gate(self, task: Task, ctx=None, *, execution_ok: bool = True,
-                                  short_circuit: str | None = None) -> tuple[bool, str]:
-        """DONE Gate via VerificationEngine.
-
-        Default: lightweight — does not re-run pytest (escalating already did).
-        Set AGENTBUS_VERIFY_ENGINE_FULL=1 to re-run full VerificationEngine.
-        """
-        import os
-        try:
-            from core.verification_engine import (
-                VerificationEngine,
-                VerificationReport,
-                CheckResult,
-                gate_done,
-            )
-        except Exception:
-            return bool(execution_ok), "" if execution_ok else "verification_engine_unavailable"
-
-        if short_circuit:
-            ok, reason = gate_done(True, None, short_circuit=short_circuit)
-            return ok, reason
-
-        full = (os.getenv("AGENTBUS_VERIFY_ENGINE_FULL") or "").strip().lower() in (
-            "1", "true", "yes", "on",
-        )
-        root = getattr(ctx or getattr(self, "context", None), "root", None)
-
-        if full:
-            raw = {}
-            try:
-                raw = task.to_dict() if hasattr(task, "to_dict") else {
-                    "id": getattr(task, "id", ""),
-                    "message": getattr(task, "message", ""),
-                    "files": list(getattr(task, "files", None) or []),
-                    "verify": list(getattr(task, "verify", None) or []),
-                    "metadata": dict(getattr(task, "metadata", None) or {}),
-                }
-            except Exception:
-                raw = {"id": getattr(task, "id", ""), "message": "x"}
-            try:
-                from core.verify_policy import apply_verify_policy
-                raw = apply_verify_policy(raw)
-            except Exception:
-                pass
-            report = VerificationEngine(project_root=root).run(raw, project_root=root)
-        else:
-            # Trust escalating path; still require execution_ok + explicit report
-            report = VerificationReport(
-                passed=bool(execution_ok),
-                checks=[CheckResult("escalating", bool(execution_ok), detail="from_verify_escalating")],
-                reason="escalating_ok" if execution_ok else "escalating_failed",
-            )
-
-        try:
-            meta = dict(getattr(task, "metadata", None) or {})
-            meta["verification_report"] = report.to_dict()
-            task.metadata = meta
-        except Exception:
-            pass
-        # FC-11: also keep last report on runtime for diagnostics
-        try:
-            self._last_verification_report = report
-        except Exception:
-            pass
-        ok, reason = gate_done(execution_ok, report)
-        return ok, ("" if ok else reason)
-
     def _verify_escalating(self, task: Task, ctx=None, tests=None,
                            worker_name: str = "") -> tuple[bool, str]:
         context = ctx or self.context
@@ -323,6 +253,498 @@ class RuntimeOps(RuntimeOpsClaim, RuntimeOpsGit):
             except Exception:
                 pass
         return ok, err
+
+    def _active_channels(self) -> list[str]:
+        """Configured CHANNELS plus on-disk isolated sub-agent channels (*__sub_*)."""
+        found: list[str] = []
+        seen: set[str] = set()
+        for ch in CHANNELS:
+            if ch and ch not in seen:
+                found.append(ch)
+                seen.add(ch)
+        try:
+            bus_root = Path(getattr(self.bus, "root", None) or "")
+            root = bus_root / "channels" if bus_root.is_dir() else Path()
+            if not root.is_dir():
+                from core.config import CHANNELS_ROOT
+                root = Path(CHANNELS_ROOT)
+            if root.is_dir():
+                for d in sorted(root.iterdir()):
+                    if not d.is_dir():
+                        continue
+                    name = d.name
+                    if name in seen:
+                        continue
+                    # isolated children: gpt__sub_xxx or any configured prefix
+                    if "__sub_" in name:
+                        found.append(name)
+                        seen.add(name)
+                        continue
+                    # also pick up channels that have pending work even if not in env list
+                    if (d / "incoming").is_dir() or (d / "processing").is_dir():
+                        # only auto-add __sub_ to avoid scanning random dirs; base channels from env
+                        pass
+        except Exception:
+            pass
+        return found
+
+    def _claim_file_task(self) -> dict | None:
+        """Claim next incoming task; prefer grouper order (project/type/files)."""
+        candidates: list[tuple[object, dict, str]] = []
+        for channel in self._active_channels():
+            incoming = self.bus.paths(channel)["incoming"]
+            for path in sorted(incoming.glob("*.json"), key=lambda p: p.stat().st_mtime):
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    if not isinstance(raw, dict):
+                        continue
+                    raw = dict(raw)
+                    raw.setdefault("channel", channel)
+                    candidates.append((path, raw, channel))
+                except (OSError, json.JSONDecodeError, ValueError) as exc:
+                    self.log.write(f"битая задача {path.name}: {exc}")
+                    try:
+                        self.bus.move(channel, "incoming", "errors", path.name)
+                    except Exception:
+                        pass
+        if not candidates:
+            return None
+        try:
+            from skills.task_grouper import GLOBAL_GROUPER
+            ordered_raw = GLOBAL_GROUPER.sort_for_processing([c[1] for c in candidates])
+            # map back to paths by id/message
+            by_id = {}
+            for path, raw, channel in candidates:
+                key = str(raw.get("id") or "") or id(raw)
+                by_id[key] = (path, raw, channel)
+            ordered: list[tuple[object, dict, str]] = []
+            used = set()
+            for raw in ordered_raw:
+                key = str(raw.get("id") or "")
+                item = by_id.get(key)
+                if item and key not in used:
+                    ordered.append(item)
+                    used.add(key)
+            for path, raw, channel in candidates:
+                key = str(raw.get("id") or "") or id(raw)
+                if key not in used:
+                    ordered.append((path, raw, channel))
+        except Exception:
+            ordered = candidates
+
+        for path, raw, channel in ordered:
+            try:
+                task = Task.from_dict(raw)
+                task.id = str(task.id or uuid.uuid4())
+                task.channel = channel
+                try:
+                    from core.capability_router import enrich_task_from_plugins, infer_capabilities
+                    if not isinstance(task.metadata, dict):
+                        task.metadata = {}
+                    task.metadata = enrich_task_from_plugins(
+                        task.message or "", task.metadata
+                    )
+                    caps = infer_capabilities(task)
+                    if caps:
+                        task.metadata.setdefault("capabilities", caps)
+                except Exception:
+                    pass
+                if not self.bus.move(channel, "incoming", "processing", path.name):
+                    continue
+                try:
+                    from core.reclaim import write_lease, compute_stuck_timeout_sec, task_complexity
+                    proc = self.bus.paths(channel)["processing"] / path.name
+                    td = task.to_dict()
+                    write_lease(
+                        proc,
+                        task_id=str(task.id),
+                        worker=str(task.worker or task.executor or ""),
+                        complexity=task_complexity(td),
+                        attempts=int(task.attempts or 0),
+                        stuck_timeout_sec=compute_stuck_timeout_sec(td),
+                        phase="claim",
+                    )
+                except Exception:
+                    pass
+                return task.to_dict()
+            except (OSError, ValueError) as exc:
+                self.log.write(f"claim {getattr(path, 'name', path)}: {exc}")
+                continue
+        return None
+
+    def _recover_stale_processing(self, stale_seconds: int = LEASE_SECONDS) -> int:
+        """Reclaim stuck processing tasks with adaptive timeout (complexity/worker).
+
+        Uses core.reclaim when available; falls back to fixed mtime lease.
+        Returns number of successfully moved tasks.
+        """
+        try:
+            from core.reclaim import reclaim_stuck
+            from core.config import STUCK_BASE_SEC, STUCK_TIMEOUT_MAX, MAX_ATTEMPTS as _MAX_ATT
+        except Exception:
+            recovered = 0
+            for channel in self._active_channels():
+                pdir = self.bus.paths(channel)["processing"]
+                now = time.time()
+                for path in pdir.glob("*.json"):
+                    if path.name.endswith(".lease.json"):
+                        continue
+                    try:
+                        if now - path.stat().st_mtime <= stale_seconds:
+                            continue
+                        if self.bus.move(channel, "processing", "incoming", path.name):
+                            recovered += 1
+                    except OSError:
+                        continue
+            return recovered
+
+        recovered = 0
+        base = float(STUCK_BASE_SEC)
+        # floor: never stricter than caller stale_seconds for simple tasks
+        base = max(base, min(float(stale_seconds), base * 2))
+        for channel in self._active_channels():
+            paths = self.bus.paths(channel)
+            try:
+                results = reclaim_stuck(
+                    processing_dir=paths["processing"],
+                    incoming_dir=paths["incoming"],
+                    errors_dir=paths["errors"],
+                    channel=channel,
+                    bus_move=self.bus.move,
+                    max_attempts=int(_MAX_ATT),
+                    base_sec=base,
+                    max_sec=float(STUCK_TIMEOUT_MAX),
+                )
+            except Exception as exc:
+                self.log.write(f"reclaim {channel}: {exc}")
+                continue
+            for item in results:
+                if item.get("moved"):
+                    recovered += 1
+                    self.log.write(
+                        f"RECLAIM {item.get('action')} {item.get('file')} "
+                        f"age={item.get('age_sec')}s timeout={item.get('timeout_sec')}s "
+                        f"attempts={item.get('attempts')}"
+                    )
+                    try:
+                        self._emit(
+                            "RECLAIM",
+                            f"{item.get('action')} · {item.get('file')}",
+                            task_id=str(item.get("file") or "").replace(".json", ""),
+                            worker=self.worker_id,
+                            payload=item,
+                        )
+                    except Exception:
+                        pass
+        return recovered
+
+    def _touch_task_lease(self, task: "Task", phase: str = "work") -> None:
+        """Refresh processing lease heartbeat for long-running tasks."""
+        try:
+            from core.reclaim import touch_lease, write_lease, compute_stuck_timeout_sec, task_complexity
+            p = self.bus.paths(task.channel)["processing"] / f"{task.id}.json"
+            if not p.is_file():
+                return
+            lease = p.with_name(p.stem + ".lease.json")
+            if not lease.is_file():
+                write_lease(
+                    p,
+                    task_id=str(task.id),
+                    worker=str(getattr(task, "worker", "") or ""),
+                    complexity=task_complexity(task.to_dict()),
+                    attempts=int(getattr(task, "attempts", 0) or 0),
+                    stuck_timeout_sec=compute_stuck_timeout_sec(task.to_dict()),
+                    phase=phase,
+                )
+            else:
+                touch_lease(p, phase=phase)
+            try:
+                p.touch()
+            except OSError:
+                pass
+        except Exception:
+            pass
+
+    def _recover_deferred(self) -> int:
+        recovered = 0
+        now = time.time()
+        for channel in self._active_channels():
+            ddir = self.bus.paths(channel)["deferred"]
+            for path in list(ddir.glob("*.json")):
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, ValueError):
+                    continue
+                result = raw.get("result") if isinstance(raw, dict) else None
+                if not isinstance(result, dict):
+                    result = {}
+                wake_epoch = result.get("wake_epoch")
+                due = False
+                if isinstance(wake_epoch, (int, float)) and wake_epoch > 0:
+                    due = now >= float(wake_epoch)
+                else:
+                    try:
+                        due = (now - path.stat().st_mtime) >= RETRY_DELAY_SECONDS
+                    except OSError:
+                        continue
+                if not due:
+                    continue
+                if self.bus.move(channel, "deferred", "incoming", path.name):
+                    recovered += 1
+                    tid = (raw.get("id") if isinstance(raw, dict) else None) or path.stem
+                    self._emit("RETRY", f"deferred→incoming · {tid}",
+                               task_id=str(tid), worker=self.worker_id,
+                               payload={"from": "deferred"})
+        return recovered
+
+    def _schedule_retry(self, task: Task, error: str) -> None:
+        self._backoff[task.id] = time.monotonic() + RETRY_DELAY_SECONDS
+        task.metadata["prev_failure"] = (error or "")[-2000:]
+        try:
+            self.queue.bump_attempts(task.id, task.attempts, error)
+        except Exception as exc:
+            self.log.write(f"bump_attempts: {exc}")
+
+    def _flush_backoff(self) -> None:
+        now = time.monotonic()
+        due = [tid for tid, when in self._backoff.items() if now >= when]
+        for tid in due:
+            del self._backoff[tid]
+            try:
+                self.queue.release(tid, error="повтор после backoff")
+            except Exception as exc:
+                self.log.write(f"release backoff: {exc}")
+        try:
+            n = self._recover_deferred()
+            if n:
+                self.log.write(f"deferred→incoming: {n}")
+        except Exception as exc:
+            self.log.write(f"recover_deferred: {exc}")
+
+    def _deferred_capacity(self, task: Task, complexity: int) -> bool:
+        try:
+            snap = self.capacity.deferred_snapshot()
+            if not snap.get("deferred"):
+                return False
+        except Exception:
+            return False
+        delay = int(snap.get("wake_at") or 60)
+        if delay > 86400:
+            delay = min(3600, max(60, delay % 86400 or 60))
+        delay = max(30, min(delay, 3600))
+        wake_epoch = time.time() + delay
+        self._emit("DEFERRED_QUOTA", f"пул недоступен, повтор ~{delay}с",
+                   task_id=task.id, worker=self.worker_id,
+                   payload={"wake_at": delay, "wake_epoch": wake_epoch})
+        self._backoff[task.id] = time.monotonic() + delay
+        self.bus.move(task.channel, "processing", "deferred", f"{task.id}.json")
+        self._save(task, "deferred", {
+            "error": "DEFERRED_QUOTA", "attempts": task.attempts,
+            "category": "RATE_LIMIT", "wake_at": delay, "wake_epoch": wake_epoch,
+        })
+        return True
+
+
+    def _cleanup_task_git_branch(self, gitops, task) -> None:
+        """Drop agentbus/task-* branch after success or quarantine (disk hygiene)."""
+        if gitops is None or not getattr(gitops, "is_repo", lambda: False)():
+            return
+        try:
+            info = gitops.cleanup_task_branch(str(getattr(task, "id", "") or ""))
+            if info.get("deleted"):
+                try:
+                    self.log.write(f"git branch cleanup: {info.get('deleted')}")
+                except Exception:
+                    pass
+            # opportunistic prune of old agentbus branches
+            try:
+                pruned = gitops.prune_stale_agentbus_branches(keep=8)
+                if pruned:
+                    self.log.write(f"git prune agentbus branches: {pruned[:5]}")
+            except Exception:
+                pass
+        except Exception as exc:
+            try:
+                self.log.write(f"git branch cleanup: {exc}")
+            except Exception:
+                pass
+
+
+    def _maybe_prepare_git_worktree(self, task: "Task", project_path: str) -> str:
+        """If AGENTBUS_GIT_WORKTREE=1, isolate task in a git worktree; return path to use."""
+        try:
+            from safety.worktree import worktree_enabled, WorktreeManager
+            if not worktree_enabled():
+                return project_path
+            wm = WorktreeManager(project_path)
+            info = wm.add(str(getattr(task, "id", "") or "task"))
+            if info.get("ok") and info.get("path"):
+                try:
+                    if not isinstance(task.metadata, dict):
+                        task.metadata = {}
+                    task.metadata["git_worktree"] = info["path"]
+                    task.metadata["git_worktree_branch"] = info.get("branch", "")
+                except Exception:
+                    pass
+                try:
+                    self.log.write(f"worktree: {info.get('reason')} → {info['path']}")
+                except Exception:
+                    pass
+                return str(info["path"])
+        except Exception as exc:
+            try:
+                self.log.write(f"worktree: {exc}")
+            except Exception:
+                pass
+        return project_path
+
+    def _maybe_cleanup_git_worktree(self, task: "Task", project_path: str) -> None:
+        try:
+            from safety.worktree import worktree_enabled, WorktreeManager
+            if not worktree_enabled():
+                return
+            meta = task.metadata if isinstance(getattr(task, "metadata", None), dict) else {}
+            if not meta.get("git_worktree"):
+                return
+            wm = WorktreeManager(project_path)
+            # keep branch for review; remove worktree dir to free disk
+            wm.remove(str(getattr(task, "id", "") or ""), delete_branch=False)
+            try:
+                pruned = wm.prune_stale(keep=6)
+                if pruned:
+                    self.log.write(f"worktree prune: {len(pruned)}")
+            except Exception:
+                pass
+        except Exception as exc:
+            try:
+                self.log.write(f"worktree cleanup: {exc}")
+            except Exception:
+                pass
+
+    def _rollback_task(self, gitops, before_snapshot, task) -> list[str]:
+        if gitops is None or before_snapshot is None or not gitops.is_repo():
+            return []
+        try:
+            plan = gitops.plan_commit(before_snapshot, task.files)
+            rolled = gitops.discard_task_changes(before_snapshot, plan)
+        except Exception as exc:
+            self.log.write(f"откат git: {exc}")
+            return []
+        return rolled or []
+
+
+    def _ensure_clean_worktree(self, gitops, task: "Task") -> str | None:
+        """Pre-flight dirty git. Returns status string if task should stop, else None."""
+        if gitops is None or not getattr(gitops, "is_repo", lambda: False)():
+            return None
+        try:
+            default_pol = DIRTY_GIT_POLICY
+        except NameError:
+            default_pol = "park"
+        try:
+            from core.task_safety import resolve_git_policy
+            policy = resolve_git_policy(task, default=default_pol)
+        except Exception:
+            policy = default_pol
+        try:
+            meta = dict(getattr(task, "metadata", None) or {})
+            meta["git_policy_applied"] = policy
+            task.metadata = meta
+        except Exception:
+            pass
+        try:
+            info = gitops.ensure_worktree_ready(policy=policy, task_id=str(getattr(task, "id", "")))
+        except Exception as exc:
+            try:
+                self.log.write(f"dirty git check: {exc}")
+            except Exception:
+                pass
+            return None
+        if info.get("ok", True):
+            if info.get("action") not in ("clean", "no_repo", ""):
+                try:
+                    self._emit(
+                        "GIT_PREP",
+                        str(info.get("reason") or info.get("action"))[:300],
+                        task_id=getattr(task, "id", ""),
+                        worker=self.worker_id,
+                        payload=info,
+                    )
+                except Exception:
+                    pass
+            return None
+        # park / failed
+        reason = str(info.get("reason") or "dirty worktree")
+        try:
+            self._emit(
+                "DIRTY_GIT",
+                reason[:300],
+                task_id=getattr(task, "id", ""),
+                worker=self.worker_id,
+                payload=info,
+            )
+        except Exception:
+            pass
+        try:
+            meta = dict(getattr(task, "metadata", None) or {})
+            meta["dirty_git"] = info
+            task.metadata = meta
+        except Exception:
+            pass
+        try:
+            self.bus.move(task.channel, "processing", "deferred", f"{task.id}.json")
+            self._save(
+                task,
+                "deferred",
+                {
+                    "error": reason,
+                    "attempts": getattr(task, "attempts", 0),
+                    "category": "DIRTY_GIT",
+                    "dirty_git": info,
+                },
+            )
+        except Exception as exc:
+            try:
+                self.log.write(f"dirty park: {exc}")
+            except Exception:
+                pass
+        return "DEFERRED"
+
+    def _bump_verify_fails(self, task: "Task", error: str = "") -> int:
+        """Track consecutive verify/syntax fails across attempts. Returns new count."""
+        try:
+            meta = dict(getattr(task, "metadata", None) or {})
+        except Exception:
+            meta = {}
+        n = int(meta.get("consecutive_verify_fails") or 0) + 1
+        meta["consecutive_verify_fails"] = n
+        if error:
+            meta["last_verify_error"] = (error or "")[-500:]
+        try:
+            task.metadata = meta
+        except Exception:
+            pass
+        return n
+
+    def _reset_verify_fails(self, task: "Task") -> None:
+        try:
+            meta = dict(getattr(task, "metadata", None) or {})
+            meta["consecutive_verify_fails"] = 0
+            task.metadata = meta
+        except Exception:
+            pass
+
+    def _verify_budget_exhausted(self, task: "Task") -> bool:
+        try:
+            meta = getattr(task, "metadata", None) or {}
+            n = int(meta.get("consecutive_verify_fails") or 0)
+        except Exception:
+            n = 0
+        try:
+            limit = int(VERIFY_FAIL_MAX)
+        except Exception:
+            limit = 3
+        return n >= limit
 
     def _bind(self, proj: Path):
         if proj == PROJECT_ROOT:
