@@ -23,6 +23,7 @@
 | [FEATURE_FLAGS.md](FEATURE_FLAGS.md) | Feature flags |
 | [LIVE_ACCEPTANCE.md](LIVE_ACCEPTANCE.md) | Post-PC acceptance checklist |
 | [STATUS_OFFLINE.md](STATUS_OFFLINE.md) | Offline readiness status |
+| [STATUS_PRODUCT.md](STATUS_PRODUCT.md) | Product status (current) |
 | [ROADMAP_0.10.md](ROADMAP_0.10.md) | 0.10 roadmap |
 | [PRODUCT_PATH.md](PRODUCT_PATH.md) | Product path |
 | [PRODUCT_BACKLOG.md](PRODUCT_BACKLOG.md) | Backlog |
