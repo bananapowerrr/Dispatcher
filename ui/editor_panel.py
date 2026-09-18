@@ -129,8 +129,14 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             return
         path = self._current
         if path in self._tabs and self._tabs[path].dirty:
-            # soft: still close (product can add confirm dialog later)
-            pass
+            # sync buffer from widget
+            try:
+                self._tabs[path].buffer = self._text.get("1.0", "end-1c")
+                self._tabs[path].dirty = True
+            except Exception:
+                pass
+            if not self._confirm_discard(path):
+                return
         self._tabs.pop(path, None)
         if path in self._order:
             self._order.remove(path)
@@ -228,3 +234,181 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 self._on_active(self._current, self.selected_text())
             except Exception:
                 pass
+
+    def _confirm_discard(self, path: str) -> bool:
+        """Ask save/discard/cancel for dirty tab. Returns True if close may proceed."""
+        try:
+            from tkinter import messagebox
+            r = messagebox.askyesnocancel(
+                "Несохранённые изменения",
+                f"Файл изменён:\n{path}\n\nСохранить перед закрытием?",
+                parent=self.winfo_toplevel(),
+            )
+        except Exception:
+            # headless / no dialog — keep content, refuse silent loss
+            self._status.configure(text="есть несохранённые изменения — Ctrl+S")
+            return False
+        if r is None:
+            return False  # cancel
+        if r is True:
+            return self.save_current()
+        return True  # discard
+
+    def _show_find(self, replace: bool = False) -> None:
+        if not self._find_visible:
+            self._find_frame.pack(fill="x", padx=8, pady=2, before=self._text)
+            self._find_visible = True
+        try:
+            if replace and hasattr(self, "_repl_entry"):
+                self._repl_entry.focus_set()
+            else:
+                self._find_entry.focus_set()
+                self._find_entry.select_range(0, "end")
+        except Exception:
+            pass
+        self._find_pos = "1.0"
+
+    def _hide_find(self) -> None:
+        if self._find_visible:
+            try:
+                self._find_frame.pack_forget()
+            except Exception:
+                pass
+            self._find_visible = False
+        try:
+            self._text.tag_remove("find_hit", "1.0", "end")
+            self._text.focus_set()
+        except Exception:
+            pass
+
+    def _find_next(self) -> None:
+        try:
+            needle = (self._find_entry.get() or "").strip()
+        except Exception:
+            needle = ""
+        if not needle:
+            self._status.configure(text="введите строку поиска")
+            return
+        try:
+            self._text.tag_remove("find_hit", "1.0", "end")
+            start = self._find_pos or "1.0"
+            idx = self._text.search(needle, start, stopindex="end", nocase=True)
+            if not idx:
+                # wrap
+                idx = self._text.search(needle, "1.0", stopindex="end", nocase=True)
+            if not idx:
+                self._status.configure(text="не найдено")
+                return
+            end = f"{idx}+{len(needle)}c"
+            self._text.tag_add("find_hit", idx, end)
+            self._text.tag_config("find_hit", background="#5a5a20")
+            self._text.see(idx)
+            self._find_pos = end
+            self._status.configure(text=f"найдено @ {idx}")
+        except Exception as exp:
+            self._status.configure(text=f"find: {exp}")
+
+    def _goto_line(self) -> None:
+        try:
+            from tkinter import simpledialog
+            n = simpledialog.askinteger(
+                "Перейти к строке",
+                "Номер строки:",
+                parent=self.winfo_toplevel(),
+                minvalue=1,
+            )
+        except Exception:
+            n = None
+        if not n:
+            return
+        try:
+            self._text.see(f"{n}.0")
+            self._text.mark_set("insert", f"{n}.0")
+            self._status.configure(text=f"строка {n}")
+        except Exception as exp:
+            self._status.configure(text=str(exp)[:80])
+
+    def dirty_paths(self) -> list[str]:
+        """Relative paths with unsaved changes (for exit guard)."""
+        out: list[str] = []
+        # flush current buffer
+        if self._current and self._current in self._tabs:
+            try:
+                body = self._text.get("1.0", "end-1c")
+                st = self._tabs[self._current]
+                st.buffer = body
+                st.dirty = body != st.original
+            except Exception:
+                pass
+        for path, st in self._tabs.items():
+            if st.dirty:
+                out.append(path)
+        return out
+
+    def _replace_one(self) -> None:
+        try:
+            needle = (self._find_entry.get() or "")
+            repl = self._repl_entry.get() if hasattr(self, "_repl_entry") else ""
+        except Exception:
+            return
+        if not needle:
+            return
+        try:
+            # ensure selection is current hit
+            ranges = self._text.tag_ranges("find_hit")
+            if len(ranges) >= 2:
+                self._text.delete(ranges[0], ranges[1])
+                self._text.insert(ranges[0], repl)
+                self._find_pos = str(ranges[0])
+                self._on_modified()
+                self._find_next()
+                self._status.configure(text="replaced 1")
+            else:
+                self._find_next()
+        except Exception as exp:
+            self._status.configure(text=f"replace: {exp}")
+
+    def _replace_all(self) -> None:
+        try:
+            needle = (self._find_entry.get() or "")
+            repl = self._repl_entry.get() if hasattr(self, "_repl_entry") else ""
+        except Exception:
+            return
+        if not needle:
+            return
+        try:
+            body = self._text.get("1.0", "end-1c")
+            count = body.count(needle)
+            if count == 0:
+                # case-insensitive count via search loop
+                n = 0
+                idx = "1.0"
+                while True:
+                    idx = self._text.search(needle, idx, stopindex="end", nocase=True)
+                    if not idx:
+                        break
+                    n += 1
+                    idx = f"{idx}+1c"
+                if n == 0:
+                    self._status.configure(text="не найдено")
+                    return
+                # rebuild via iterative replace
+                idx = "1.0"
+                while True:
+                    idx = self._text.search(needle, idx, stopindex="end", nocase=True)
+                    if not idx:
+                        break
+                    end = f"{idx}+{len(needle)}c"
+                    self._text.delete(idx, end)
+                    self._text.insert(idx, repl)
+                    idx = f"{idx}+{len(repl)}c"
+                self._on_modified()
+                self._status.configure(text=f"replaced {n}")
+                return
+            body2 = body.replace(needle, repl)
+            self._text.delete("1.0", "end")
+            self._text.insert("1.0", body2)
+            self._on_modified()
+            self._status.configure(text=f"replaced {count}")
+        except Exception as exp:
+            self._status.configure(text=f"replace all: {exp}")

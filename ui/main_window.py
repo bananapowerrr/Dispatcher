@@ -18,6 +18,9 @@ from ui.command_palette import CommandPalette
 from ui.commands import build_commands
 from ui.diff_panel import DiffPanel
 from ui.plan_panel import PlanPanel
+from ui.problems_panel import ProblemsPanel
+from ui.activity_bar import ActivityBar
+from ui.terminal_panel import TerminalPanel
 from ui.changes_panel import ChangesPanel
 from ui.task_detail_panel import TaskDetailPanel
 from ui.pev_panel import PevPanel
@@ -78,8 +81,10 @@ class MainWindow(ctk.CTk):
         self._theme = mode
         self._toast = bool(cfg.get("toast_notifications", True))
 
-        self.grid_columnconfigure(1, weight=3)
-        self.grid_columnconfigure(2, weight=2)
+        self.grid_columnconfigure(0, weight=0)  # activity bar
+        self.grid_columnconfigure(1, weight=0)  # sidebar
+        self.grid_columnconfigure(2, weight=3)  # center
+        self.grid_columnconfigure(3, weight=2)  # right panels
         self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=0)
 
@@ -89,8 +94,15 @@ class MainWindow(ctk.CTk):
         except Exception:
             BG_SIDEBAR = BG = BG_PANEL = None
 
+        # P4 Activity Bar (column 0)
+        try:
+            self.activity_bar = ActivityBar(self, on_select=self._on_activity_select)
+            self.activity_bar.grid(row=0, column=0, sticky="ns", padx=0, pady=0)
+        except Exception:
+            self.activity_bar = None
+
         left = ctk.CTkFrame(self, width=240, corner_radius=0)
-        left.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        left.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
         left.grid_propagate(False)
         try:
             apply_frame(left, role="sidebar")
@@ -126,14 +138,14 @@ class MainWindow(ctk.CTk):
         self.disp_led_text.pack(side="left", padx=4)
 
         center = ctk.CTkFrame(self, corner_radius=0)
-        center.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+        center.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
         try:
             apply_frame(center, role="shell")
         except Exception:
             pass
 
         right = ctk.CTkFrame(self, width=340, corner_radius=0)
-        right.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
+        right.grid(row=0, column=3, sticky="nsew", padx=0, pady=0)
         try:
             apply_frame(right, role="panel")
         except Exception:
@@ -142,7 +154,7 @@ class MainWindow(ctk.CTk):
 
         # Bottom status bar
         footer = ctk.CTkFrame(self, height=28, corner_radius=0)
-        footer.grid(row=1, column=0, columnspan=3, sticky="ew")
+        footer.grid(row=1, column=0, columnspan=4, sticky="ew")
         try:
             from ui.theme import apply_frame, TEXT_DIM
             apply_frame(footer, role="sidebar")
@@ -158,7 +170,7 @@ class MainWindow(ctk.CTk):
         self.footer_status.pack(side="left", padx=12, pady=2)
         self.footer_hint = ctk.CTkLabel(
             footer,
-            text="Ctrl+Enter отправить  ·  Ctrl+K палитра",
+            text="Ctrl+Enter · Ctrl+K · Ctrl+F/H · F5",
             anchor="e",
             font=ctk.CTkFont(size=11),
             text_color="gray",
@@ -266,8 +278,14 @@ class MainWindow(ctk.CTk):
             on_sent=self._on_task_sent,
         )
         self.chat.pack(fill="both", expand=True, padx=2, pady=(0, 2))
+        try:
+            self.terminal_panel = TerminalPanel(center)
+            self.terminal_panel.pack(fill="x", padx=2, pady=(0, 2))
+        except Exception:
+            self.terminal_panel = None
 
         tabs = ctk.CTkTabview(right)
+        self._right_tabs = tabs
         tabs.pack(fill="both", expand=True, padx=4, pady=4)
         log_tab = tabs.add(_t("tab_logs", default="Логи"))
         met_tab = tabs.add(_t("tab_metrics", default="Метрики"))
@@ -349,6 +367,18 @@ class MainWindow(ctk.CTk):
         except Exception:
             self.plan_panel = None
         try:
+            prob_tab = tabs.add("Problems")
+            self.problems_panel = ProblemsPanel(
+                prob_tab,
+                get_project=lambda: self.projects.selected_project()
+                if callable(getattr(self.projects, "selected_project", None))
+                else getattr(self.projects, "selected_project", ""),
+                on_open_file=self._open_in_editor if hasattr(self, "_open_in_editor") else None,
+            )
+            self.problems_panel.pack(fill="both", expand=True)
+        except Exception:
+            self.problems_panel = None
+        try:
             ch_tab = tabs.add("Changes")
             self.changes_panel = ChangesPanel(
                 ch_tab,
@@ -408,7 +438,11 @@ class MainWindow(ctk.CTk):
         self.bind_all("<Control-2>", lambda e: self.projects.channel_var.set("grok"))
         self.bind_all("<Control-3>", lambda e: self.projects.channel_var.set("gemini"))
         self.bind_all("<Control-4>", lambda e: self.projects.channel_var.set("autopilot"))
-        self.bind_all("<Control-q>", lambda e: self.destroy())
+        self.bind_all("<Control-q>", lambda e: self._request_close())
+        try:
+            self.protocol("WM_DELETE_WINDOW", self._request_close)
+        except Exception:
+            pass
         self.after(800, self._poll_dispatcher_lock)
         self.after(15000, self._poll_skill_proposals)
 
@@ -486,6 +520,9 @@ class MainWindow(ctk.CTk):
             "history",
             "workers_panel",
             "sentinel_panel",
+            "problems_panel",
+            "plan_panel",
+            "terminal_panel",
         ):
             panel = getattr(self, name, None)
             if panel is None:
