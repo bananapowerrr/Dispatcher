@@ -147,3 +147,61 @@ class FilesService:
         dest = self._safe(dest)
         path.rename(dest)
         return str(dest.relative_to(self._root())).replace("\\", "/")
+
+    def search(
+        self,
+        query: str,
+        *,
+        max_hits: int = 80,
+        max_file_bytes: int = 400_000,
+        extensions: tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Substring search across text files (offline, no ripgrep required)."""
+        q = (query or "").strip()
+        if not q:
+            return []
+        root = self._root()
+        exts = extensions or (
+            ".py", ".md", ".txt", ".yaml", ".yml", ".json", ".toml",
+            ".js", ".ts", ".tsx", ".jsx", ".css", ".html", ".rs", ".go",
+        )
+        hits: list[dict[str, Any]] = []
+        q_lower = q.lower()
+
+        def walk(dir_path: Path) -> None:
+            if len(hits) >= max_hits:
+                return
+            try:
+                entries = list(dir_path.iterdir())
+            except OSError:
+                return
+            for entry in sorted(entries, key=lambda x: x.name.lower()):
+                if len(hits) >= max_hits:
+                    return
+                if entry.name in _SKIP_DIRS or (entry.name.startswith(".") and entry.name not in (".env.example", ".gitignore")):
+                    if entry.is_dir():
+                        continue
+                if entry.is_dir():
+                    walk(entry)
+                    continue
+                if entry.suffix.lower() not in exts and entry.name not in ("Makefile", "Dockerfile"):
+                    continue
+                try:
+                    if entry.stat().st_size > max_file_bytes:
+                        continue
+                    text = entry.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                for i, line in enumerate(text.splitlines(), 1):
+                    if q_lower in line.lower():
+                        rel = str(entry.relative_to(root)).replace("\\", "/")
+                        hits.append({
+                            "path": rel,
+                            "line": i,
+                            "text": line.strip()[:200],
+                        })
+                        if len(hits) >= max_hits:
+                            return
+
+        walk(root)
+        return hits

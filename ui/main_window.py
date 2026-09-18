@@ -21,6 +21,7 @@ from ui.plan_panel import PlanPanel
 from ui.problems_panel import ProblemsPanel
 from ui.activity_bar import ActivityBar
 from ui.terminal_panel import TerminalPanel
+from ui.search_panel import SearchPanel
 from ui.changes_panel import ChangesPanel
 from ui.task_detail_panel import TaskDetailPanel
 from ui.pev_panel import PevPanel
@@ -146,6 +147,7 @@ class MainWindow(ctk.CTk):
 
         right = ctk.CTkFrame(self, width=340, corner_radius=0)
         right.grid(row=0, column=3, sticky="nsew", padx=0, pady=0)
+        self._right_frame = right
         try:
             apply_frame(right, role="panel")
         except Exception:
@@ -379,6 +381,18 @@ class MainWindow(ctk.CTk):
         except Exception:
             self.problems_panel = None
         try:
+            search_tab = tabs.add("Search")
+            self.search_panel = SearchPanel(
+                search_tab,
+                get_project=lambda: self.projects.selected_project()
+                if callable(getattr(self.projects, "selected_project", None))
+                else getattr(self.projects, "selected_project", ""),
+                on_open_file=self._open_in_editor if hasattr(self, "_open_in_editor") else None,
+            )
+            self.search_panel.pack(fill="both", expand=True)
+        except Exception:
+            self.search_panel = None
+        try:
             ch_tab = tabs.add("Changes")
             self.changes_panel = ChangesPanel(
                 ch_tab,
@@ -428,10 +442,17 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
         self.after(600, self._apply_onboarding_cfg)
-        self.after(3000, self._poll_app_loop)
+        self.after(800, self._poll_app_loop)
         self._file_watcher = None
         self.bind_all("<Control-k>", lambda e: self.palette.open())
         self.bind_all("<Control-p>", lambda e: self._quick_open())
+        self.bind_all("<Control-Shift-F>", lambda e: self._open_search())
+        self.bind_all("<Control-Alt-1>", lambda e: self._apply_layout_preset("agent"))
+        self.bind_all("<Control-Alt-2>", lambda e: self._apply_layout_preset("code"))
+        self.bind_all("<Control-Alt-3>", lambda e: self._apply_layout_preset("focus"))
+        self.bind_all("<Control-Alt-4>", lambda e: self._apply_layout_preset("full"))
+        self.bind_all("<Control-Alt-s>", lambda e: self._save_current_layout())
+        self.bind_all("<Control-Shift-f>", lambda e: self._open_search())
         self.bind_all("<Control-P>", lambda e: self._quick_open())
         self.bind_all("<Control-K>", lambda e: self.palette.open())
         self.bind_all("<Control-1>", lambda e: self.projects.channel_var.set("gpt"))
@@ -451,6 +472,100 @@ class MainWindow(ctk.CTk):
         self.after(800, self._welcome_desktop)
         self.after(1500, self._footer_loop)
 
+
+
+    def _term(self, source: str, message: str) -> None:
+        try:
+            if getattr(self, "terminal_panel", None):
+                self.terminal_panel.append(source, str(message)[:500])
+        except Exception:
+            pass
+
+    def _on_activity_select(self, view_id: str) -> None:
+        """Activity Bar → focus primary UI region / tab."""
+        try:
+            if view_id == "explorer" and getattr(self, "explorer", None):
+                self.explorer.refresh()
+            elif view_id == "search":
+                try:
+                    if getattr(self, "_right_tabs", None):
+                        self._right_tabs.set("Search")
+                    if getattr(self, "search_panel", None):
+                        self.search_panel.focus_search()
+                except Exception:
+                    pass
+            elif view_id == "agent" and getattr(self, "chat", None):
+                try:
+                    self.chat.focus_set()
+                except Exception:
+                    pass
+            elif view_id == "settings":
+                self._open_settings()
+            elif view_id in ("plan", "problems", "git", "extensions") and getattr(self, "_right_tabs", None):
+                tab_map = {
+                    "plan": "Plan",
+                    "problems": "Problems",
+                    "git": "Changes",
+                    "extensions": "Extensions",
+                }
+                name = tab_map.get(view_id, "")
+                for cand in (name, view_id.capitalize()):
+                    try:
+                        self._right_tabs.set(cand)
+                        break
+                    except Exception:
+                        continue
+            if getattr(self, "terminal_panel", None):
+                self.terminal_panel.append("ui", f"view → {view_id}")
+        except Exception:
+            pass
+
+    def _request_close(self) -> None:
+        """Exit guard: confirm discard of dirty editor tabs."""
+        try:
+            ed = getattr(self, "editor", None) or getattr(self, "editor_panel", None)
+            dirty = []
+            if ed is not None and hasattr(ed, "dirty_paths"):
+                dirty = list(ed.dirty_paths() or [])
+            if dirty:
+                from tkinter import messagebox
+                msg = "Несохранённые файлы:\n" + "\n".join(dirty[:12])
+                if len(dirty) > 12:
+                    msg += f"\n…и ещё {len(dirty)-12}"
+                msg += "\n\nВыйти без сохранения?"
+                if not messagebox.askyesno("Выход", msg, parent=self):
+                    return
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            pass
+
+    def _open_search(self) -> None:
+        try:
+            if getattr(self, "_right_tabs", None):
+                self._right_tabs.set("Search")
+            if getattr(self, "search_panel", None):
+                self.search_panel.focus_search()
+            self._term("ui", "search")
+        except Exception:
+            pass
+
+    def _quick_open(self) -> None:
+        """Ctrl+P — focus explorer name entry or palette fallback."""
+        try:
+            exp = getattr(self, "explorer", None) or getattr(self, "explorer_panel", None)
+            if exp is not None and hasattr(exp, "_name_entry"):
+                exp._name_entry.focus_set()
+                return
+        except Exception:
+            pass
+        try:
+            if getattr(self, "palette", None):
+                self.palette.open()
+        except Exception:
+            pass
 
     def _resend_task(self, row: dict) -> None:
         """FC-09: resend через TaskService → desktop_queue (не channels/incoming)."""
@@ -523,6 +638,7 @@ class MainWindow(ctk.CTk):
             "problems_panel",
             "plan_panel",
             "terminal_panel",
+            "search_panel",
         ):
             panel = getattr(self, name, None)
             if panel is None:
@@ -539,7 +655,62 @@ class MainWindow(ctk.CTk):
             pass
 
 
+    def _apply_layout_preset(self, name: str) -> None:
+        """P4: apply saved layout preset (agent/code/focus/full)."""
+        try:
+            from app.layout_prefs import apply_layout_preset, get_layout
+            from ui.paths import agentbus_root
+            layout = apply_layout_preset(name, root=agentbus_root())
+            mode = str(layout.get("mode") or name)
+            if hasattr(self, "_workspace_mode"):
+                self._workspace_mode.set(mode)
+                self._apply_workspace_mode(mode)
+            # column widths
+            try:
+                left_w = int(layout.get("left_width") or 260)
+                right_w = int(layout.get("right_width") or 360)
+                # sidebar is grid col 1
+                for child in self.winfo_children():
+                    pass
+            except Exception:
+                pass
+            show_right = layout.get("show_right", True)
+            try:
+                # right frame is column 3 — hide by zero weight/forget is hard; use grid_remove if we stored ref
+                if getattr(self, "_right_frame", None) is not None:
+                    if show_right:
+                        self._right_frame.grid()
+                    else:
+                        self._right_frame.grid_remove()
+            except Exception:
+                pass
+            self._term("ui", f"layout → {name}")
+            try:
+                self.chat.append("System", f"Layout: {name}", kind="info")
+            except Exception:
+                pass
+        except Exception as exp:
+            try:
+                self._term("ui", f"layout error: {exp}")
+            except Exception:
+                pass
+
+    def _save_current_layout(self) -> None:
+        try:
+            from app.layout_prefs import save_layout
+            from ui.paths import agentbus_root
+            mode = "agent"
+            try:
+                mode = self._workspace_mode.get()
+            except Exception:
+                pass
+            save_layout(preset=mode, mode=mode, root=agentbus_root())
+            self._term("ui", f"layout saved ({mode})")
+        except Exception as exp:
+            self._term("ui", f"save layout: {exp}")
+
     def _set_workspace_mode(self, mode_id: str) -> None:
+
         try:
             self._apply_workspace_mode(mode_id)
             self._nav_push(kind="mode", label=f"mode:{mode_id}", workspace_mode=mode_id)
@@ -884,6 +1055,7 @@ class MainWindow(ctk.CTk):
 
         ok, msg = disp_start()
         self.chat.append("System", f"▶ Диспетчер: {msg}", kind="info")
+        self._term("dispatcher", f"start: {msg}")
         self._poll_dispatcher_lock()
         try:
             self._update_footer()
@@ -894,6 +1066,7 @@ class MainWindow(ctk.CTk):
     def _stop_dispatcher(self) -> None:
         ok, msg = disp_stop()
         self.chat.append("System", f"■ Диспетчер: {msg}", kind="info")
+        self._term("dispatcher", f"stop: {msg}")
         self._poll_dispatcher_lock()
         try:
             self._update_footer()
@@ -1165,7 +1338,7 @@ class MainWindow(ctk.CTk):
 
     def _sync_after_task(self, task_id: str = "") -> None:
         """FC-44: keep Queue / Changes / Project / History in sync after DONE/ERROR."""
-        for name in ("queue_panel", "changes_panel", "project_center", "history", "metrics", "explorer"):
+        for name in ("queue_panel", "changes_panel", "project_center", "history", "metrics", "explorer", "problems_panel", "plan_panel"):
             panel = getattr(self, name, None)
             if panel is None:
                 continue
@@ -1204,9 +1377,17 @@ class MainWindow(ctk.CTk):
         if self._toast:
             notify(_t("toast_done", default="AgentBus · DONE"), detail or task_id or "задача выполнена", dedupe_key=f"done:{task_id}")
         self._sync_after_task(task_id)
+        try:
+            self._term("done", f"{task_id}: {detail}")
+        except Exception:
+            pass
 
     def _on_error(self, task_id: str, detail: str) -> None:
         self.chat.notify_error(task_id, detail)
+        try:
+            self._term("error", f"{task_id}: {detail}")
+        except Exception:
+            pass
         self._sync_after_task(task_id)
         if self._toast:
             notify(_t("toast_error", default="AgentBus · ERROR"), detail or task_id or "ошибка", dedupe_key=f"err:{task_id}")
@@ -1297,12 +1478,20 @@ class MainWindow(ctk.CTk):
             from app.app_runner import start_app, run_status
             root = getattr(self, "project_root", None) or ""
             if not root:
+                try:
+                    root = self.projects.selected_project() if callable(getattr(self.projects, "selected_project", None)) else getattr(self.projects, "selected_project", "")
+                except Exception:
+                    root = ""
+            if not root:
                 self.chat.append("System", "Сначала откройте проект")
+                self._term("run", "no project")
                 return
             r = start_app(root)
             self.chat.append("System", f"Run: {r}")
+            self._term("run", str(r)[:400])
         except Exception as exp:
             self.chat.append("System", f"Run error: {exp}")
+            self._term("run", f"error: {exp}")
 
     def _stop_project_app(self) -> None:
         try:
@@ -1313,16 +1502,56 @@ class MainWindow(ctk.CTk):
             if tail:
                 msg += "\n--- output ---\n" + tail[-1500:]
             self.chat.append("System", msg)
+            self._term("run", msg[:500])
+            if tail:
+                self._term("stdout", tail[-800:])
         except Exception as exp:
             self.chat.append("System", f"Stop error: {exp}")
+            self._term("run", f"stop error: {exp}")
 
     def _poll_app_loop(self) -> None:
+        try:
+            self._stream_app_output()
+        except Exception:
+            pass
+        try:
+            self._poll_eventbus()
+        except Exception:
+            pass
         try:
             self._poll_app_exit()
         except Exception:
             pass
         try:
-            self.after(3000, self._poll_app_loop)
+            self.after(800, self._poll_app_loop)
+        except Exception:
+            pass
+
+    def _poll_eventbus(self) -> None:
+        """Stream important EventBus lines into Terminal."""
+        try:
+            from app.event_tail import drain_events, filter_important, format_event_line
+            root = ""
+            try:
+                root = self._recipe_project() or ""
+            except Exception:
+                root = ""
+            events = filter_important(drain_events(root or None, max_lines=30))
+            for ev in events:
+                line = format_event_line(ev)
+                et = str(ev.get("type") or "")
+                kind = "done" if "DONE" in et or "PASSED" in et else (
+                    "error" if "ERROR" in et or "FAIL" in et or "TIMEOUT" in et else "bus"
+                )
+                self._term(kind, line)
+        except Exception:
+            pass
+
+    def _stream_app_output(self) -> None:
+        try:
+            from app.app_runner import drain_new_output
+            for line in drain_new_output():
+                self._term("stdout", line)
         except Exception:
             pass
 
@@ -1337,6 +1566,9 @@ class MainWindow(ctk.CTk):
                     f"Application exited with code {r.get('returncode')}\n{tail}\n"
                     "Можно: «исправь эту ошибку» в чате.",
                 )
+                self._term("run", f"exit {r.get('returncode')}")
+                if tail:
+                    self._term("stdout", tail[-600:])
         except Exception:
             pass
 

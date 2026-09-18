@@ -16,6 +16,7 @@ from typing import Any
 _PROC: subprocess.Popen | None = None
 _META: dict[str, Any] = {}
 _OUTPUT_LINES: list[str] = []
+_OUTPUT_CURSOR = 0
 _OUTPUT_LOCK = threading.Lock()
 _READER: threading.Thread | None = None
 
@@ -61,8 +62,10 @@ def start_app(project_root: str | Path, *, command: list[str] | None = None) -> 
     if not cmd:
         return {"ok": False, "error": "no main.py/app.py — specify command"}
     try:
+        global _OUTPUT_CURSOR
         with _OUTPUT_LOCK:
             _OUTPUT_LINES = []
+            _OUTPUT_CURSOR = 0
         _PROC = subprocess.Popen(
             cmd,
             cwd=str(root),
@@ -122,3 +125,14 @@ def poll_exit() -> dict[str, Any]:
     }
     _PROC = None
     return out
+
+
+def drain_new_output() -> list[str]:
+    """Return output lines since last drain (for live Terminal streaming)."""
+    global _OUTPUT_CURSOR
+    with _OUTPUT_LOCK:
+        if _OUTPUT_CURSOR > len(_OUTPUT_LINES):
+            _OUTPUT_CURSOR = 0
+        chunk = list(_OUTPUT_LINES[_OUTPUT_CURSOR:])
+        _OUTPUT_CURSOR = len(_OUTPUT_LINES)
+    return chunk

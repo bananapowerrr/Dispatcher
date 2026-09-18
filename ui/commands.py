@@ -127,37 +127,70 @@ def build_commands(app: Any) -> list[Command]:
             app.chat.append("System", f"recipe: {exp}", kind="error")
 
     
-    def layout_agent():
+    def layout_agent() -> None:
         try:
-            from app.layout_prefs import apply_layout_preset
-            apply_layout_preset("agent")
-            if hasattr(app, "apply_workspace_mode"):
-                app.apply_workspace_mode("agent")
-            app.chat.append("System", "Layout: Agent")
+            if hasattr(app, "_apply_layout_preset"):
+                app._apply_layout_preset("agent")
+            else:
+                from app.layout_prefs import apply_layout_preset
+                apply_layout_preset("agent")
+                if hasattr(app, "_apply_workspace_mode"):
+                    app._apply_workspace_mode("agent")
+            app.chat.append("System", "Layout: Agent", kind="info")
         except Exception as exc:
-            app.chat.append("System", f"layout: {exc}")
+            app.chat.append("System", f"layout: {exc}", kind="error")
 
-    def layout_code():
+    def layout_code() -> None:
         try:
-            from app.layout_prefs import apply_layout_preset
-            apply_layout_preset("code")
-            if hasattr(app, "apply_workspace_mode"):
-                app.apply_workspace_mode("code")
-            app.chat.append("System", "Layout: Code")
+            if hasattr(app, "_apply_layout_preset"):
+                app._apply_layout_preset("code")
+            else:
+                from app.layout_prefs import apply_layout_preset
+                apply_layout_preset("code")
+                if hasattr(app, "_apply_workspace_mode"):
+                    app._apply_workspace_mode("code")
+            app.chat.append("System", "Layout: Code", kind="info")
         except Exception as exc:
-            app.chat.append("System", f"layout: {exc}")
+            app.chat.append("System", f"layout: {exc}", kind="error")
 
-    def layout_focus():
+    def layout_focus() -> None:
         try:
-            from app.layout_prefs import apply_layout_preset
-            apply_layout_preset("focus")
-            if hasattr(app, "apply_workspace_mode"):
-                app.apply_workspace_mode("code")
-            app.chat.append("System", "Layout: Focus")
+            if hasattr(app, "_apply_layout_preset"):
+                app._apply_layout_preset("focus")
+            else:
+                from app.layout_prefs import apply_layout_preset
+                apply_layout_preset("focus")
+                if hasattr(app, "_apply_workspace_mode"):
+                    app._apply_workspace_mode("code")
+            app.chat.append("System", "Layout: Focus", kind="info")
         except Exception as exc:
-            app.chat.append("System", f"layout: {exc}")
+            app.chat.append("System", f"layout: {exc}", kind="error")
 
-    def show_suggestions_cmd():
+    def layout_full() -> None:
+        try:
+            if hasattr(app, "_apply_layout_preset"):
+                app._apply_layout_preset("full")
+            else:
+                from app.layout_prefs import apply_layout_preset
+                apply_layout_preset("full")
+                if hasattr(app, "_apply_workspace_mode"):
+                    app._apply_workspace_mode("full")
+            app.chat.append("System", "Layout: Full", kind="info")
+        except Exception as exp:
+            app.chat.append("System", f"layout: {exp}", kind="error")
+
+    def layout_save() -> None:
+        try:
+            if hasattr(app, "_save_current_layout"):
+                app._save_current_layout()
+            else:
+                from app.layout_prefs import save_current_layout
+                save_current_layout()
+            app.chat.append("System", "Layout saved", kind="info")
+        except Exception as exp:
+            app.chat.append("System", f"layout save: {exp}", kind="error")
+
+    def show_suggestions_cmd() -> None:
         try:
             if hasattr(app, "chat") and hasattr(app.chat, "show_suggestions"):
                 app.chat.show_suggestions()
@@ -165,22 +198,58 @@ def build_commands(app: Any) -> list[Command]:
                 from app.agent_service import AgentService
                 root = getattr(app, "project_root", None) or ""
                 text = AgentService(root).suggestions().get("text") or ""
-                app.chat.append("System", text)
+                app.chat.append("System", text or "(no suggestions)")
         except Exception as exc:
-            app.chat.append("System", f"suggest: {exc}")
+            app.chat.append("System", f"suggest: {exc}", kind="error")
 
-return [
-        
-        Command("layout.agent", "Layout: Agent", "Layout", None, layout_agent, ["layout", "agent", "режим"]),
-        Command("layout.code", "Layout: Code", "Layout", None, layout_code, ["layout", "code", "редактор"]),
-        Command("layout.focus", "Layout: Focus", "Layout", None, layout_focus, ["layout", "focus"]),
-        Command("composer.open", "Composer — новая задача", "Tasks", None, lambda: getattr(app, "_open_composer", lambda: None)(),
-        Command("tabs.all", "Show all tabs (advanced)", "View", None, lambda: _show_all_tabs(app), ["tabs", "advanced"]),
-        Command("docs.started", "Getting Started", "Help", None, lambda: _show_getting_started(app), ["docs", "start", "help"]), ["composer", "задача", "queue"]),
-        Command("agent.suggest", "Suggestions", "Agent", None, show_suggestions_cmd, ["suggest", "совет", "что дальше"]),
-Command("recipe_refactor", "Рецепт: рефакторинг", "Рецепты", None, run_recipe_refactor, ["recipe", "рефакторинг"]),
+    def open_composer() -> None:
+        try:
+            fn = getattr(app, "_open_composer", None)
+            if callable(fn):
+                fn()
+            else:
+                app.chat.append("System", "Composer: use Queue / Plan panel")
+        except Exception as exp:
+            app.chat.append("System", f"composer: {exp}", kind="error")
+
+    def open_search() -> None:
+        try:
+            fn = getattr(app, "_open_search", None)
+            if callable(fn):
+                fn()
+        except Exception:
+            pass
+
+    def open_terminal() -> None:
+        try:
+            if hasattr(app, "_on_activity_select"):
+                app._on_activity_select("terminal")
+            elif getattr(app, "terminal_panel", None):
+                app.chat.append("System", "Terminal panel active")
+        except Exception:
+            pass
+
+    def refresh_all() -> None:
+        try:
+            if hasattr(app, "_refresh_all"):
+                app._refresh_all()
+            app.chat.append("System", "Refreshed", kind="info")
+        except Exception as exp:
+            app.chat.append("System", f"refresh: {exp}", kind="error")
+
+    return [
+        Command("layout.agent", "Layout: Agent", "Layout", "Ctrl+Alt+1", layout_agent, ["layout", "agent", "режим"]),
+        Command("layout.code", "Layout: Code", "Layout", "Ctrl+Alt+2", layout_code, ["layout", "code", "редактор"]),
+        Command("layout.focus", "Layout: Focus", "Layout", "Ctrl+Alt+3", layout_focus, ["layout", "focus"]),
+        Command("layout.full", "Layout: Full", "Layout", "Ctrl+Alt+4", layout_full, ["layout", "full"]),
+        Command("layout.save", "Save current layout", "Layout", "Ctrl+Alt+S", layout_save, ["layout", "save"]),
+        Command("composer.open", "Composer — новая задача", "Tasks", None, open_composer, ["composer", "задача", "queue"]),
+        Command("search.open", "Search in files", "Navigation", "Ctrl+Shift+F", open_search, ["search", "поиск"]),
+        Command("terminal.open", "Terminal", "View", None, open_terminal, ["terminal", "консоль"]),
+        Command("refresh", "Refresh all panels", "View", "F5", refresh_all, ["refresh", "обновить"]),
+        Command("agent.suggest", "Suggestions", "Agent", None, show_suggestions_cmd, ["suggest", "совет"]),
+        Command("recipe_refactor", "Рецепт: рефакторинг", "Рецепты", None, run_recipe_refactor, ["recipe", "рефакторинг"]),
         Command("recipes_help", "Рецепты — справка", "Рецепты", None, open_recipes_tab, ["recipe", "рецепт"]),
-
         Command("new_task", "Фокус на ввод задачи", "Чат", "Ctrl+N", focus_chat, ["задача", "task"]),
         Command("ch_desktop", "Канал: desktop (чат ПК)", "Навигация", None, lambda: set_channel("desktop"), ["desktop", "чат"]),
         Command("ch_gpt", "Канал: GPT", "Навигация", "Ctrl+1", lambda: set_channel("gpt"), ["канал"]),
@@ -200,6 +269,6 @@ Command("recipe_refactor", "Рецепт: рефакторинг", "Рецепт
         Command("features", "Feature flags", "Система", "", slash_features, ["flags", "фичи"]),
         Command("list_skills", "Список skills", "Система", "", slash_skills, ["skills"]),
         Command("help", "Справка", "Система", "F1", show_help_cmd, ["help", "справка"]),
-        Command("diagnose", "Диагностика", "Система", "F5", diagnose, ["status"]),
+        Command("diagnose", "Диагностика", "Система", None, diagnose, ["doctor", "диагностика"]),
         Command("quit", "Выход", "Система", "Ctrl+Q", lambda: app.destroy(), ["quit", "выход"]),
     ]
