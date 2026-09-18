@@ -53,6 +53,149 @@ def build_commands(app: Any) -> list[Command]:
         except Exception:
             pass
 
+
+
+    def refresh_problems() -> None:
+        try:
+            if getattr(app, "problems_panel", None):
+                app.problems_panel.refresh()
+            app.chat.append("System", "Problems обновлены")
+            try:
+                app._term("problems", "refreshed")
+            except Exception:
+                pass
+        except Exception as e:
+            app.chat.append("System", f"problems: {e}")
+
+    def clear_terminal() -> None:
+        try:
+            if getattr(app, "terminal_panel", None):
+                app.terminal_panel.clear()
+            app.chat.append("System", "Terminal очищен")
+        except Exception as e:
+            app.chat.append("System", f"terminal: {e}")
+
+    def focus_terminal() -> None:
+        try:
+            tp = getattr(app, "terminal_panel", None)
+            if tp is None:
+                return
+            # focus text widget if present
+            for attr in ("_text", "text", "_box", "box"):
+                w = getattr(tp, attr, None)
+                if w is not None and hasattr(w, "focus_set"):
+                    w.focus_set()
+                    break
+            app._term("ui", "terminal focus")
+        except Exception as e:
+            app.chat.append("System", f"terminal: {e}")
+
+    def show_problems_view() -> None:
+        try:
+            if hasattr(app, "_on_activity_select"):
+                app._on_activity_select("problems")
+            refresh_problems()
+        except Exception as e:
+            app.chat.append("System", f"problems view: {e}")
+
+
+    def refresh_scm() -> None:
+        try:
+            if hasattr(app, "_refresh_scm"):
+                app._refresh_scm()
+            else:
+                app.changes_panel.refresh()
+            app.chat.append("System", "Source Control обновлён")
+        except Exception as e:
+            app.chat.append("System", f"scm: {e}")
+
+    def refresh_plan() -> None:
+        try:
+            if getattr(app, "plan_panel", None):
+                app.plan_panel.refresh()
+            app.chat.append("System", "Plan обновлён")
+        except Exception as e:
+            app.chat.append("System", f"plan: {e}")
+
+    def enqueue_plan() -> None:
+        try:
+            from app.project_workflow import ProjectWorkflow
+            root = app._current_project_root()
+            r = ProjectWorkflow(root).enqueue_first_pending()
+            if r.get("ok"):
+                app.chat.append("System", f"Enqueued {r.get('task_id')}", kind="info")
+                try:
+                    app.plan_panel.refresh()
+                except Exception:
+                    pass
+            else:
+                app.chat.append("System", f"enqueue: {r.get('error')}", kind="error")
+        except Exception as e:
+            app.chat.append("System", f"enqueue: {e}")
+
+    def continue_work() -> None:
+        try:
+            if hasattr(app, "_on_continue"):
+                app._on_continue()
+            else:
+                enqueue_plan()
+        except Exception as e:
+            app.chat.append("System", f"continue: {e}")
+
+    def open_active_file() -> None:
+        try:
+            ed = getattr(app, "editor", None)
+            path = ""
+            if ed is not None:
+                path = getattr(ed, "_current", None) or ""
+            if path and hasattr(app, "_open_in_editor"):
+                app._open_in_editor(path)
+            app.chat.append("System", f"Файл: {path or '(нет)'}")
+        except Exception as e:
+            app.chat.append("System", f"open: {e}")
+
+    def run_active_file() -> None:
+        """Queue a deterministic run-python task for the active editor file."""
+        try:
+            ed = getattr(app, "editor", None)
+            path = getattr(ed, "_current", None) if ed else None
+            if not path:
+                app.chat.append("System", "Нет активного файла", kind="error")
+                return
+            root = app._current_project_root()
+            msg = f"run python {path}"
+            # Prefer desktop chat send if available
+            if hasattr(app, "chat") and hasattr(app.chat, "send_message"):
+                try:
+                    app.chat.send_message(msg)
+                    app.chat.append("System", f"Run queued: {path}", kind="info")
+                    return
+                except Exception:
+                    pass
+            from app.tasks_service import TasksService
+            r = TasksService(root).submit(message=msg, files=[path])
+            app.chat.append("System", f"Run task: {r}", kind="info")
+        except Exception as e:
+            app.chat.append("System", f"run: {e}")
+
+    def accept_finding_1() -> None:
+        try:
+            from app.project_workflow import ProjectWorkflow
+            root = app._current_project_root()
+            r = ProjectWorkflow(root).accept_finding(0)
+            app.chat.append(
+                "System",
+                f"Accept: {r.get('step_id') or r.get('error')}",
+                kind="info" if r.get("ok") else "error",
+            )
+            try:
+                app.plan_panel.refresh()
+            except Exception:
+                pass
+        except Exception as e:
+            app.chat.append("System", f"accept: {e}")
+
+
     def show_history() -> None:
         try:
             app.history.refresh()
@@ -317,4 +460,20 @@ def build_commands(app: Any) -> list[Command]:
         Command("help", "Справка", "Система", "F1", show_help_cmd, ["help", "справка"]),
         Command("diagnose", "Диагностика", "Система", None, diagnose, ["doctor", "диагностика"]),
         Command("quit", "Выход", "Система", "Ctrl+Q", lambda: app.destroy(), ["quit", "выход"]),
+
+        Command("scm", "Source Control: обновить", "Workspace", "F7", refresh_scm, ["scm", "git", "changes"]),
+        Command("plan_refresh", "Plan: обновить", "Plan", None, refresh_plan, ["plan", "план"]),
+        Command("plan_enqueue", "Plan: в очередь (первый PENDING)", "Plan", None, enqueue_plan, ["enqueue", "очередь"]),
+        Command("continue", "Continue — следующий шаг плана", "Plan", None, continue_work, ["continue", "далее"]),
+        Command("symbol", "Go to Symbol (Ctrl+Shift+O)", "Editor", "Ctrl+Shift+O", lambda: app._goto_symbol(), ["symbol", "outline", "def"]),
+        Command("autosave", "Toggle autosave", "Editor", None, lambda: app._toggle_autosave(), ["autosave"]),
+        Command("quick_open", "Quick Open (Ctrl+P)", "Editor", "Ctrl+P", lambda: app._quick_open(), ["open", "файл", "goto"]),
+        Command("open_file", "Editor: активный файл", "Editor", None, open_active_file, ["file", "открыть"]),
+        Command("run_file", "Run: активный .py файл", "Editor", None, run_active_file, ["run", "запуск"]),
+        Command("accept1", "Audit: принять finding #1 в план", "Project", None, accept_finding_1, ["accept", "finding"]),
+
+        Command("problems", "Problems: обновить", "Workspace", None, refresh_problems, ["problems", "ошибки"]),
+        Command("problems_view", "Problems: показать панель", "Workspace", None, show_problems_view, ["problems"]),
+        Command("term_clear", "Terminal: очистить", "Workspace", None, clear_terminal, ["terminal", "clear"]),
+        Command("term_focus", "Terminal: фокус", "Workspace", None, focus_terminal, ["terminal"]),
     ]

@@ -449,6 +449,7 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
         self.after(600, self._apply_onboarding_cfg)
+        self.after(900, self._apply_editor_prefs)
         self.after(800, self._poll_app_loop)
         self._file_watcher = None
         try:
@@ -457,6 +458,7 @@ class MainWindow(ctk.CTk):
             pass
         self.bind_all("<Control-k>", lambda e: self.palette.open())
         self.bind_all("<Control-p>", lambda e: self._quick_open())
+        self.bind_all("<Control-Shift-O>", lambda e: self._goto_symbol())
         self.bind_all("<Control-Shift-F>", lambda e: self._open_search())
         self.bind_all("<Control-Alt-1>", lambda e: self._apply_layout_preset("agent"))
         self.bind_all("<Control-Alt-2>", lambda e: self._apply_layout_preset("code"))
@@ -563,20 +565,122 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
 
-    def _quick_open(self) -> None:
-        """Ctrl+P — focus explorer name entry or palette fallback."""
+
+    def _apply_editor_prefs(self) -> None:
         try:
-            exp = getattr(self, "explorer", None) or getattr(self, "explorer_panel", None)
-            if exp is not None and hasattr(exp, "_name_entry"):
-                exp._name_entry.focus_set()
+            ed = getattr(self, "editor", None)
+            if ed is None or not hasattr(ed, "set_autosave"):
                 return
+            cfg = {}
+            try:
+                import yaml
+                from pathlib import Path as P
+                p = P(__file__).resolve().parents[1] / "config" / "ui.yaml"
+                if p.is_file():
+                    cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            except Exception:
+                cfg = {}
+            on = bool(cfg.get("autosave", False))
+            ms = int(cfg.get("autosave_interval_ms") or 8000)
+            ed.set_autosave(on, ms)
+            if on:
+                self._term("editor", f"autosave on ({ms}ms)")
         except Exception:
             pass
+
+    def _toggle_autosave(self) -> None:
         try:
-            if getattr(self, "palette", None):
-                self.palette.open()
+            ed = getattr(self, "editor", None)
+            if ed is None:
+                return
+            cur = not getattr(ed, "_autosave_on", False)
+            ed.set_autosave(cur)
+            self.chat.append("System", f"Autosave: {'ON' if cur else 'OFF'}", kind="info")
+        except Exception as exp:
+            self.chat.append("System", f"autosave: {exp}")
+
+    def _goto_symbol(self) -> None:
+        try:
+            ed = getattr(self, "editor", None)
+            if ed and hasattr(ed, "goto_symbol"):
+                ed.goto_symbol()
+        except Exception as exp:
+            self.chat.append("System", f"symbol: {exp}")
+
+    def _quick_open(self) -> None:
+
+        """Ctrl+P — filter project files and open in editor."""
+        try:
+            root = self._current_project_root()
+        except Exception:
+            root = ""
+        if not root:
+            try:
+                if getattr(self, "palette", None):
+                    self.palette.open()
+            except Exception:
+                pass
+            return
+        try:
+            import customtkinter as ctk
+        except Exception:
+            return
+        win = ctk.CTkToplevel(self)
+        win.title("Quick Open")
+        win.geometry("480x360")
+        win.attributes("-topmost", True)
+        entry = ctk.CTkEntry(win, placeholder_text="filter files…")
+        entry.pack(fill="x", padx=8, pady=8)
+        box = ctk.CTkTextbox(win, font=ctk.CTkFont(family="Consolas", size=12))
+        box.pack(fill="both", expand=True, padx=8, pady=4)
+        files: list[str] = []
+        try:
+            from app.files_service import FilesService
+            files = FilesService(root).list_files_flat(max_files=1500)
+        except Exception as exp:
+            box.insert("1.0", f"error: {exp}")
+        shown: list[str] = list(files[:80])
+
+        def render(items: list[str]) -> None:
+            box.delete("1.0", "end")
+            box.insert("1.0", "\n".join(items) if items else "(no matches)")
+
+        render(shown)
+
+        def on_filter(_e=None) -> None:
+            q = (entry.get() or "").strip().lower().replace("\\", "/")
+            if not q:
+                shown[:] = files[:80]
+            else:
+                shown[:] = [f for f in files if q in f.lower()][:80]
+            render(shown)
+
+        def open_sel(_e=None) -> None:
+            try:
+                line = box.get("insert linestart", "insert lineend").strip()
+            except Exception:
+                line = shown[0] if shown else ""
+            if not line or line.startswith("("):
+                return
+            try:
+                self._open_in_editor(line)
+            except Exception:
+                pass
+            try:
+                win.destroy()
+            except Exception:
+                pass
+
+        entry.bind("<KeyRelease>", on_filter)
+        entry.bind("<Return>", open_sel)
+        box.bind("<Double-Button-1>", open_sel)
+        box.bind("<Return>", open_sel)
+        try:
+            entry.focus_set()
         except Exception:
             pass
+        self._term("ui", "quick open")
+
 
     def _resend_task(self, row: dict) -> None:
         """FC-09: resend через TaskService → desktop_queue (не channels/incoming)."""
@@ -942,12 +1046,27 @@ class MainWindow(ctk.CTk):
                 )
             except Exception:
                 pass
+            problems_n = 0
+            try:
+                if getattr(self, "problems_panel", None) and getattr(self.problems_panel, "_rows", None):
+                    problems_n = len(self.problems_panel._rows)
+            except Exception:
+                problems_n = 0
+            dirty_n = 0
+            try:
+                ed = getattr(self, "editor", None)
+                if ed is not None and hasattr(ed, "dirty_count"):
+                    dirty_n = int(ed.dirty_count())
+            except Exception:
+                dirty_n = 0
             text = format_footer(
                 dispatcher_on=on,
                 queue_n=n,
                 busy=busy,
                 plan_active=plan_active,
                 plan_pending=plan_pending,
+                problems_n=problems_n,
+                dirty_n=dirty_n,
             )
             if hasattr(self, "footer_status"):
                 self.footer_status.configure(text=text)
@@ -1716,7 +1835,65 @@ class MainWindow(ctk.CTk):
             except Exception as exp:
                 self.chat.append("System", f"accept: {exp}")
             return True
+        if c == "/run":
+            try:
+                ed = getattr(self, "editor", None)
+                path = getattr(ed, "_current", None) if ed else None
+                if not path:
+                    self.chat.append("System", "Нет файла в editor", kind="error")
+                else:
+                    msg = f"run python {path}"
+                    if hasattr(self.chat, "send_message"):
+                        self.chat.send_message(msg)
+                    else:
+                        self.chat.append("System", f"Run: {msg}", kind="info")
+                    self._term("run", path)
+            except Exception as exp:
+                self.chat.append("System", f"run: {exp}")
+            return True
+        if c == "/autosave":
+            self._toggle_autosave()
+            return True
+        if c in ("/symbol", "/outline"):
+            self._goto_symbol()
+            return True
+        if c == "/search":
+
+            try:
+                self._open_search()
+            except Exception as exp:
+                self.chat.append("System", f"search: {exp}")
+            return True
+        if c == "/problems":
+
+            try:
+                if getattr(self, "problems_panel", None):
+                    self.problems_panel.refresh()
+                self.chat.append("System", "Problems refreshed", kind="info")
+                self._term("problems", "slash refresh")
+            except Exception as exp:
+                self.chat.append("System", f"problems: {exp}")
+            return True
+        if c in ("/term", "/terminal"):
+            try:
+                if "clear" in c or (hasattr(self, "chat") and False):
+                    pass
+                parts = c.split()
+                if len(parts) > 1 and parts[1] == "clear":
+                    if getattr(self, "terminal_panel", None):
+                        self.terminal_panel.clear()
+                    self.chat.append("System", "Terminal cleared")
+                else:
+                    tp = getattr(self, "terminal_panel", None)
+                    if tp and hasattr(tp, "focus"):
+                        tp.focus()
+                    self._term("ui", "terminal focus")
+            except Exception as exp:
+                self.chat.append("System", f"term: {exp}")
+            return True
         if c in ("/scm", "/changes"):
+
+
             self._refresh_scm()
             self.chat.append("System", "Source Control refreshed", kind="info")
             return True

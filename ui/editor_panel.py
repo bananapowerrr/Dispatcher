@@ -66,6 +66,7 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self.bind_all("<Control-w>", self._on_ctrl_w)
         self.bind_all("<Control-W>", self._on_ctrl_w)
         self.bind_all("<Control-Tab>", self._on_ctrl_tab)
+        self.bind_all("<Control-Shift-O>", lambda e: self.goto_symbol())
         self.bind_all("<Control-ISO_Left_Tab>", lambda e: self._on_ctrl_tab(e, reverse=True))
 
         self._breadcrumb = ctk.CTkLabel(self, text="", anchor="w", text_color="gray70",
@@ -74,7 +75,42 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._status = ctk.CTkLabel(self, text="", anchor="w", text_color="gray")
         self._status.pack(fill="x", padx=8, pady=(0, 4))
 
+    def set_autosave(self, enabled: bool, interval_ms: int = 8000) -> None:
+        """Enable/disable periodic save of dirty tabs."""
+        self._autosave_on = bool(enabled)
+        self._autosave_ms = max(2000, int(interval_ms))
+        try:
+            if getattr(self, "_autosave_after", None):
+                self.after_cancel(self._autosave_after)
+        except Exception:
+            pass
+        self._autosave_after = None
+        if self._autosave_on:
+            self._schedule_autosave()
+
+    def _schedule_autosave(self) -> None:
+        if not getattr(self, "_autosave_on", False):
+            return
+        try:
+            self._autosave_after = self.after(
+                getattr(self, "_autosave_ms", 8000), self._autosave_tick
+            )
+        except Exception:
+            pass
+
+    def _autosave_tick(self) -> None:
+        try:
+            if getattr(self, "_autosave_on", False) and self.dirty_paths():
+                # save current only (safe)
+                if self._current and self._tabs.get(self._current) and self._tabs[self._current].dirty:
+                    self.save_current()
+                    self._status.configure(text="autosave")
+        except Exception:
+            pass
+        self._schedule_autosave()
+
     # --- public API ---
+
 
     def open_file(self, rel_path: str, line: int | None = None) -> bool:
         root = (self._get_project() or "").strip()
@@ -345,6 +381,86 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         except Exception:
             pass
 
+
+    def goto_symbol(self) -> None:
+        """Lightweight outline: def/class in current buffer (no LSP)."""
+        if not self._current:
+            self._status.configure(text="нет файла")
+            return
+        try:
+            body = self._text.get("1.0", "end-1c")
+        except Exception:
+            body = ""
+        import re
+        syms: list[tuple[int, str]] = []
+        for i, line in enumerate(body.splitlines(), 1):
+            m = re.match(r"^(\s*)(def|class|async def)\s+(\w+)", line)
+            if m:
+                kind = m.group(2).replace("async def", "def")
+                syms.append((i, f"{kind} {m.group(3)}"))
+        if not syms:
+            self._status.configure(text="символов не найдено")
+            return
+        try:
+            import customtkinter as ctk
+        except Exception:
+            # fallback: jump to first
+            self._text.mark_set("insert", f"{syms[0][0]}.0")
+            self._text.see("insert")
+            return
+        win = ctk.CTkToplevel(self)
+        win.title("Go to Symbol")
+        win.geometry("360x280")
+        win.attributes("-topmost", True)
+        entry = ctk.CTkEntry(win, placeholder_text="filter…")
+        entry.pack(fill="x", padx=8, pady=6)
+        box = ctk.CTkTextbox(win, font=ctk.CTkFont(family="Consolas", size=12))
+        box.pack(fill="both", expand=True, padx=8, pady=4)
+        shown = list(syms)
+
+        def render(items: list) -> None:
+            box.delete("1.0", "end")
+            box.insert("1.0", "\n".join(f"{ln}: {name}" for ln, name in items) or "(none)")
+
+        render(shown)
+
+        def on_filter(_e=None) -> None:
+            q = (entry.get() or "").strip().lower()
+            if not q:
+                shown[:] = list(syms)
+            else:
+                shown[:] = [(ln, n) for ln, n in syms if q in n.lower()]
+            render(shown)
+
+        def open_sel(_e=None) -> None:
+            try:
+                line = box.get("insert linestart", "insert lineend").strip()
+                ln = int(line.split(":", 1)[0])
+            except Exception:
+                if not shown:
+                    return
+                ln = shown[0][0]
+            try:
+                win.destroy()
+            except Exception:
+                pass
+            try:
+                self._text.mark_set("insert", f"{ln}.0")
+                self._text.see("insert")
+                self._update_cursor_status()
+                self._status.configure(text=f"→ line {ln}")
+            except Exception:
+                pass
+
+        entry.bind("<KeyRelease>", on_filter)
+        entry.bind("<Return>", open_sel)
+        box.bind("<Double-Button-1>", open_sel)
+        box.bind("<Return>", open_sel)
+        try:
+            entry.focus_set()
+        except Exception:
+            pass
+
     def _goto_line(self) -> None:
         try:
             from tkinter import simpledialog
@@ -381,6 +497,10 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             if st.dirty:
                 out.append(path)
         return out
+
+    def dirty_count(self) -> int:
+        return len(self.dirty_paths())
+
 
     def _replace_one(self) -> None:
         try:

@@ -42,6 +42,41 @@ class FilesService:
             raise PermissionError(f"path outside project: {rel_or_abs}") from exp
         return resolved
 
+
+    def list_files_flat(
+        self,
+        *,
+        max_files: int = 2000,
+        suffixes: tuple[str, ...] | None = None,
+    ) -> list[str]:
+        """Flat relative paths for Ctrl+P quick-open."""
+        root = self._root()
+        out: list[str] = []
+        skip = set(getattr(self, "_SKIP_DIRS", None) or ())
+        try:
+            from app.files_service import _SKIP_DIRS
+            skip = set(_SKIP_DIRS)
+        except Exception:
+            skip = {".git", "__pycache__", "node_modules", ".venv", "venv", ".agentbus"}
+        for p in root.rglob("*"):
+            if len(out) >= max_files:
+                break
+            try:
+                if not p.is_file():
+                    continue
+                if any(part in skip for part in p.parts):
+                    continue
+                if suffixes and p.suffix.lower() not in suffixes and p.suffix not in suffixes:
+                    # allow no-suffix configs
+                    if p.suffix:
+                        continue
+                rel = str(p.relative_to(root)).replace("\\", "/")
+                out.append(rel)
+            except OSError:
+                continue
+        out.sort()
+        return out
+
     def tree(
         self,
         *,

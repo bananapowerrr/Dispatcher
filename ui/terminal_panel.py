@@ -24,7 +24,18 @@ class TerminalPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._text.pack(fill="both", expand=True, padx=4, pady=4)
         self.append("system", "Terminal stub ready — logs from Run / dispatcher appear here.")
 
+    def focus(self) -> None:
+        try:
+            for attr in ("_text", "text", "_box"):
+                w = getattr(self, attr, None)
+                if w is not None and hasattr(w, "focus_set"):
+                    w.focus_set()
+                    return
+        except Exception:
+            pass
+
     def clear(self) -> None:
+
         try:
             self._text.delete("1.0", "end")
         except Exception:

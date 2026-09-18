@@ -25,3 +25,7 @@ layout:
 
 # true/false overrides profile; omit = profile-driven
 # show_advanced_tabs: false
+
+# Editor
+autosave: false
+autosave_interval_ms: 8000

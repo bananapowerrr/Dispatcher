@@ -85,9 +85,17 @@ class SearchPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             line = self._list.get("insert linestart", "insert lineend").strip()
             if ":" not in line:
                 return
-            path = line.split(":", 1)[0]
+            # path:lineno: text
+            parts = line.split(":", 2)
+            path = parts[0]
+            line_no = None
+            if len(parts) >= 2 and parts[1].isdigit():
+                line_no = int(parts[1])
             if path and self._on_open:
-                self._on_open(path)
+                try:
+                    self._on_open(path, line_no)  # type: ignore[call-arg]
+                except TypeError:
+                    self._on_open(path)
         except Exception:
             pass
 

@@ -85,6 +85,8 @@ def format_footer(
     profile: str | None = None,
     plan_active: int | None = None,
     plan_pending: int | None = None,
+    problems_n: int | None = None,
+    dirty_n: int | None = None,
 ) -> str:
     """Main window footer line (dispatcher · queue · plan)."""
     n = 0 if queue_n is None else int(queue_n)
@@ -93,6 +95,10 @@ def format_footer(
         pa = int(plan_active or 0)
         pp = int(plan_pending or 0)
         plan_bit = f"  ·  plan: {pp} pending / {pa} active"
+    if problems_n is not None and int(problems_n) > 0:
+        plan_bit += f"  ·  ⚠ {int(problems_n)}"
+    if dirty_n is not None and int(dirty_n) > 0:
+        plan_bit += f"  ·  ✎ {int(dirty_n)}"
     if not dispatcher_on:
         base = _tr("footer_off", "dispatcher: OFF  ·  queue: {n}").replace("{n}", str(n))
         base = base + plan_bit
