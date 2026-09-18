@@ -56,6 +56,9 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         ctk.CTkButton(row, text="Workflow", width=80, command=self._workflow_preview).pack(side="left", padx=3)
         ctk.CTkButton(row, text="В план", width=70, command=self._advice_to_plan).pack(side="left", padx=3)
         ctk.CTkButton(row, text="В очередь", width=90, command=self._enqueue_first_step).pack(side="left", padx=3)
+        ctk.CTkButton(row, text="+1", width=36, command=lambda: self._accept_finding(0)).pack(side="left", padx=1)
+        ctk.CTkButton(row, text="+2", width=36, command=lambda: self._accept_finding(1)).pack(side="left", padx=1)
+        ctk.CTkButton(row, text="+3", width=36, command=lambda: self._accept_finding(2)).pack(side="left", padx=1)
         ctk.CTkButton(row, text="План", width=70, command=self._show_plan).pack(side="left", padx=3)
         ctk.CTkButton(row, text="Решения", width=90, command=self._show_decisions).pack(side="left", padx=3)
 
@@ -269,6 +272,37 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             self._body.delete("1.0", "end")
             self._body.insert("1.0", f"Health error: {exp}")
 
+
+
+    def _accept_finding(self, index: int) -> None:
+        """Audit finding → LivingPlan step (user accept)."""
+        root = self._root()
+        if not root:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", "Выберите проект")
+            return
+        try:
+            self._sys_path()
+            from app.project_workflow import ProjectWorkflow
+            r = ProjectWorkflow(root).accept_finding(index)
+            if r.get("ok"):
+                self._body.delete("1.0", "end")
+                self._body.insert(
+                    "1.0",
+                    f"Accepted finding #{index + 1}\n→ plan step {r.get('step_id')}\n{r.get('action')}",
+                )
+                self._status.configure(text=f"plan +{r.get('step_id')}")
+                self._fire("plan_from_advice")
+            else:
+                self._body.delete("1.0", "end")
+                self._body.insert(
+                    "1.0",
+                    f"Accept: {r.get('error')}\nСначала Аудит / Что дальше?",
+                )
+                self._status.configure(text="accept failed")
+        except Exception as exp:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", f"Accept: {exp}")
 
     def _enqueue_first_step(self) -> None:
         """P6: user-gated enqueue of first pending LivingPlan step."""

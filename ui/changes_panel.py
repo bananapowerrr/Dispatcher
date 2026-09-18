@@ -33,7 +33,7 @@ class ChangesPanel(ctk.CTkFrame if ctk else object):  # type: ignore
 
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=8, pady=4)
-        ctk.CTkLabel(top, text="Changes", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+        ctk.CTkLabel(top, text="Source Control", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
         self._count = ctk.CTkLabel(top, text="", text_color="gray")
         self._count.pack(side="left", padx=8)
         ctk.CTkButton(top, text="↻", width=36, command=self.refresh).pack(side="right")
@@ -41,6 +41,8 @@ class ChangesPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._list = ctk.CTkTextbox(self, height=120, wrap="none", font=ctk.CTkFont(family="Consolas", size=12))
         self._list.pack(fill="both", expand=True, padx=8, pady=4)
         self._list.bind("<Double-Button-1>", self._on_double)
+        self._list.bind("<ButtonRelease-1>", self._on_single)
+        self._list.bind("<Return>", lambda e: self.open_selected())
 
         btn = ctk.CTkFrame(self, fg_color="transparent")
         btn.pack(fill="x", padx=8, pady=6)
@@ -88,7 +90,13 @@ class ChangesPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             lines = [f"{f.get('status', 'M'):2}  {f['path']}" for f in files]
             self._list.insert("1.0", "\n".join(lines))
             self._count.configure(text=str(len(files)))
-            self._status.configure(text=f"{len(files)} file(s)")
+            by = {}
+            for f in files:
+                st = str(f.get("status") or "M")[:2].strip() or "M"
+                by[st] = by.get(st, 0) + 1
+            parts = " · ".join(f"{k}:{v}" for k, v in sorted(by.items()))
+            self._status.configure(text=f"{len(files)} file(s)  {parts}")
+            self._count.configure(text=str(len(files)))
         except Exception as exp:
             self._list.insert("1.0", f"Ошибка: {exp}")
             self._status.configure(text=str(exp)[:120])
@@ -146,6 +154,12 @@ class ChangesPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         path = self._selected_path()
         if path and self._on_open:
             self._on_open(path)
+
+
+    def _on_single(self, _event=None) -> None:
+        path = self._selected_path()
+        if path:
+            self._status.configure(text=f"selected: {path}")
 
     def _on_double(self, _event=None) -> None:
         self.review_selected()

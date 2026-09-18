@@ -298,7 +298,7 @@ class MainWindow(ctk.CTk):
         self.logs.pack(fill="both", expand=True)
         self.metrics = MetricsPanel(met_tab)
         self.metrics.pack(fill="both", expand=True)
-        self.history = HistoryPanel(hist_tab, on_resend=self._resend_task)
+        self.history = HistoryPanel(hist_tab, on_resend=self._resend_task, on_select=self._on_history_select)
         self.history.pack(fill="both", expand=True)
         try:
             q_tab = tabs.add(_t("tab_queue", default="Очередь"))
@@ -425,7 +425,11 @@ class MainWindow(ctk.CTk):
 
         self._settings_win = None
         self.bind_all("<Control-comma>", lambda e: self._open_settings())
-        self.bind_all("<F5>", lambda e: self._refresh_all())
+        self.bind_all("<F7>", lambda e: self._refresh_scm())
+        try:
+            self.bind_all("<F5>", lambda e: self._refresh_all())
+        except Exception:
+            pass
         try:
             from app.nav_history import NavHistory
             self._nav = NavHistory()
@@ -910,21 +914,42 @@ class MainWindow(ctk.CTk):
                 pass
 
     def _update_footer(self, *, busy: bool = False) -> None:
-        """FC-21: unified footer status line."""
+        """FC-21: unified footer — dispatcher · queue · plan."""
         try:
             from ui.status_labels import format_footer
             from ui.dispatcher_ctl import is_running
             on = bool(is_running())
-            n = None
+            n = 0
             try:
                 from ui.metrics_panel import _queue_counts
                 q = _queue_counts() or {}
                 n = int(q.get("desktop") or q.get("queued") or q.get("pending") or 0)
             except Exception:
                 n = 0
-            text = format_footer(dispatcher_on=on, queue_n=n, busy=busy)
-            self._update_footer()
-            if False and hasattr(self, "footer_status"):
+            plan_active = None
+            plan_pending = None
+            try:
+                root = self._current_project_root()
+                from app.plan_service import PlanService
+                data = PlanService(root).list_plan()
+                steps = data.get("steps") or []
+                plan_active = int(data.get("active") or 0)
+                plan_pending = sum(
+                    1
+                    for s in steps
+                    if isinstance(s, dict)
+                    and str(s.get("status") or "").upper() in ("PENDING", "READY", "TODO", "")
+                )
+            except Exception:
+                pass
+            text = format_footer(
+                dispatcher_on=on,
+                queue_n=n,
+                busy=busy,
+                plan_active=plan_active,
+                plan_pending=plan_pending,
+            )
+            if hasattr(self, "footer_status"):
                 self.footer_status.configure(text=text)
             if hasattr(self, "disp_badge"):
                 from ui.i18n_ui import t as _t
@@ -1022,6 +1047,7 @@ class MainWindow(ctk.CTk):
     def _footer_loop(self) -> None:
         try:
             self._update_footer()
+            self._notify_open_decisions()
         except Exception:
             pass
         try:
@@ -1216,7 +1242,73 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
 
+    def _notify_open_decisions(self) -> None:
+        """Surface WAITING_DECISION in chat (once per id)."""
+        try:
+            root = self._current_project_root()
+            from app.plan_service import get_decision_queue
+            items = list(get_decision_queue(root).open_items() or [])
+            if not items:
+                return
+            seen = getattr(self, "_notified_decisions", set())
+            item = items[0]
+            did = str(getattr(item, "id", "") or "")
+            if not did or did in seen:
+                return
+            seen.add(did)
+            self._notified_decisions = seen
+            title = str(getattr(item, "title", None) or "decision")
+            opts = []
+            for o in list(getattr(item, "options", None) or [])[:3]:
+                opts.append(f"{getattr(o, 'id', '?')}: {getattr(o, 'label', '')}")
+            lines = ["Decision needed: " + title] + opts + ["→ Plan panel: buttons A / B / C"]
+            self.chat.append("System", "\n".join(lines), kind="info")
+        except Exception:
+            pass
+
+    def _refresh_scm(self) -> None:
+        try:
+            if getattr(self, "changes_panel", None):
+                self.changes_panel.refresh()
+                self._term("scm", "refreshed")
+        except Exception:
+            pass
+
+    def _on_history_select(self, task_id: str, row: dict | None = None) -> None:
+
+        """History card → Task Detail + Diff + optional Problems context."""
+        try:
+            if task_id and getattr(self, "task_detail_panel", None):
+                self.task_detail_panel.show_task(task_id)
+            if task_id and getattr(self, "diff_panel", None):
+                try:
+                    self.diff_panel.show_for_task(task_id)
+                except Exception:
+                    pass
+            try:
+                self._nav_push(kind="task", task_id=task_id, label=task_id)
+            except Exception:
+                pass
+            try:
+                self._term("history", f"open {task_id}")
+            except Exception:
+                pass
+            # surface error text briefly in chat for errors
+            try:
+                if row and str(row.get("_state") or "") in ("errors", "error"):
+                    err = str(row.get("error") or row.get("message") or "")[:200]
+                    if err and hasattr(self, "chat"):
+                        self.chat.append("System", f"History ERROR {task_id}: {err}", kind="error")
+            except Exception:
+                pass
+        except Exception as exp:
+            try:
+                self.chat.append("System", f"history select: {exp}")
+            except Exception:
+                pass
+
     def _on_queue_select(self, task_id: str) -> None:
+
         try:
             if getattr(self, "task_detail_panel", None):
                 self.task_detail_panel.show_task(task_id)
@@ -1244,12 +1336,22 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
 
-    def _open_in_editor(self, rel_path: str) -> None:
-
+    def _open_in_editor(self, rel_path: str, line: int | None = None) -> None:
         try:
-            if getattr(self, "editor", None):
-                self.editor.open_file(rel_path)
-            self._nav_push(kind="file", file=rel_path, label=rel_path)
+            ed = getattr(self, "editor", None) or getattr(self, "editor_panel", None)
+            if ed is not None:
+                try:
+                    ed.open_file(rel_path, line=line)
+                except TypeError:
+                    ed.open_file(rel_path)
+            try:
+                self._nav_push(kind="file", file=rel_path, label=rel_path)
+            except Exception:
+                pass
+            try:
+                self._term("editor", f"open {rel_path}" + (f":{line}" if line else ""))
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -1595,7 +1697,32 @@ class MainWindow(ctk.CTk):
             except Exception as exp:
                 self.chat.append("System", f"plan: {exp}")
             return True
+        if c.startswith("/accept"):
+            try:
+                parts = c.split()
+                idx = int(parts[1]) - 1 if len(parts) > 1 else 0
+                root = self._current_project_root()
+                from app.project_workflow import ProjectWorkflow
+                r = ProjectWorkflow(root).accept_finding(max(0, idx))
+                if r.get("ok"):
+                    self.chat.append("System", f"Plan +{r.get('step_id')}: {r.get('action')}", kind="info")
+                    try:
+                        if getattr(self, "plan_panel", None):
+                            self.plan_panel.refresh()
+                    except Exception:
+                        pass
+                else:
+                    self.chat.append("System", f"accept: {r.get('error')}", kind="error")
+            except Exception as exp:
+                self.chat.append("System", f"accept: {exp}")
+            return True
+        if c in ("/scm", "/changes"):
+            self._refresh_scm()
+            self.chat.append("System", "Source Control refreshed", kind="info")
+            return True
         if c == "/enqueue":
+
+
             try:
                 root = self._current_project_root()
                 from app.project_workflow import ProjectWorkflow

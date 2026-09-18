@@ -109,9 +109,12 @@ def _state_style(state: str) -> tuple[str, str]:
 
 class HistoryPanel(ctk.CTkFrame):
 
-    def __init__(self, parent, on_resend=None, poll_ms: int = 5000):
+    def __init__(self, parent, on_resend=None, poll_ms: int = 5000, on_select=None):
         super().__init__(parent)
         self.on_resend = on_resend
+        self.on_select = on_select
+        self._filter_state = "all"  # all|done|errors|processing
+        self._rows_cache: list = []
         self.poll_ms = poll_ms
         self._rows: list[dict] = []
 
@@ -129,17 +132,72 @@ class HistoryPanel(ctk.CTkFrame):
         self.scroll = ctk.CTkScrollableFrame(self)
         self.scroll.pack(fill="both", expand=True, padx=8, pady=8)
 
+        try:
+            self._build_filters(self)
+        except Exception:
+            pass
         self.after(400, self.refresh)
         self.after(self.poll_ms, self._tick)
+
+
+    def _build_filters(self, parent) -> None:
+        try:
+            bar = ctk.CTkFrame(parent, fg_color="transparent")
+            bar.pack(fill="x", padx=6, pady=2)
+            for key, label in (
+                ("all", "Все"),
+                ("done", "Done"),
+                ("errors", "Errors"),
+                ("processing", "Running"),
+                ("deferred", "Deferred"),
+            ):
+                ctk.CTkButton(
+                    bar, text=label, width=64, height=24,
+                    command=lambda k=key: self._set_filter(k),
+                ).pack(side="left", padx=2)
+        except Exception:
+            pass
+
+    def _day_label(self, ts: float) -> str:
+
+        try:
+            dt = datetime.fromtimestamp(ts)
+            today = datetime.now().date()
+            d = dt.date()
+            if d == today:
+                return "Сегодня"
+            if (today - d).days == 1:
+                return "Вчера"
+            return dt.strftime("%d.%m.%Y")
+        except Exception:
+            return "—"
+
+    def _set_filter(self, state: str) -> None:
+        self._filter_state = state or "all"
+        self.refresh()
 
     def refresh(self) -> None:
         def work():
             return collect_history()
 
         def apply(rows):
+            self._rows_cache = list(rows or [])
+            st = getattr(self, "_filter_state", "all")
+            filtered = list(self._rows_cache)
+            if st and st != "all":
+                filtered = [
+                    r
+                    for r in filtered
+                    if str(r.get("_state") or "") == st
+                    or (st == "errors" and str(r.get("_state")) in ("errors", "error"))
+                ]
             for w in self.scroll.winfo_children():
-                w.destroy()
-            self._rows = list(rows or [])
+                try:
+                    w.destroy()
+                except Exception:
+                    pass
+            self._rows = filtered
+            self._last_day_header = None
             if not self._rows:
                 try:
                     from app.facade import AppFacade
@@ -162,8 +220,8 @@ class HistoryPanel(ctk.CTkFrame):
                 return
             counts: dict[str, int] = {}
             for r in self._rows:
-                st = str(r.get("_state") or "?")
-                counts[st] = counts.get(st, 0) + 1
+                stt = str(r.get("_state") or "?")
+                counts[stt] = counts.get(stt, 0) + 1
             summary = "  ".join(f"{k}:{v}" for k, v in sorted(counts.items()))
             ctk.CTkLabel(
                 self.scroll, text=f"Лента · {summary}", text_color="gray"
@@ -178,6 +236,21 @@ class HistoryPanel(ctk.CTkFrame):
             apply(work())
 
     def _render_row(self, row: dict) -> None:
+        try:
+            ts = float(row.get("_mtime") or 0)
+            day = self._day_label(ts)
+            if getattr(self, "_last_day_header", None) != day:
+                self._last_day_header = day
+                ctk.CTkLabel(
+                    self.scroll,
+                    text=day,
+                    anchor="w",
+                    text_color="gray",
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                ).pack(fill="x", padx=8, pady=(10, 2))
+        except Exception:
+            pass
+
         state = str(row.get("_state") or "")
         colors = {
             "done": ("#1b5e20", "#a5d6a7"),
@@ -192,6 +265,25 @@ class HistoryPanel(ctk.CTkFrame):
         fg = colors.get(state, ("gray30", "gray70"))
         frame = ctk.CTkFrame(self.scroll)
         frame.pack(fill="x", pady=3)
+        tid_full = str(row.get("id") or Path(str(row.get("_path", ""))).stem)
+
+        def _open_row(_e=None, _tid=tid_full, _row=row):
+            try:
+                if getattr(self, "on_select", None):
+                    self.on_select(str(_tid), _row)
+                else:
+                    self._show_details(_row)
+            except Exception:
+                try:
+                    self._show_details(_row)
+                except Exception:
+                    pass
+
+        try:
+            frame.bind("<Button-1>", _open_row)
+            frame.bind("<Double-Button-1>", _open_row)
+        except Exception:
+            pass
 
         head = ctk.CTkFrame(frame, fg_color="transparent")
         head.pack(fill="x", padx=6, pady=(4, 0))

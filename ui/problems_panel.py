@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any, Callable
 
 try:
@@ -126,8 +127,18 @@ class ProblemsPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 row = self._rows[idx]
                 f = row.get("file") or ""
                 tid = str(row.get("task_id") or "")
+                msg = str(row.get("message") or "")
+                line_no = None
+                for pat in (r":(\d+):", r"line\s+(\d+)", r"Ln\s*(\d+)"):
+                    m = re.search(pat, msg, re.I)
+                    if m:
+                        line_no = int(m.group(1))
+                        break
                 if f and self._on_open:
-                    self._on_open(f)
+                    try:
+                        self._on_open(f, line_no)  # type: ignore[call-arg]
+                    except TypeError:
+                        self._on_open(f)
                 if tid and getattr(self, "_on_open_task", None):
                     try:
                         self._on_open_task(tid)

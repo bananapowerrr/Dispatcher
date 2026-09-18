@@ -83,20 +83,30 @@ def format_footer(
     busy: bool = False,
     agent_label: str | None = None,
     profile: str | None = None,
+    plan_active: int | None = None,
+    plan_pending: int | None = None,
 ) -> str:
-    """Main window footer line."""
+    """Main window footer line (dispatcher · queue · plan)."""
     n = 0 if queue_n is None else int(queue_n)
+    plan_bit = ""
+    if plan_pending is not None or plan_active is not None:
+        pa = int(plan_active or 0)
+        pp = int(plan_pending or 0)
+        plan_bit = f"  ·  plan: {pp} pending / {pa} active"
     if not dispatcher_on:
         base = _tr("footer_off", "dispatcher: OFF  ·  queue: {n}").replace("{n}", str(n))
+        base = base + plan_bit
         if agent_label:
             base = f"{base}  ·  {agent_label}"
         return base
     if busy:
         base = _tr("footer_busy", "dispatcher: ON  ·  task in progress")
+        base = base + plan_bit
         if agent_label:
             base = f"{base}  ·  {agent_label}"
         return base
     base = _tr("footer_on", "dispatcher: ON  ·  queue: {n}").replace("{n}", str(n))
+    base = base + plan_bit
     if agent_label:
         base = f"{base}  ·  {agent_label}"
     return base

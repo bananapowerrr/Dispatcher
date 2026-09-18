@@ -68,12 +68,15 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self.bind_all("<Control-Tab>", self._on_ctrl_tab)
         self.bind_all("<Control-ISO_Left_Tab>", lambda e: self._on_ctrl_tab(e, reverse=True))
 
+        self._breadcrumb = ctk.CTkLabel(self, text="", anchor="w", text_color="gray70",
+                                       font=ctk.CTkFont(size=11))
+        self._breadcrumb.pack(fill="x", padx=8, pady=(0, 2))
         self._status = ctk.CTkLabel(self, text="", anchor="w", text_color="gray")
         self._status.pack(fill="x", padx=8, pady=(0, 4))
 
     # --- public API ---
 
-    def open_file(self, rel_path: str) -> bool:
+    def open_file(self, rel_path: str, line: int | None = None) -> bool:
         root = (self._get_project() or "").strip()
         if not root or not rel_path:
             self._status.configure(text="Нет проекта или пути")
@@ -81,6 +84,13 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         rel_path = rel_path.replace("\\", "/").lstrip("./")
         if rel_path in self._tabs:
             self._switch(rel_path)
+            if line is not None and line > 0:
+                try:
+                    self._text.mark_set("insert", f"{int(line)}.0")
+                    self._text.see("insert")
+                    self._update_cursor_status()
+                except Exception:
+                    pass
             return True
         try:
             import sys
@@ -96,6 +106,13 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         self._order.append(rel_path)
         self._rebuild_tab_bar()
         self._switch(rel_path)
+        if line is not None and line > 0:
+            try:
+                self._text.mark_set("insert", f"{int(line)}.0")
+                self._text.see("insert")
+                self._update_cursor_status()
+            except Exception:
+                pass
         return True
 
     def save_current(self) -> bool:
@@ -179,6 +196,11 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             # store buffer on dirty by overwriting a runtime attr
             st_old.buffer = buf
         self._current = path
+        try:
+            parts = path.replace("\\", "/").split("/")
+            self._breadcrumb.configure(text=" › ".join(parts))
+        except Exception:
+            pass
         st = self._tabs[path]
         body = st.buffer if st.buffer is not None else st.original
         self._text.delete("1.0", "end")
@@ -307,6 +329,21 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             self._status.configure(text=f"найдено @ {idx}")
         except Exception as exp:
             self._status.configure(text=f"find: {exp}")
+
+
+    def _update_cursor_status(self, _event=None) -> None:
+        try:
+            idx = self._text.index("insert")
+            line, col = idx.split(".")
+            name = ""
+            if self._current:
+                name = Path(self._current).name
+                st = self._tabs.get(self._current)
+                if st and st.dirty:
+                    name += " *"
+            self._status.configure(text=f"{name}  Ln {line}, Col {int(col)+1}")
+        except Exception:
+            pass
 
     def _goto_line(self) -> None:
         try:

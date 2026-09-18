@@ -147,3 +147,21 @@ PYTHONPATH=src python scripts/product_path_check.py
 - [ ] ▶ Run / ■ Stop on project with main.py (optional)
 - [ ] After 5 Continues — one soft habit message (no silent profile change)
 - [ ] `/help` shows UI language (? ⚠ → ↶)
+
+
+---
+
+## 5. Product path (после базовой матрицы)
+
+Проверить связку Plan ↔ Queue ↔ History (уже в UI offline):
+
+| # | Действие | Ожидание |
+|---|----------|----------|
+| 6 | Project Center → **Аудит** → **В план** | шаги в Plan panel, footer `plan: N pending` |
+| 7 | **В очередь** или chat `/enqueue` | task в Queue, шаг `IN_PROGRESS` |
+| 8 | После DONE — **Continue** | следующий PENDING уходит в очередь |
+| 9 | History: фильтр Done / Errors | группировка Сегодня/Вчера |
+| 10 | Клик по карточке History | Task Detail + Diff |
+
+Критерий: **нет false-DONE**, Continue не создаёт задачу без PENDING-шага, footer отражает queue+plan.
+

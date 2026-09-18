@@ -251,3 +251,69 @@ class PlanPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 self.refresh()
         except Exception as e:
             self._status.configure(text=str(e)[:120])
+
+    def _refresh_decisions(self, root: str) -> None:
+        """Show first open WAITING_DECISION and option labels A/B/C."""
+        self._open_decision_id = ""
+        try:
+            self._dec_box.delete("1.0", "end")
+        except Exception:
+            return
+        if not root:
+            self._dec_box.insert("1.0", "(нет проекта)")
+            return
+        try:
+            from app.plan_service import get_decision_queue
+            q = get_decision_queue(root)
+            items = list(q.open_items() or [])
+            if not items:
+                self._dec_box.insert("1.0", "Нет открытых решений (MODIFY/REPLAN ждут DecisionQueue)")
+                return
+            item = items[0]
+            did = str(getattr(item, "id", None) or getattr(item, "decision_id", None) or "")
+            self._open_decision_id = did
+            title = str(getattr(item, "title", None) or getattr(item, "kind", None) or "decision")
+            risk = str(getattr(item, "risk", None) or "")
+            lines = [f"{did[:12]}  {title}"]
+            if risk:
+                lines.append(f"risk: {risk}")
+            opts = list(getattr(item, "options", None) or [])
+            for o in opts:
+                oid = str(getattr(o, "id", None) or "")
+                label = str(getattr(o, "label", None) or getattr(o, "action", None) or oid)
+                action = str(getattr(o, "action", None) or "")
+                lines.append(f"  [{oid}] {label}" + (f" ({action})" if action else ""))
+            if len(items) > 1:
+                lines.append(f"... +{len(items)-1} more")
+            self._dec_box.insert("1.0", "\n".join(lines))
+        except Exception as exp:
+            self._dec_box.insert("1.0", f"decisions: {exp}")
+
+    def _resolve_opt(self, option_id: str) -> None:
+        """A/B/C → resolve_plan_decision (explicit human choice)."""
+        root = self._root()
+        did = self._open_decision_id
+        if not root:
+            self._status.configure(text="нет проекта")
+            return
+        if not did:
+            self._status.configure(text="нет открытого decision — обновите Plan")
+            try:
+                self._refresh_decisions(root)
+            except Exception:
+                pass
+            return
+        try:
+            from app.plan_service import resolve_plan_decision
+            r = resolve_plan_decision(root, did, option_id)
+            if r.get("ok"):
+                acts = r.get("plan_actions") or []
+                self._status.configure(
+                    text=f"resolved {option_id}: {r.get('action')} {acts}"[:120]
+                )
+            else:
+                self._status.configure(text=str(r.get("error") or "fail")[:120])
+            self.refresh()
+        except Exception as exp:
+            self._status.configure(text=str(exp)[:120])
+

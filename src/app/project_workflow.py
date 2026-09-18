@@ -179,6 +179,56 @@ class ProjectWorkflow:
         }
 
 
+
+    def accept_finding(self, index: int = 0, *, persist: bool = True) -> dict[str, Any]:
+        """User accepts one audit/advisor finding → one LivingPlan step."""
+        root = self._require()
+        title = ""
+        why = ""
+        try:
+            from app.project_service import ProjectService
+            audit = ProjectService(root).run_audit()
+            findings = audit.get("findings") or audit.get("recommendations") or []
+            if not isinstance(findings, list):
+                findings = []
+            if index < 0 or index >= len(findings):
+                # fallback to advice items
+                from app.agent_service import AgentService
+                adv = AgentService(root).suggestions(limit=10)
+                items = adv.get("items") or adv.get("recommendations") or []
+                if index < 0 or index >= len(items):
+                    return {"ok": False, "error": f"no finding at index {index}"}
+                it = items[index]
+                if isinstance(it, dict):
+                    title = str(it.get("title") or it.get("text") or it.get("message") or "")
+                    why = str(it.get("why") or it.get("reason") or "")
+                else:
+                    title = str(it)
+            else:
+                f = findings[index]
+                if isinstance(f, dict):
+                    title = str(f.get("title") or f.get("message") or f.get("text") or "")
+                    why = str(f.get("why") or f.get("detail") or f.get("severity") or "")
+                else:
+                    title = str(f)
+        except Exception as exp:
+            return {"ok": False, "error": str(exp)}
+        title = (title or "Finding").strip()[:300]
+        try:
+            from app.plan_service import PlanService
+            step = PlanService(root).add_step(
+                action=title,
+                note=(why or "accepted from audit")[:500],
+            )
+            return {
+                "ok": True,
+                "step_id": step.get("id") if isinstance(step, dict) else None,
+                "action": title,
+                "step": step,
+            }
+        except Exception as exp:
+            return {"ok": False, "error": str(exp)}
+
     def enqueue_first_pending(self) -> dict[str, Any]:
         """Enqueue first PENDING LivingPlan step (explicit user action)."""
         root = self._require()
