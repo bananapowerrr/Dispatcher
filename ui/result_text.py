@@ -2,6 +2,7 @@
 """Human-readable task result strings for chat UI (no GUI deps).
 
 FC-07: prefer TaskResult product contract when present; fall back to nested dict.
+Day-4: prefer chat_messages terminal formatting when available.
 """
 from __future__ import annotations
 
@@ -11,12 +12,24 @@ from typing import Any
 def extract_result_text(data: dict[str, Any] | None) -> str:
     """Flatten runtime done/error JSON into a short user-facing string.
 
-    Runtime ``_save`` writes ``{**task.to_dict(), \"result\": {...}}`` where
+    Runtime ``_save`` writes ``{**task.to_dict(), "result": {...}}`` where
     nested ``result`` is often a dict (worker, skill, error, stdout).
     When ``result.task_result`` is present, use ``TaskResult.format_human``.
     """
     if not isinstance(data, dict):
         return "готово"
+
+    # Day-4: unified chat block for clear terminal statuses
+    try:
+        st = str(data.get("status") or data.get("_state") or "").lower()
+        if st in ("done", "error", "errors", "failed"):
+            from ui.chat_messages import format_terminal_for_chat
+
+            block = format_terminal_for_chat(data)
+            if block and len(block) > 5:
+                return block[:1200]
+    except Exception:
+        pass
 
     # Product contract first (FC-01…07)
     try:
