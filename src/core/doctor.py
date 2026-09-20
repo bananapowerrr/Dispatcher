@@ -31,6 +31,15 @@ CHECK_LABELS = {
     "max_parallel": "параллельность",
     "feature_flags": "feature flags",
     "git": "git",
+    "ollama_up": "Ollama",
+    "preferred_model": "модель coder",
+    "aider_cli": "Aider CLI",
+    "opencode_cli": "OpenCode CLI",
+    "live_path": "live coding path",
+    "cli_ollama": "cli ollama",
+    "cli_aider": "cli aider",
+    "cli_opencode": "cli opencode",
+    "code_worker_stack": "code worker stack",
 }
 
 CHECK_TIPS = {
@@ -44,6 +53,11 @@ CHECK_TIPS = {
     "ui_deps": "pip install -r requirements-ui.txt",
     "max_parallel": "для стабильности: AGENTBUS_MAX_PARALLEL_PROJECTS=1",
     "git": "git init в проекте задач, если нужен diff/rollback",
+    "ollama_up": "ollama serve",
+    "preferred_model": "ollama pull qwen2.5-coder:7b",
+    "aider_cli": "pip install aider-chat",
+    "opencode_cli": "установите OpenCode CLI или задайте OPENCODE_BIN",
+    "live_path": "нужны Ollama + модель + Aider (исторический path) или OpenCode",
 }
 
 @dataclass
@@ -225,6 +239,17 @@ def run_doctor() -> DoctorReport:
     except Exception as exp:
         add("cli_tools", False, str(exp), critical=False)
 
+    # --- Day-1: Ollama + preferred model + live path (soft probes, never raise) ---
+    try:
+        from core.worker_diagnostics import run_worker_stack_report
+        stack = run_worker_stack_report(timeout=1.5)
+        for p in stack.probes:
+            # live probes are informational for Doctor critical_ok unless prefer_local-only
+            crit = bool(p.critical_for_live and prefer_local and not allow_cloud)
+            add(p.id, p.ok, p.detail, critical=crit)
+    except Exception as exp:
+        add("live_path", False, f"worker_diagnostics: {exp}", critical=False)
+
     # --- desktop queue path ---
     try:
         from core.local_queue import get_local_queue
@@ -333,9 +358,19 @@ def capability_section() -> str:
             return f"Capability scan unavailable: {exp}"
 
 
+def worker_stack_section() -> str:
+    """Day-1: Ollama/model/aider/opencode block for doctor_full_text."""
+    try:
+        from core.worker_diagnostics import run_worker_stack_report
+        return run_worker_stack_report(timeout=1.5).format_human()
+    except Exception as exp:
+        return f"Worker stack unavailable: {exp}"
+
+
 def doctor_full_text(*, include_capability: bool = True, include_board: bool = True) -> str:
     """Checklist + optional configuration advisor + status board for UI/CLI."""
     body = run_doctor().format_human()
+    body = body + "\n\n" + worker_stack_section()
     if include_capability:
         body = body + "\n\n" + capability_section()
     if include_board:

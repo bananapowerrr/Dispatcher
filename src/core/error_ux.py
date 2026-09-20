@@ -32,9 +32,18 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"429|rate.?limit|quota|RESOURCE_EXHAUSTED", re.I),
      "rate_limit",
      "Лимит провайдера. Подождите или переключите воркер на локальный."),
-    (re.compile(r"Connection refused|ECONNREFUSED|ollama.*not|cannot connect", re.I),
+    (re.compile(r"Connection refused|ECONNREFUSED|ollama.*not|cannot connect|Failed to connect to Ollama", re.I),
      "offline",
      "Сервис модели недоступен (Ollama/LM Studio не запущен?)."),
+    (re.compile(r"model ['\"]?\S+['\"]? not found|pull the model|unknown model", re.I),
+     "model_missing",
+     "Модель не найдена в Ollama. Выполните: ollama pull qwen2.5-coder:7b"),
+    (re.compile(r"empty (response|output)|no (response|output)|malformed|JSONDecodeError|unexpected EOF", re.I),
+     "empty_output",
+     "Воркер вернул пустой или битый ответ. Повторите или смените модель."),
+    (re.compile(r"cancelled|KeyboardInterrupt|user.?abort|task.?cancel", re.I),
+     "cancelled",
+     "Задача отменена пользователем или диспетчером."),
     (re.compile(r"PermissionError|Access is denied|Read-only", re.I),
      "permission",
      "Нет доступа к файлу (блокировка ОС/синхронизация диска)."),
@@ -50,6 +59,9 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"ModuleNotFoundError|ImportError", re.I),
      "import",
      "Не найден модуль Python. Проверьте venv и dependencies проекта."),
+    (re.compile(r"aider.*(not found|No such file)|AIDER_PATH", re.I),
+     "aider_missing",
+     "Aider не найден в PATH. pip install aider-chat или задайте AIDER_PATH."),
 ]
 
 
@@ -261,4 +273,3 @@ def format_deferred_banner(row: dict[str, Any] | None) -> str:
     if line:
         return line
     return "⏳ Задача отложена — диспетчер вернёт её в очередь сам."
-
