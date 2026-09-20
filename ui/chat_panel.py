@@ -521,7 +521,15 @@ class ChatPanel(ctk.CTkFrame):
 
     def notify_done(self, task_id: str = "", detail: str = "", explanation: dict | None = None) -> None:
         msg = detail or task_id or "задача"
-        self.append("Agent", f"DONE: {msg}", kind="done")
+        # Day-6: chat_messages/progress already mark ✓ Готово — no double "DONE:"
+        try:
+            from ui.chat_task_bridge import should_prefix_role_label
+            if should_prefix_role_label(msg, "done"):
+                self.append("Agent", f"DONE: {msg}", kind="done")
+            else:
+                self.append("Agent", msg, kind="done")
+        except Exception:
+            self.append("Agent", f"DONE: {msg}", kind="done")
         try:
             self._show_post_step_report(str(task_id or ""))
         except Exception:
@@ -566,10 +574,19 @@ class ChatPanel(ctk.CTkFrame):
         text = detail or task_id or "ошибка"
         try:
             from core.error_ux import humanize_error
-            text = humanize_error(text)
+            # only humanize raw strings; multi-line blocks from chat_messages stay
+            if "\n" not in text and not text.lstrip().startswith(("⚠", "Не выполнено")):
+                text = humanize_error(text)
         except Exception:
             pass
-        self.append("System", f"ERROR: {text}", kind="error")
+        try:
+            from ui.chat_task_bridge import should_prefix_role_label
+            if should_prefix_role_label(text, "error"):
+                self.append("System", f"ERROR: {text}", kind="error")
+            else:
+                self.append("System", text, kind="error")
+        except Exception:
+            self.append("System", f"ERROR: {text}", kind="error")
         if task_id:
             self._pending_ids.discard(task_id)
             self._notified_processing.discard(task_id)
@@ -664,28 +681,40 @@ class ChatPanel(ctk.CTkFrame):
                     if tid not in self._notified_processing:
                         self._notified_processing.add(tid)
                         self._last_phase[tid] = phase
+                        try:
+                            from ui.chat_task_bridge import format_progress_event
+                            _ev = format_progress_event({**data, "_state": "processing"})
+                            _line = _ev.get("chat") or f"▶ {_t('phase_working', default='В работе: {label}').format(label=label)}"
+                            _phase = _ev.get("phase") or _line
+                        except Exception:
+                            _line = f"▶ {_t('phase_working', default='В работе: {label}').format(label=label)}"
+                            _phase = _line
                         self.append(
                             "System",
-                            f"▶ {_t('phase_working', default='В работе: {label}').format(label=label)} ({tid[:12]})",
+                            f"{_line} ({tid[:12]})",
                             kind="info",
                         )
                         try:
-                            self.phase_label.configure(
-                                text=f"● {_t('phase_working', default='В работе: {label}').format(label=label)}"
-                            )
+                            self.phase_label.configure(text=f"● {_phase[:90]}")
                         except Exception:
                             pass
                     elif phase and phase != prev:
                         self._last_phase[tid] = phase
+                        try:
+                            from ui.chat_task_bridge import format_progress_event
+                            _ev = format_progress_event({**data, "_state": "processing", "metadata": {**(data.get("metadata") or {}), "phase": phase}})
+                            _line = _ev.get("chat") or f"… {_t('phase_step', default='этап: {label}').format(label=label)}"
+                            _phase = _ev.get("phase") or _line
+                        except Exception:
+                            _line = f"… {_t('phase_step', default='этап: {label}').format(label=label)}"
+                            _phase = _line
                         self.append(
                             "System",
-                            f"… {_t('phase_step', default='этап: {label}').format(label=label)} ({tid[:12]})",
+                            f"{_line} ({tid[:12]})",
                             kind="info",
                         )
                         try:
-                            self.phase_label.configure(
-                                text=f"● {_t('phase_step', default='этап: {label}').format(label=label)}"
-                            )
+                            self.phase_label.configure(text=f"● {_phase[:90]}")
                         except Exception:
                             pass
                     # FC-13: retry / reclaim progress
