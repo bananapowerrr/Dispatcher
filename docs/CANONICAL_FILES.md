@@ -1,19 +1,18 @@
-# Canonical — R1 Terminal Path
+# Canonical — R3 Recovery Controller
 
 | File | file_id |
 |------|---------|
+| recovery_controller.py | `1q7knZH4JSef4kbfqraDymOVnAhGr1vk8` |
+| runtime_ops.py | `17410JhK2ug2zx0t_FitdIgPApY3nCB0c` |
+| product_surface.py | `1FuwZ-Xn5Qg0qjoaDlbrGvELEzV7bB4el` |
+| execution_evidence.py | `1J9he25xk-RUNOIgOTSXuf9PtGBz8wgiI` |
 | terminal_path.py | `1HMyrwLy_H8q0FJMN2IWqLABa8VcFiwEG` |
-| runtime_ops.py | `1ynpEyraRuXYmEP4RoXbCnkdH-UWxhohZ` |
-| rp_lifecycle.py | `1W3sK7ZczT8uyq8Vge1Fg4JIuQmsd2KkG` |
-| rp_llm.py | `1MPspRgYdhmpoFzl9gBv7_W6bzkI-8c0a` |
 
-## R1 contract
-
-`finish_task(task, state, result)` →
-1. enforce_done_contract (DONE without verify → ERROR)
-2. `_save` + evidence
-3. `bus.move` processing → done|errors|deferred
-4. queue.finish / queue.terminal
-5. `_emit` + log
-
-FSM vocabulary unchanged: PENDING→CLAIMED→PROCESSING→VERIFYING→DONE|ERROR|DEFERRED
+## Flow
+```
+ERROR finish_task
+  → run_recovery(apply_plan=False)  # record decision
+Chat handle_error_recovery
+  → run_recovery(apply_plan=True)   # plan replan if needed
+enqueued: always false
+```
