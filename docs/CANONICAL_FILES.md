@@ -1,24 +1,24 @@
 # Canonical files
 
-## Runtime (NORMAL DEVELOPMENT)
-
+## Runtime
 | File | file_id |
 |------|---------|
-| src/core/execution_evidence.py | `18dnF005ZbiRVK_wc6_bhNoaYIAWRd0l7` |
-| src/core/runtime_ops.py | `1rNYZTF2I3jnZSQESrdPOwSZ3TkOT-M1D` |
-| src/core/reclaim.py | `1YCiuwSEElchstilyw15BaqV8Qtf4bCXV` |
+| runtime_ops.py | `1B7N6vKCn6TV6o7rBaH_HIZH-k4OYA3K-` |
+| recovery_plan_hook.py | `1iERjF_Drws5R9FtYODmYbwbYMeCpMr3s` |
+| recovery_decision.py | `1SM7caLw_SwaLWyxa2Dul4Fc4xDq7TMNO` |
+| recovery_mechanism.py | `1cgqvXWIs9hpYnUclsappjVA348DxLbmK` |
+| worker_execution.py | `1QAf1ZYwTwqtZFdDtR8SyoPUJ8hz7Gl7m` |
+| execution_evidence.py | `18dnF005ZbiRVK_wc6_bhNoaYIAWRd0l7` |
+| reclaim.py | `1YCiuwSEElchstilyw15BaqV8Qtf4bCXV` |
+| rp_lifecycle / rp_llm / rp_verify | prior ids |
 
-## ui/
-
+## Product / UI
 | File | file_id |
 |------|---------|
-| chat_panel.py | `1zKSG5MJAuycwwlU9UozF4U52sUopdYau` |
-| chat_recovery_bridge.py | `1LT83Lstym5RStua6nd4ko4neFJdnv1WK` |
-| chat_task_bridge.py | `1oG5GYC-mUf4ZksDzP0QSSqBNK2Ae-Zdh` |
-| settings_panel.py | `1il-3m2I0N1zFu5OF10rrJG5B9EGWI1Ns` |
+| product_surface.py | `191SwyKDDpFfj9FwVTQEoPXE21qjoesgL` |
+| chat_panel.py | `1Mw2Mz4ZVQ7TiTgcADFA___n5-2KclngH` |
+| chat_recovery_bridge.py | `1XYL7ShZgdCgywc0RNumlfo45cH6EtwPS` |
 
-## src/app/
-product_surface.py `1Rcklgiuwjr76XEs-g1sKWtqkESgq-u35`
-
-## docs/
-RUNTIME_CONTRACTS.md, INDEX, SYNC, PC_HANDOFF, PCGAP_*, OFFLINE_FREEZE, STRUCTURE, CONTRACTS, LIVE_ACCEPTANCE, README, GETTING_STARTED, INSTALL_WINDOWS, TROUBLESHOOTING
+## ERROR path
+Chat ERROR → format_error_row → handle_error_recovery → plan replan if action=replan
+**enqueued always false**

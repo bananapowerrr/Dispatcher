@@ -181,3 +181,79 @@ def doctor_route_snippet(message: str = "fix fix") -> str:
         return "Route surface (advisory, not select_executor):\n" + detail[:600]
     except Exception as exc:
         return f"Route surface: skip ({type(exc).__name__})"
+
+
+def handle_error_recovery(
+    row: dict[str, Any] | None,
+    *,
+    project_root: str | Path | None = None,
+    plan: Any = None,
+    save: bool = True,
+) -> dict[str, Any]:
+    """ERROR surface: decision + optional plan replan. Never enqueues tasks."""
+    raw = dict(row or {})
+    out: dict[str, Any] = {
+        "ok": True,
+        "enqueued": False,
+        "decision": {},
+        "replan": None,
+        "chat_extra": "",
+    }
+    try:
+        from core.recovery_decision import decide_from_task_row
+        from core.recovery_mechanism import mechanism_for_decision
+
+        decision = decide_from_task_row(raw)
+        mech = mechanism_for_decision(decision)
+        out["decision"] = decision
+        out["mechanism"] = mech
+        if mech.get("enqueue_new"):
+            out["ok"] = False
+            out["error"] = "enqueue_forbidden"
+            return out
+
+        action = str(decision.get("action") or "")
+        if action != "replan":
+            suggest = str(decision.get("suggest") or "")
+            if suggest:
+                out["chat_extra"] = f"→ {action}: {suggest}"
+            return out
+
+        loaded_plan = plan
+        root = Path(project_root) if project_root else None
+        if loaded_plan is None and root is not None:
+            try:
+                from intelligence.living_plan import load_living_plan
+
+                loaded_plan = load_living_plan(root)
+            except Exception as exc:
+                out["chat_extra"] = f"→ replan skipped (plan load: {type(exc).__name__})"
+                out["replan"] = {"ok": False, "skipped": True, "reason": "plan_load_failed"}
+                return out
+
+        from core.recovery_plan_hook import try_plan_replan_from_error
+
+        replan = try_plan_replan_from_error(raw, loaded_plan)
+        out["replan"] = replan
+        out["enqueued"] = False
+        if replan.get("ok") and save and root is not None and loaded_plan is not None:
+            try:
+                from intelligence.living_plan import save_living_plan
+
+                save_living_plan(root, loaded_plan)
+            except Exception as exc:
+                out["save_error"] = str(exc)[:200]
+        if replan.get("ok"):
+            eid = replan.get("error_step_id")
+            nid = replan.get("new_step_id")
+            out["chat_extra"] = f"→ Plan replan: {eid} ERROR kept · added `{nid}` PENDING"
+        elif replan.get("skipped"):
+            out["chat_extra"] = f"→ replan skipped: {replan.get('reason')}"
+        else:
+            out["chat_extra"] = f"→ replan failed: {replan.get('error') or 'unknown'}"
+        return out
+    except Exception as exc:
+        out["ok"] = False
+        out["error"] = f"{type(exc).__name__}: {exc}"
+        out["enqueued"] = False
+        return out

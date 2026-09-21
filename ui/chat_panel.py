@@ -781,6 +781,24 @@ class ChatPanel(ctk.CTkFrame):
                             detail = format_error_story(data, detail=detail)
                         except Exception:
                             pass
+                    # Plan-layer recovery (no enqueue / no FSM bypass)
+                    try:
+                        from app.product_surface import handle_error_recovery
+
+                        proot = None
+                        try:
+                            proj = str(data.get("project") or "")
+                            if proj:
+                                from core.config import resolve_project
+                                proot = resolve_project(proj)
+                        except Exception:
+                            proot = None
+                        recov = handle_error_recovery(data, project_root=proot, save=True)
+                        extra = str(recov.get("chat_extra") or "")
+                        if extra and extra not in (detail or ""):
+                            detail = ((detail or "") + "\n" + extra).strip()
+                    except Exception:
+                        pass
                     self.notify_error(tid, detail)
 
         try:

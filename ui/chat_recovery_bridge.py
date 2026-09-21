@@ -57,7 +57,7 @@ def format_error_row_for_chat(row: dict[str, Any] | None) -> dict[str, str]:
     replan = meta.get("replan") if isinstance(meta.get("replan"), dict) else None
     block = meta.get("block") if isinstance(meta.get("block"), dict) else None
 
-    return format_recovery_for_chat(
+    out = format_recovery_for_chat(
         task_error=err,
         worker=worker,
         plan_outcome=plan_outcome,
@@ -66,6 +66,27 @@ def format_error_row_for_chat(row: dict[str, Any] | None) -> dict[str, str]:
         attempts=attempts,
         max_attempts=max_attempts,
     )
+    # Advisory recovery decision (no enqueue / no FSM)
+    try:
+        from core.recovery_decision import decide_from_task_row
+
+        d = decide_from_task_row(row)
+        action = str(d.get("action") or "")
+        suggest = str(d.get("suggest") or "")
+        layer = str(d.get("failure_layer") or "")
+        if action or suggest:
+            line = f"→ Recovery: {action}"
+            if layer:
+                line += f" [{layer}]"
+            if suggest:
+                line += f" — {suggest}"
+            chat = str(out.get("chat") or "")
+            if line not in chat:
+                out["chat"] = (chat + "\n" + line).strip()[:2000]
+            out["phase"] = (out.get("phase") or action)[:90]
+    except Exception:
+        pass
+    return out
 
 
 def merge_terminal_with_recovery(
