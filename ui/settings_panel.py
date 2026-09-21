@@ -42,7 +42,32 @@ class SettingsPanel(ctk.CTkFrame):
             return None
         return yaml.safe_load(path.read_text(encoding="utf-8"))
 
+
+    def _ro_banner(self, parent, tab_key: str = "") -> None:
+        """Day 13.1: read-only notice — no silent policy/flag mutation from UI."""
+        try:
+            from app.settings_contract import is_read_only_tab
+
+            if tab_key and not is_read_only_tab(tab_key):
+                return
+        except Exception:
+            pass
+        label = "только просмотр / read-only"
+        try:
+            from ui.i18n_ui import t as _t
+
+            label = _t("settings_read_only", default=label)
+        except Exception:
+            pass
+        ctk.CTkLabel(
+            parent,
+            text=f"🔒 {label}",
+            text_color=("gray40", "gray60"),
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="w", padx=10, pady=(8, 4))
+
     def _build_providers_tab(self, parent):
+        self._ro_banner(parent, "providers")
         path = self.root / "config" / "providers.yaml"
         providers: dict = {}
         try:
@@ -159,6 +184,7 @@ class SettingsPanel(ctk.CTkFrame):
             self._set_status(f"Ошибка записи: {exc}", ok=False)
 
     def _build_context_tab(self, parent):
+        self._ro_banner(parent, "context")
         ui_cfg = self.root / "config" / "ui.yaml"
         data = {}
         if ui_cfg.is_file():
@@ -204,30 +230,26 @@ class SettingsPanel(ctk.CTkFrame):
         ctk.CTkButton(parent, text="Сохранить ui.yaml", command=save_ui).pack(pady=16)
 
     def _build_prompt_tab(self, parent):
+        self._ro_banner(parent, "prompt")
         path = self.root / "config" / "system_prompt.txt"
-        default = "Ты — AI-ассистент для программирования в связке AgentBus."
-        text = default
-        if path.is_file():
-            try:
+        text = ""
+        try:
+            if path.is_file():
                 text = path.read_text(encoding="utf-8")
-            except OSError:
-                pass
-        ctk.CTkLabel(parent, text="Системный промпт → config/system_prompt.txt").pack(
-            anchor="w", padx=20, pady=10
-        )
-        textbox = ctk.CTkTextbox(parent, height=300)
-        textbox.pack(fill="both", expand=True, padx=20, pady=10)
-        textbox.insert("1.0", text)
+        except Exception as exc:
+            ctk.CTkLabel(parent, text=f"Ошибка: {exc}").pack(anchor="w", padx=10)
+            return
+        box = ctk.CTkTextbox(parent, height=280)
+        box.pack(fill="both", expand=True, padx=10, pady=8)
+        box.insert("1.0", text)
+        box.configure(state="disabled")
+        ctk.CTkLabel(
+            parent,
+            text="Файл: config/system_prompt.txt · правка только вне UI (read-only contract)",
+            text_color="gray",
+            font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=10, pady=4)
 
-        def save_prompt():
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(textbox.get("1.0", "end").strip() + "\n", encoding="utf-8")
-                self._set_status(f"Сохранено: {path}", ok=True)
-            except Exception as exc:
-                self._set_status(str(exc), ok=False)
-
-        ctk.CTkButton(parent, text="Сохранить промпт", command=save_prompt).pack(pady=8)
 
     def _build_language_tab(self, parent):
         """UI + agent language (ru/en) → AGENTBUS_LANG + .agentbus/settings.json."""
@@ -269,140 +291,69 @@ class SettingsPanel(ctk.CTkFrame):
 
 
     def _build_policy_tab(self, parent):
-        """local_only / balanced / quality / cheap."""
-        frame = ctk.CTkFrame(parent)
+        self._ro_banner(parent, "policy")
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="both", expand=True, padx=12, pady=12)
-        ctk.CTkLabel(
-            frame,
-            text="Режим работы AI (local-first для автономии)",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(anchor="w", pady=(0, 8))
+        active = "?"
+        names: list[str] = []
         try:
-            from core.policy import load_policy, list_policy_names, set_active_policy
-            names = list_policy_names()
-            cur = load_policy().name
-        except Exception as exc:
-            ctk.CTkLabel(frame, text=f"policy: {exc}").pack(anchor="w")
+            from core.policy import load_policy, list_policy_names
+
+            pol = load_policy()
+            active = str(getattr(pol, "name", None) or pol.get("name") if isinstance(pol, dict) else pol)
+            try:
+                names = list(list_policy_names())
+            except Exception:
+                names = []
+        except Exception as e:
+            ctk.CTkLabel(frame, text=f"policy: {e}").pack(anchor="w")
             return
-        self._policy_var = ctk.StringVar(value=cur if cur in names else names[0])
-        ctk.CTkOptionMenu(frame, variable=self._policy_var, values=names, width=200).pack(
+        ctk.CTkLabel(frame, text=f"Активная политика: {active}", font=ctk.CTkFont(weight="bold")).pack(
             anchor="w", pady=4
         )
-        desc = {
-            "local_only": "Только Ollama/LM Studio — без облака, 0 ₽",
-            "balanced": "Сначала локально; облако если задача сложная",
-            "quality": "Приоритет качеству (облако раньше)",
-            "cheap": "Минимум платных вызовов",
-        }
-        self._policy_hint = ctk.CTkLabel(
-            frame, text=desc.get(cur, ""), anchor="w", justify="left", wraplength=420
-        )
-        self._policy_hint.pack(anchor="w", pady=8)
-
-        def _save():
-            name = self._policy_var.get()
-            try:
-                from core.policy import set_active_policy
-                p = set_active_policy(name)
-                self._policy_hint.configure(text=desc.get(name, p.description))
-                self._set_status(f"Политика: {p.name} (cloud={p.allow_cloud})", ok=True)
-            except Exception as exc:
-                self._set_status(str(exc), ok=False)
-
-        def _on_change(_=None):
-            self._policy_hint.configure(text=desc.get(self._policy_var.get(), ""))
-
-        self._policy_var.trace_add("write", lambda *_: _on_change())
-        ctk.CTkButton(frame, text="Сохранить", width=120, command=_save).pack(anchor="w", pady=8)
+        if names:
+            ctk.CTkLabel(frame, text="Доступные: " + ", ".join(str(n) for n in names), text_color="gray").pack(
+                anchor="w", pady=4
+            )
         ctk.CTkLabel(
             frame,
-            text="Файл: config/policy.yaml · env AGENTBUS_POLICY",
+            text="Смена policy — только через config/policy (не из UI). Runtime freeze.",
             text_color="gray",
-        ).pack(anchor="w", pady=(12, 0))
-
-    def _build_flags_tab(self, parent) -> None:
-        """Включение/выключение feature flags из config/feature_flags.yaml."""
-        scroll = ctk.CTkScrollableFrame(parent)
-        scroll.pack(fill="both", expand=True, padx=8, pady=8)
-        ctk.CTkLabel(
-            scroll,
-            text="Опциональные модули (без перезапуска части — при следующем тике)",
-            text_color="gray",
-            wraplength=420,
-            justify="left",
-        ).pack(anchor="w", pady=(0, 8))
-        self._flag_vars: dict[str, ctk.BooleanVar] = {}
-        try:
-            from core.feature_flags import list_flags, set_flag, is_enabled, DEFAULTS
-            flags = list_flags() if callable(list_flags) else {}
-            if not flags:
-                # fallback: known keys
-                from core import feature_flags as ff
-                flags = dict(getattr(ff, "_DEFAULTS", None) or getattr(ff, "DEFAULTS", {}) or {})
-                for k in list(flags.keys()):
-                    flags[k] = is_enabled(k, default=bool(flags[k]))
-        except Exception as exp:
-            ctk.CTkLabel(scroll, text=f"flags: {exp}").pack(anchor="w")
-            flags = {}
-
-        labels = {
-            "conversation": "Диалог / session",
-            "session_memory": "MEMORY.md",
-            "codebase_rag": "RAG по коду",
-            "sub_agents": "Субагенты",
-            "autopilot": "Автопилот",
-            "night_scheduler": "Ночной режим",
-            "skill_learner": "Обучение skills",
-            "diff_preview": "Diff preview",
-            "phone_filebus": "Шина телефона",
-            "remote_filebus": "Удалённая шина",
-            "pev": "PEV цикл",
-            "meta_local": "Мета-модель 1.5b",
-        }
-        for name, enabled in sorted(flags.items(), key=lambda x: x[0]):
-            row = ctk.CTkFrame(scroll, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            var = ctk.BooleanVar(value=bool(enabled))
-            self._flag_vars[name] = var
-            label = labels.get(name, name)
-
-            def _make_cmd(n=name, v=var):
-                def _cmd():
-                    try:
-                        from core.feature_flags import set_flag, reload_flags
-                        set_flag(n, bool(v.get()))
-                        try:
-                            reload_flags()
-                        except Exception:
-                            pass
-                        self._set_status(f"Флаг {n} = {v.get()}")
-                    except Exception as e:
-                        self._set_status(f"flag error: {e}", ok=False)
-                return _cmd
-
-            sw = ctk.CTkSwitch(row, text=label, variable=var, command=_make_cmd())
-            sw.pack(side="left", padx=4)
-            ctk.CTkLabel(row, text=name, text_color="gray", font=ctk.CTkFont(size=10)).pack(side="right", padx=6)
-
-        ctk.CTkButton(
-            scroll,
-            text="Сохранить все флаги",
-            command=self._save_all_flags,
-            height=32,
+            font=ctk.CTkFont(size=11),
         ).pack(anchor="w", pady=12)
 
-    def _save_all_flags(self) -> None:
+
+    def _build_flags_tab(self, parent):
+        self._ro_banner(parent, "flags")
+        frame = ctk.CTkScrollableFrame(parent)
+        frame.pack(fill="both", expand=True, padx=10, pady=8)
         try:
-            from core.feature_flags import set_flag, reload_flags
-            for name, var in (self._flag_vars or {}).items():
-                set_flag(name, bool(var.get()))
-            try:
-                reload_flags()
-            except Exception:
-                pass
-            self._set_status("Флаги сохранены")
+            from core.feature_flags import list_flags, is_enabled, DEFAULTS
+
+            flags = list_flags() if callable(list_flags) else {}
+            if not isinstance(flags, dict):
+                flags = {}
+            if not flags and isinstance(DEFAULTS, dict):
+                flags = dict(DEFAULTS)
+            for name in sorted(flags.keys()):
+                try:
+                    on = bool(is_enabled(name))
+                except Exception:
+                    on = bool(flags.get(name))
+                ctk.CTkLabel(
+                    frame,
+                    text=f"{'✓' if on else '·'}  {name}",
+                    anchor="w",
+                ).pack(fill="x", padx=6, pady=2)
         except Exception as e:
-            self._set_status(f"Ошибка: {e}", ok=False)
+            ctk.CTkLabel(frame, text=f"flags: {e}").pack(anchor="w")
+        ctk.CTkLabel(
+            parent,
+            text="feature_flags.yaml — только просмотр. set_flag из UI отключён (Day 13.1).",
+            text_color="gray",
+            font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=10, pady=8)
+
 
     def _build_ui_prefs_tab(self, parent) -> None:
         """Тема, тосты, автозапуск диспетчера."""
@@ -454,81 +405,31 @@ class SettingsPanel(ctk.CTkFrame):
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w")
 
-    def _build_presets_tab(self, parent) -> None:
-        """Быстрый выбор пресета воркеров / политики."""
+    def _build_presets_tab(self, parent):
+        self._ro_banner(parent, "presets")
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="both", expand=True, padx=12, pady=12)
-        ctk.CTkLabel(
-            frame,
-            text="Пресеты под типичные сценарии (пишет env + policy hint)",
-            text_color="gray",
-            wraplength=420,
-            justify="left",
-        ).pack(anchor="w", pady=(0, 10))
-
-        presets = [
-            ("beginner_ru", "Новичок (РФ)", "parallel=1, local_only, без облака"),
-            ("local_only", "Только локально", "Ollama/LM Studio, 0 ₽"),
-            ("free_only", "Только free-облако", "без платных ключей"),
-            ("fast", "Быстро", "минимум проверок, быстрее ответ"),
-            ("quality", "Качество", "сильнее модели, больше контекста"),
-        ]
-        self._preset_var = ctk.StringVar(value="beginner_ru")
-
-        for key, title, hint in presets:
-            row = ctk.CTkFrame(frame, fg_color="transparent")
-            row.pack(fill="x", pady=4)
-            ctk.CTkRadioButton(
-                row, text=f"{title}", variable=self._preset_var, value=key
-            ).pack(side="left")
-            ctk.CTkLabel(row, text=hint, text_color="gray", font=ctk.CTkFont(size=11)).pack(
-                side="left", padx=12
-            )
-
-        def _apply():
-            name = self._preset_var.get()
-            try:
-                import os
-                os.environ["AGENTBUS_FEATURE_PRESET"] = name
-                if name in ("beginner_ru", "local_only"):
-                    os.environ["AGENTBUS_ALLOW_PAID"] = "0"
-                    os.environ["AGENTBUS_MAX_PARALLEL_PROJECTS"] = "1"
-                    try:
-                        from core.policy import set_active_policy
-                        set_active_policy("local_only")
-                    except Exception:
-                        pass
-                elif name == "quality":
-                    try:
-                        from core.policy import set_active_policy
-                        set_active_policy("quality")
-                    except Exception:
-                        pass
-                elif name == "free_only":
-                    try:
-                        from core.policy import set_active_policy
-                        set_active_policy("cheap")
-                    except Exception:
-                        pass
-                # persist ui hint
-                try:
-                    from ui.main_window import _save_ui_cfg
-                    _save_ui_cfg({"preset_hint": name})
-                except Exception:
-                    pass
-                self._set_status(f"Пресет «{name}» применён (перезапустите диспетчер)")
-            except Exception as e:
-                self._set_status(f"preset: {e}", ok=False)
-
-        ctk.CTkButton(frame, text="Применить пресет", command=_apply, height=34).pack(
-            anchor="w", pady=16
+        names: list[str] = []
+        try:
+            pdir = self.root / "config" / "presets"
+            if pdir.is_dir():
+                names = sorted(p.stem for p in pdir.glob("*.yaml"))
+        except Exception:
+            pass
+        ctk.CTkLabel(frame, text="Пресеты (только список)", font=ctk.CTkFont(weight="bold")).pack(
+            anchor="w", pady=4
         )
+        if names:
+            for n in names:
+                ctk.CTkLabel(frame, text=f"· {n}").pack(anchor="w", padx=8)
+        else:
+            ctk.CTkLabel(frame, text="(нет файлов в config/presets)", text_color="gray").pack(anchor="w")
         ctk.CTkLabel(
             frame,
-            text="Файлы: config/presets/*.yaml · после смены — ■ Stop и ▶ Start диспетчера",
+            text="Применение пресета из UI отключено (read-only). Меняйте yaml вручную при необходимости.",
             text_color="gray",
             font=ctk.CTkFont(size=11),
-        ).pack(anchor="w")
+        ).pack(anchor="w", pady=16)
 
 
     def _build_agent_behavior_section(self, parent) -> None:

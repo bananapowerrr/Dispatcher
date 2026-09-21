@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Day-6: pure Chat ↔ Task display bridge (no CustomTkinter).
+"""Day-6/14: pure Chat ↔ Task display bridge (no CustomTkinter).
 
 Documents and tests the product path:
 
@@ -10,6 +10,7 @@ Documents and tests the product path:
   chat bubble text + phase footer
 
 chat_panel may call these or keep result_text path; both share progress_ux / error_ux.
+Day 14: ERROR path merges recovery_ux via chat_recovery_bridge when metadata present.
 """
 from __future__ import annotations
 
@@ -50,11 +51,25 @@ def format_progress_event(row: dict[str, Any] | None) -> dict[str, str]:
         phase_footer = format_phase_footer(phase, worker=worker)
     except Exception:
         pass
+    # PC-GAP: show advisory route from metadata if present (not select_executor)
+    try:
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        rp = meta.get("route_preview") if isinstance(meta.get("route_preview"), dict) else {}
+        worker = str(rp.get("worker") or "").strip()
+        if worker and worker.lower() not in (line or "").lower():
+            line = f"{line} · {worker}".strip(" ·")
+            if phase_footer and worker not in phase_footer:
+                phase_footer = f"{phase_footer} · {worker}"[:90]
+    except Exception:
+        pass
     return {"chat": line, "phase": phase_footer, "kind": "info"}
 
 
 def format_terminal_event(row: dict[str, Any] | None) -> dict[str, str]:
-    """DONE / ERROR → chat block (no extra DONE:/ERROR: prefix needed)."""
+    """DONE / ERROR → chat block (no extra DONE:/ERROR: prefix needed).
+
+    ERROR rows: merge recovery bridge when replan/block/plan_outcome present.
+    """
     row = dict(row or {})
     st = _state(row)
     try:
@@ -73,7 +88,25 @@ def format_terminal_event(row: dict[str, Any] | None) -> dict[str, str]:
         kind = "error"
     elif st == "done":
         kind = "done"
-    return {"chat": body, "phase": body.split("\n")[0][:90], "kind": kind}
+
+    out: dict[str, str] = {
+        "chat": body,
+        "phase": (body or "").split("\n")[0][:90],
+        "kind": kind,
+    }
+
+    if kind == "error":
+        try:
+            from ui.chat_recovery_bridge import (
+                format_error_row_for_chat,
+                merge_terminal_with_recovery,
+            )
+
+            recovery = format_error_row_for_chat(row)
+            out = merge_terminal_with_recovery(out, recovery)
+        except Exception:
+            pass
+    return out
 
 
 def format_task_event(row: dict[str, Any] | None) -> dict[str, str]:
@@ -94,7 +127,6 @@ def format_task_event(row: dict[str, Any] | None) -> dict[str, str]:
         "incoming",
     ):
         return format_progress_event(row)
-    # unknown — still safe
     try:
         from ui.chat_messages import format_task_chat_block
 
@@ -104,10 +136,16 @@ def format_task_event(row: dict[str, Any] | None) -> dict[str, str]:
 
 
 def should_prefix_role_label(body: str, kind: str) -> bool:
-    """Avoid 'DONE: ✓ Готово' double marking."""
+    """Avoid 'DONE: ✓ Готово' double marking and recovery marker double-prefix."""
     b = (body or "").lstrip()
     if kind == "done" and (b.startswith("✓") or b.startswith("Готово")):
         return False
-    if kind == "error" and (b.startswith("⚠") or b.startswith("Не выполнено") or b.startswith("ERROR")):
+    if kind == "error" and (
+        b.startswith("⚠")
+        or b.startswith("Не выполнено")
+        or b.startswith("ERROR")
+        or b.startswith("↻")
+        or b.startswith("⏸")
+    ):
         return False
     return True

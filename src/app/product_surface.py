@@ -171,3 +171,13 @@ def format_error_story(row: dict[str, Any] | None = None, *, detail: str = "") -
         mx = meta.get("max_attempts", 3)
         lines.append(f"Попытка {att}/{mx}")
     return "\n".join(lines)
+
+
+def doctor_route_snippet(message: str = "fix fix") -> str:
+    """One block for doctor / diagnose — advisory only."""
+    try:
+        out = attach_route_preview(message)
+        detail = out.get("chat_detail") or out.get("chat_line") or ""
+        return "Route surface (advisory, not select_executor):\n" + detail[:600]
+    except Exception as exc:
+        return f"Route surface: skip ({type(exc).__name__})"

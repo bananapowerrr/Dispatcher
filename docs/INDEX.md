@@ -1,53 +1,29 @@
-# NVCode documentation index
+# AgentBus docs
 
-**Product:** NVCode (UI/workspace) · **Runtime in code:** AgentBus  
+## Start here
 
-**Canonical architecture:** [NVCODE_ARCHITECTURE.md](NVCODE_ARCHITECTURE.md)  
-**Module inventory:** [ARCHITECTURE_INVENTORY.md](ARCHITECTURE_INVENTORY.md)  
-**Contracts:** [CONTRACTS.md](CONTRACTS.md)
+1. **CANONICAL_FILES.md** — какие файлы с Drive копировать (актуальные id)
+2. **SYNC_FROM_DRIVE.md** — порядок sync
+3. **PC_HANDOFF_LIVE001.md** — запуск LIVE-001 на PC
+4. **OFFLINE_FREEZE.md** — что нельзя ломать
+5. **PCGAP_PRODUCT_INTEGRATION_AUDIT.md** — связи Chat→DONE
 
-> Historical FC/audit/handoff docs live only in **[archive/](archive/)**.  
-> They are **not** source of truth.
+## Reference
 
-## Active docs (current)
+| Doc | Role |
+|-----|------|
+| STRUCTURE.md | дерево репо |
+| CONTRACTS.md | контракты слоёв |
+| LIVE_ACCEPTANCE.md | live-сценарии |
+| GETTING_STARTED.md | старт |
+| INSTALL_WINDOWS.md | установка |
+| TROUBLESHOOTING.md | сбои |
+| README.md | обзор |
 
-| Doc | Topic |
-|-----|--------|
-| [NVCODE_ARCHITECTURE.md](NVCODE_ARCHITECTURE.md) | Layers, invariants |
-| [ARCHITECTURE_INVENTORY.md](ARCHITECTURE_INVENTORY.md) | KEEP / OPTIONAL / HISTORICAL map |
-| [STRUCTURE.md](STRUCTURE.md) | Repo layout |
-| [CONTRACTS.md](CONTRACTS.md) | Task/Worker/Verify contracts |
-| [LAUNCH.md](LAUNCH.md) | How to run |
-| [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) | Windows install |
-| [ONBOARDING_RU.md](ONBOARDING_RU.md) | First run (RU) |
-| [FEATURE_FLAGS.md](FEATURE_FLAGS.md) | Feature flags |
-| [LIVE_ACCEPTANCE.md](LIVE_ACCEPTANCE.md) | Post-PC acceptance checklist |
-| [STATUS_OFFLINE.md](STATUS_OFFLINE.md) | Offline readiness status |
-| [STATUS_PRODUCT.md](STATUS_PRODUCT.md) | Product status (current) |
-| [ROADMAP_0.10.md](ROADMAP_0.10.md) | 0.10 roadmap |
-| [PRODUCT_PATH.md](PRODUCT_PATH.md) | Product path |
-| [PRODUCT_BACKLOG.md](PRODUCT_BACKLOG.md) | Backlog |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Ops issues |
-| [UI.md](UI.md) | UI overview |
-| [API.md](API.md) | API notes |
-| [EXECUTOR.md](EXECUTOR.md) | Executor contract |
-| [CI.md](CI.md) | CI |
-| [SKILLS.md](SKILLS.md) | Skills |
-| [PLUGIN_SDK.md](PLUGIN_SDK.md) | Plugins |
-| [CHANNELS_RU.md](CHANNELS_RU.md) | Optional phone file-bus |
+## Product path
 
-## Current status / handoff
-
-| Role | Document |
-|------|----------|
-| Architecture SoT | `NVCODE_ARCHITECTURE.md` + `ARCHITECTURE_INVENTORY.md` |
-| Offline status | `STATUS_OFFLINE.md` |
-| Live checklist | `LIVE_ACCEPTANCE.md` |
-| Roadmap | `ROADMAP_0.10.md` |
-| Product direction | `PRODUCT_PATH.md` / `PRODUCT_BACKLOG.md` |
-
-Do **not** invent parallel `FINAL_*` / `V2_FINAL` architecture docs.
-
-## Historical
-
-See [archive/README.md](archive/README.md).
+```
+Chat → product_surface (context/route) → TaskService → Runtime (freeze)
+                                              ↓
+                                    Verify → DONE / Recovery → Chat
+```

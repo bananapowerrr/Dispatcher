@@ -754,8 +754,33 @@ class ChatPanel(ctk.CTkFrame):
                 self._notified_processing.discard(tid)
                 self._notified_deferred.discard(tid)
                 if state == "done":
+                    try:
+                        from app.product_surface import format_done_story
+
+                        story = format_done_story(data, detail=detail)
+                        if story:
+                            detail = story
+                    except Exception:
+                        pass
                     self.notify_done(tid, detail)
                 else:
+                    try:
+                        from ui.chat_recovery_bridge import format_error_row_for_chat
+
+                        rec = format_error_row_for_chat(data)
+                        if rec.get("chat"):
+                            detail = rec["chat"]
+                        else:
+                            from app.product_surface import format_error_story
+
+                            detail = format_error_story(data, detail=detail)
+                    except Exception:
+                        try:
+                            from app.product_surface import format_error_story
+
+                            detail = format_error_story(data, detail=detail)
+                        except Exception:
+                            pass
                     self.notify_error(tid, detail)
 
         try:
@@ -1197,6 +1222,27 @@ class ChatPanel(ctk.CTkFrame):
                 )
         except Exception as _ecx:
             meta["editor_context_error"] = str(_ecx)[:200]
+
+        # PC-GAP: advisory context + route previews (no Runtime mutation)
+        try:
+            from app.product_surface import attach_context_preview, attach_route_preview
+
+            ctxp = attach_context_preview(
+                message,
+                project=project,
+                files=list(self._files or []),
+            )
+            if ctxp.get("meta_patch"):
+                meta.update(ctxp["meta_patch"])
+            if ctxp.get("chat_line"):
+                self.append("System", ctxp["chat_line"], kind="info")
+            rtp = attach_route_preview(message, project=project, metadata=meta)
+            if rtp.get("meta_patch"):
+                meta.update(rtp["meta_patch"])
+            if rtp.get("chat_line"):
+                self.append("System", rtp["chat_line"], kind="info")
+        except Exception as _ps_exc:
+            meta["product_surface_error"] = str(_ps_exc)[:200]
 
         payload = {
             "id": task_id,

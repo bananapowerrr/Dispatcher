@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Day-13: thin bridge from recovery_ux into chat display dicts.
+"""Day-13/14: thin bridge from recovery_ux into chat display dicts.
 
 No FSM / claim / enqueue changes. Optional helper for chat_panel or
 progress hooks: given ERROR-ish plan/replan dicts → one chat block.
@@ -40,6 +40,34 @@ def format_recovery_for_chat(
     return {"chat": body, "phase": phase, "kind": "error"}
 
 
+def format_error_row_for_chat(row: dict[str, Any] | None) -> dict[str, str]:
+    """Extract recovery fields from a task row and format for chat."""
+    row = dict(row or {})
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    res = row.get("result") if isinstance(row.get("result"), dict) else {}
+
+    err = (
+        str(res.get("error") or row.get("error") or row.get("detail") or "")
+        .strip()
+    )
+    worker = str(res.get("worker") or meta.get("worker") or row.get("worker") or "")
+    attempts = int(meta.get("attempts") or row.get("attempts") or 0)
+    max_attempts = int(meta.get("max_attempts") or row.get("max_attempts") or 3)
+    plan_outcome = meta.get("plan_outcome") if isinstance(meta.get("plan_outcome"), dict) else None
+    replan = meta.get("replan") if isinstance(meta.get("replan"), dict) else None
+    block = meta.get("block") if isinstance(meta.get("block"), dict) else None
+
+    return format_recovery_for_chat(
+        task_error=err,
+        worker=worker,
+        plan_outcome=plan_outcome,
+        replan=replan,
+        block=block,
+        attempts=attempts,
+        max_attempts=max_attempts,
+    )
+
+
 def merge_terminal_with_recovery(
     terminal: dict[str, str] | None,
     recovery: dict[str, str] | None,
@@ -51,7 +79,6 @@ def merge_terminal_with_recovery(
         return t or {"chat": "⚠", "phase": "error", "kind": "error"}
     if not t.get("chat"):
         return r
-    # keep kind=error; append recovery lines if not already present
     base = str(t.get("chat") or "").strip()
     extra = str(r.get("chat") or "").strip()
     if extra and extra not in base:
