@@ -209,3 +209,50 @@ def handle_error_recovery(
             "chat_extra": "",
         }
 
+
+
+def build_worker_context_message(
+    message: str,
+    *,
+    project_root: str | Path | None = None,
+    files: list[str] | None = None,
+    previous_failure: str = "",
+    total_chars: int = 12000,
+) -> dict[str, Any]:
+    """R5: report + budget assembly for worker prompt (advisory for Chat / pre-exec)."""
+    try:
+        from intelligence.context_report import build_context_report
+        from intelligence.context_budget import budget_from_context_report, assemble_worker_message
+
+        root = Path(project_root) if project_root else None
+        rep = None
+        if root is not None:
+            try:
+                rep = build_context_report(
+                    project_root=root,
+                    message=message or "",
+                    explicit_files=list(files or []) or None,
+                )
+            except Exception:
+                rep = None
+        if rep is not None:
+            return budget_from_context_report(
+                rep,
+                user_message=message or "",
+                previous_failure=previous_failure,
+                total_chars=total_chars,
+            )
+        return assemble_worker_message(
+            user_message=message or "",
+            files=list(files or []),
+            previous_failure=previous_failure,
+            total_chars=total_chars,
+        )
+    except Exception as exc:
+        return {
+            "message": str(message or ""),
+            "plan": {},
+            "truncated": False,
+            "chars": len(str(message or "")),
+            "error": f"{type(exc).__name__}: {exc}",
+        }

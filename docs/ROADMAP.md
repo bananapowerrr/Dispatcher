@@ -7,8 +7,8 @@
 | R1 | Terminal path (`finish_task`) | done / in repo |
 | R2 | ExecutionResult → Evidence | done / in repo |
 | R3 | Recovery Controller | done / in repo |
-| R4 | Worker / fallback contract | next |
-| R5 | Context budget | planned |
+| R4 | Worker / fallback contract | done |
+| R5 | Context budget | done |
 | R6 | Night Mode v0 | after R4–R5 |
 
 ## Product distribution — UPDATE-001
