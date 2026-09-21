@@ -1,0 +1,16 @@
+{
+  "app": "AgentBus",
+  "version": "0.10.1",
+  "channel": "stable",
+  "published_at": "2026-09-21T00:00:00Z",
+  "notes": "Worker fallback and recovery improvements.",
+  "min_updater": "1.0.0",
+  "package": {
+    "url": "https://github.com/bananapowerrr/Dispatcher/releases/download/v0.10.1/AgentBus-0.10.1-win64.zip",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "size_bytes": 0,
+    "format": "zip"
+  },
+  "user_data_paths": ["%APPDATA%/AgentBus"],
+  "install_paths_hint": ["binaries", "runtime", "ui", "skills"]
+}
