@@ -1,187 +1,212 @@
-# UI strings (EN)
-app_title: "AgentBus Dispatcher"
-dispatcher_start: "▶ Dispatcher"
-dispatcher_stop: "■ Stop"
-settings: "⚙ Settings"
-project_label: "Project: {name}"
-dispatcher_active: "dispatcher: active"
-dispatcher_idle: "dispatcher: idle"
-tab_logs: "Logs"
-tab_metrics: "Metrics"
-tab_history: "History"
-tab_workers: "Workers"
-tab_skills: "Skills"
-tab_pev: "PEV Plan"
-tab_sentinel: "Sentinel"
-tab_diff: "Diff"
-template_label: "Template:"
-send: "Send"
-copy: "Copy"
-files_none: "(none) · drag&drop here"
-files_label: "Files:"
-system_prefix: "System"
-agent_prefix: "Agent"
-theme_label: "Theme:"
-language_label: "Language:"
-lang_ru: "Русский"
-lang_en: "English"
-projects_title: "Projects"
-channel_label: "Channel:"
-refresh: "Refresh"
-save: "Save"
-history_title: "Task history"
-metrics_title: "Metrics"
-logs_title: "Logs"
-workers_title: "Workers"
-skills_learn_title: "Skills (learner)"
-pev_title: "PEV Plan"
-pev_loaded: "Plan loaded"
-pev_empty: "No plan yet"
-pev_saved: "Saved"
-sentinel_title: "Sentinel"
-settings_tab_providers: "Providers"
-settings_tab_workers: "Workers"
-settings_tab_context: "Context"
-settings_tab_prompt: "Prompt"
-settings_tab_language: "Language"
-toast_done: "AgentBus · DONE"
-toast_error: "AgentBus · ERROR"
-history_empty: "Empty — send a task from chat"
-resend: "↻ again"
-details: "details"
-cmd_help: |
-  Commands:
+app_title: AgentBus — local AI coding agent
+dispatcher_start: ▶ Start dispatcher
+dispatcher_stop: ■ Stop
+settings: ⚙ Settings
+project_label: 'Project: {name}'
+dispatcher_active: 'dispatcher: active'
+dispatcher_idle: 'dispatcher: idle'
+tab_logs: Logs
+tab_metrics: Metrics
+tab_history: History
+tab_workers: Workers
+tab_skills: Skills
+tab_pev: PEV Plan
+tab_sentinel: Sentinel
+tab_diff: Diff
+template_label: 'Template:'
+send: Send
+copy: Copy
+files_none: (none) · drag&drop here
+files_label: 'Files:'
+system_prefix: System
+agent_prefix: Agent
+theme_label: 'Theme:'
+language_label: 'Language:'
+lang_ru: Русский
+lang_en: English
+projects_title: Projects
+channel_label: 'Channel:'
+refresh: Refresh
+save: Save
+history_title: Task history
+metrics_title: Metrics
+logs_title: Logs
+workers_title: Workers
+skills_learn_title: Skills (learner)
+pev_title: PEV Plan
+pev_loaded: Plan loaded
+pev_empty: No plan yet
+pev_saved: Saved
+sentinel_title: Sentinel
+settings_tab_providers: Providers
+settings_tab_workers: Workers
+settings_tab_context: Context
+settings_tab_prompt: Prompt
+settings_tab_language: Language
+toast_done: AgentBus · DONE
+toast_error: AgentBus · ERROR
+history_empty: Empty — send a task from chat
+resend: ↻ again
+details: details
+cmd_help: 'Commands:
+
   /help — help
+
   /status — dispatcher + queue
+
   /workers — workers.yaml
+
   /metrics — refresh metrics
+
   /history — refresh history
+
   /clear — clear chat
 
-why_btn: "Why?"
-skill_accept: "Create"
-skill_skip: "Skip"
-status_online: "Online"
-btn_send: "Send"
-settings_lang: "Interface language"
-lang_saved: "Language saved: {lang}"
-
-tab_recipes: "Recipes"
-tab_phone: "Phone"
-tab_extensions: "Extensions"
-tab_chat: "Chat"
-tab_logs: "Logs"
-tab_metrics: "Metrics"
-tab_history: "History"
-tab_workers: "Workers"
-tab_skills: "Skills"
-recipes_title: "Recipes"
-recipes_hint: "Ready-made scenarios → desktop queue"
-recipes_run: "Run"
-recipes_refresh: "Refresh"
-recipes_empty: "No recipes/*.json"
-recipes_queued: "Queued: {name}"
-phase_prepare: "prepare"
-phase_cache_skills: "cache & skills"
-phase_worker: "worker / model"
-phase_verify: "verify"
-phase_desktop_claim: "accepted from chat"
-phase_working: "Working: {label}"
-phase_step: "stage: {label}"
-cost_title: "SESSION COST"
-cost_local_zero: "local Ollama/LM Studio: $0"
-doctor_ok: "READY TO START"
-doctor_fail: "FIX [NO ] items first"
-app_title: "AgentBus — local AI coding agent"
-dispatcher_start: "▶ Start dispatcher"
-dispatcher_stop: "■ Stop"
-
-btn_diagnose: "Diagnose"
-brand_tagline: "local AI for code"
-composer_hint: "Ctrl+Enter to send · @file · /help · recipes on the right"
-drop_hint: "Drop files here · @mention · /commands"
-footer_idle: "dispatcher: —  ·  queue: —"
-
-channel_hint: "desktop = PC chat (primary)"
-projects_empty: "No PROJECT_* in .env"
-quick_refactor: "Refactor"
-quick_tests: "Tests"
-quick_explain: "Explain"
-quick_types: "Types"
-tab_queue: "Queue"
-queue_title: "Task queue"
-queue_empty: "Queue is empty — send a task from chat"
-queue_summary: "queued {queued} · running {processing} · deferred {deferred} · errors {errors}"
-chat_placeholder: "Describe a task… (Ctrl+Enter)"
-chat_ready: "Ready for a task"
-chat_busy: "Working…"
-phase_idle: "idle"
-phase_done: "done"
-phase_error: "error"
-phase_retry: "retry"
-phase_deferred: "deferred"
-status_done: "Done"
-status_error: "Error"
-status_pending: "Queued"
-status_processing: "Running"
-status_waiting_decision: "Waiting decision"
-status_deferred: "Deferred"
-status_cancelled: "Cancelled"
-workers_last: "last outcome"
-workers_none_outcome: "no outcomes yet"
-skills_empty: "No registered skills"
-footer_busy: "dispatcher: ON  ·  task in progress"
-footer_on: "dispatcher: ON  ·  queue: {n}"
-footer_off: "dispatcher: OFF  ·  queue: {n}"
-btn_add_file: "+ file"
-btn_clear_files: "clear"
-disp_off: "dispatcher off"
-disp_on: "dispatcher on"
-history_no_message: "(no text)"
-workers_empty: "No data — start the dispatcher on the left"
-clear: "Clear"
-queue_label: "Queue: —"
-diff_apply: "Apply"
-diff_reject: "Reject"
-diff_empty: "(no changes)"
-diff_none_pending: "No pending diffs"
-diff_none_task: "No diff for this task"
-settings_tab_flags: "Flags"
-settings_tab_ui: "Interface"
-btn_help: "Help"
-help_title: "AgentBus Help"
-close: "Close"
-settings_tab_presets: "Presets"
-export: "Export"
-skills_catalog_title: "Registered skills"
-skills_no_candidates: "No candidates (≥3 similar successful LLM runs needed)"
-sentinel_scan: "Scan junk"
-sentinel_shadows: "Shadow candidates (*_v2 / _new)"
-sentinel_quarantine: "Quarantine (.agentbus/quarantine)"
-settings_tab_policy: "Policy"
-agent_behavior: "Agent behavior"
-btn_continue: "Continue"
-btn_review: "Review"
-btn_undo: "Undo"
-health: "Health"
-workflow: "Workflow"
-status_bar_busy: "Busy…"
-status_bar_ready: "Ready"
-no_project: "Select a project"
-no_selection: "Nothing selected"
-run_app: "Run"
-stop_app: "Stop"
-suggest: "Suggestions"
-composer_title: "Composer — new task"
-composer_hint_panel: "Explicit task form. Submit → queue."
-composer_message: "Task"
-composer_files: "Files (comma-separated)"
-composer_priority: "Priority"
-composer_preview_btn: "Preview"
-composer_submit: "Enqueue"
-composer_from_suggest: "From suggestion"
-settings_tab_agent: "Agent"
-welcome_1: "NVCode: chat is the main input. Ctrl+K — Composer and commands."
-welcome_2: "After a task: Report → Review / Continue / Undo."
-welcome_3: "Agent · … — profile. ? on Health — why."
-welcome_beginner_tabs: "Beginner profile: technical tabs hidden. Ctrl+K → Show all tabs."
+  '
+why_btn: Why?
+skill_accept: Create
+skill_skip: Skip
+status_online: Online
+btn_send: Send
+settings_lang: Interface language
+lang_saved: 'Language saved: {lang}'
+tab_recipes: Recipes
+tab_phone: Phone
+tab_extensions: Extensions
+tab_chat: Chat
+recipes_title: Recipes
+recipes_hint: Ready-made scenarios → desktop queue
+recipes_run: Run
+recipes_refresh: Refresh
+recipes_empty: No recipes/*.json
+recipes_queued: 'Queued: {name}'
+phase_prepare: prepare
+phase_cache_skills: cache & skills
+phase_worker: worker / model
+phase_verify: verify
+phase_desktop_claim: accepted from chat
+phase_working: 'Working: {label}'
+phase_step: 'stage: {label}'
+cost_title: SESSION COST
+cost_local_zero: 'local Ollama/LM Studio: $0'
+doctor_ok: READY TO START
+doctor_fail: FIX [NO ] items first
+btn_diagnose: Diagnose
+brand_tagline: local AI for code
+composer_hint: Ctrl+Enter to send · @file · /help · recipes on the right
+drop_hint: Drop files here · @mention · /commands
+footer_idle: 'dispatcher: —  ·  queue: —'
+channel_hint: desktop = PC chat (primary)
+projects_empty: No PROJECT_* in .env
+quick_refactor: Refactor
+quick_tests: Tests
+quick_explain: Explain
+quick_types: Types
+tab_queue: Queue
+queue_title: Task queue
+queue_empty: Queue is empty — send a task from chat
+queue_summary: queued {queued} · running {processing} · deferred {deferred} · errors
+  {errors}
+chat_placeholder: Describe a task… (Ctrl+Enter)
+chat_ready: Ready for a task
+chat_busy: Working…
+phase_idle: idle
+phase_done: done
+phase_error: error
+phase_retry: retry
+phase_deferred: deferred
+status_done: Done
+status_error: Error
+status_pending: Queued
+status_processing: Running
+status_waiting_decision: Waiting decision
+status_deferred: Deferred
+status_cancelled: Cancelled
+workers_last: last outcome
+workers_none_outcome: no outcomes yet
+skills_empty: No registered skills
+footer_busy: 'dispatcher: ON  ·  task in progress'
+footer_on: 'dispatcher: ON  ·  queue: {n}'
+footer_off: 'dispatcher: OFF  ·  queue: {n}'
+btn_add_file: + file
+btn_clear_files: clear
+disp_off: dispatcher off
+disp_on: dispatcher on
+history_no_message: (no text)
+workers_empty: No data — start the dispatcher on the left
+clear: Clear
+queue_label: 'Queue: —'
+diff_apply: Apply
+diff_reject: Reject
+diff_empty: (no changes)
+diff_none_pending: No pending diffs
+diff_none_task: No diff for this task
+settings_tab_flags: Flags
+settings_tab_ui: Interface
+btn_help: Help
+help_title: AgentBus Help
+close: Close
+settings_tab_presets: Presets
+export: Export
+skills_catalog_title: Registered skills
+skills_no_candidates: No candidates (≥3 similar successful LLM runs needed)
+sentinel_scan: Scan junk
+sentinel_shadows: Shadow candidates (*_v2 / _new)
+sentinel_quarantine: Quarantine (.agentbus/quarantine)
+settings_tab_policy: Policy
+agent_behavior: Agent behavior
+btn_continue: Continue
+btn_review: Review
+btn_undo: Undo
+health: Health
+workflow: Workflow
+status_bar_busy: Busy…
+status_bar_ready: Ready
+no_project: Select a project
+no_selection: Nothing selected
+run_app: Run
+stop_app: Stop
+suggest: Suggestions
+composer_title: Composer — new task
+composer_hint_panel: Explicit task form. Submit → queue.
+composer_message: Task
+composer_files: Files (comma-separated)
+composer_priority: Priority
+composer_preview_btn: Preview
+composer_submit: Enqueue
+composer_from_suggest: From suggestion
+settings_tab_agent: Agent
+welcome_1: 'NVCode: chat is the main input. Ctrl+K — Composer and commands.'
+welcome_2: 'After a task: Report → Review / Continue / Undo.'
+welcome_3: Agent · … — profile. ? on Health — why.
+welcome_beginner_tabs: 'Beginner profile: technical tabs hidden. Ctrl+K → Show all
+  tabs.'
+recovery_replan_ok: '↻ Replan: step `{err}` stays ERROR. → Retry step `{new}` (PENDING).'
+recovery_replan_fail: '⚠ Replan failed: {error}'
+recovery_step_frozen: • Step already DONE — ERROR outcome ignored.
+recovery_block_decision: ⏸ Plan waits for your decision — open Decisions.
+recovery_block_active: ⏸ A step is IN_PROGRESS — next starts after it finishes.
+recovery_block_error: ⏸ Dependent step in ERROR — retry/replan required.
+flags_title: Feature flags
+flags_readonly_hint: Read-only. Change via config/feature_flags.yaml or AGENTBUS_FEATURE_*.
+flags_enabled: 'on'
+flags_disabled: 'off'
+flags_empty: No known flags
+settings_tab_about: About
+settings_tab_night: Night mode
+about_title: About / updates
+about_hint: Check only reads release.json. Install uses external updater.
+about_checking: Checking for updates…
+about_up_to_date: Up to date.
+about_later: Remind later. Package was not downloaded.
+about_dismissed: Deferred
+about_check_btn: Check for updates
+about_later_btn: Later
+about_update_dry_btn: Update (dry-run)
+about_no_update: No update available
+about_updater_dry: Updater dry-run OK (package not installed)
+night_title: Night mode
+night_hint: Status and morning report. Cycle starts via Runtime/autopilot, not this tab.
+night_refresh_btn: Refresh status
+night_report_btn: Morning report
+night_refreshed: Night status updated

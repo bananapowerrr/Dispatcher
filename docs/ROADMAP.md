@@ -61,3 +61,18 @@ MCP, heavy RAG, multi-agent parallelism, cloud provider sprawl, Day-doc spam.
 | DEV-009 | Night Mode Policy/Scheduler | done |
 
 LIVE-001 remains parallel acceptance on PC.
+
+
+## Post-audit wiring (after Git HEAD 7cd1859)
+
+| ID | Focus | Status |
+|----|--------|--------|
+| WIRE-001 | Recovery → Chat (notify_error + row) | done |
+| WIRE-002 | rp_context + task_continuity | done |
+| WIRE-003 | worker_result on all ERROR exits | next |
+| WIRE-004 | context_audit in metadata (assemble returns it) | partial |
+| SYNC-SCRIPTS | build_release + agentbus_updater + release.yml → Git | next (local ready) |
+| LIVE-001 | Real PC Ollama/Aider | PC |
+| NIGHT-UI-001 | Night status + Morning Report in Chat | done |
+
+| NIGHT-RT-001 | execute_fn → Runtime bridge (mockable) | done |

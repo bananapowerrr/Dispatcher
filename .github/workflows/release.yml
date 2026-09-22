@@ -1,0 +1,69 @@
+# UPDATE-001F — publish AgentBus release on tag v*
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without v prefix (workflow_dispatch only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+            V="${{ inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Building AgentBus $V"
+
+      - name: Build package + release.json
+        run: |
+          python scripts/build_release.py \
+            --version "${{ steps.ver.outputs.version }}" \
+            --channel stable \
+            --out dist \
+            --notes "AgentBus ${{ steps.ver.outputs.version }}"
+
+      - name: Upload artifacts (CI)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentbus-release
+          path: |
+            dist/*.zip
+            dist/release.json
+            dist/*.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: AgentBus ${{ steps.ver.outputs.version }}
+          files: |
+            dist/*.zip
+            dist/release.json
+            dist/*.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,179 +1,212 @@
-# UI strings (RU)
-app_title: "AgentBus Диспетчер"
-dispatcher_start: "▶ Dispatcher"
-dispatcher_stop: "■ Stop"
-settings: "⚙ Настройки"
-project_label: "Проект: {name}"
-dispatcher_active: "dispatcher: active"
-dispatcher_idle: "dispatcher: idle"
-tab_logs: "Логи"
-tab_metrics: "Метрики"
-tab_history: "История"
-tab_workers: "Воркеры"
-tab_skills: "Навыки"
-tab_pev: "PEV План"
-tab_sentinel: "Санитар"
-tab_diff: "Diff"
-template_label: "Шаблон:"
-send: "Отправить"
-copy: "Копировать"
-files_none: "(нет) · drag&drop сюда"
-files_label: "Файлы:"
-system_prefix: "System"
-agent_prefix: "Agent"
-theme_label: "Тема:"
-language_label: "Язык:"
-lang_ru: "Русский"
-lang_en: "English"
-projects_title: "Проекты"
-channel_label: "Канал:"
-refresh: "Обновить"
-save: "Сохранить"
-history_title: "История задач"
-metrics_title: "Метрики"
-logs_title: "Логи"
-workers_title: "Воркеры"
-skills_learn_title: "Навыки (learner)"
-pev_title: "PEV План"
-pev_loaded: "План загружен"
-pev_empty: "Плана нет"
-pev_saved: "Сохранено"
-sentinel_title: "Санитар"
-settings_tab_providers: "Провайдеры"
-settings_tab_workers: "Воркеры"
-settings_tab_context: "Контекст"
-settings_tab_prompt: "Промпт"
-settings_tab_language: "Язык"
-toast_done: "AgentBus · ГОТОВО"
-toast_error: "AgentBus · ОШИБКА"
-history_empty: "Пока пусто — отправь задачу из чата"
-resend: "↻ снова"
-details: "детали"
-cmd_help: |
-  Команды:
+app_title: AgentBus Диспетчер
+dispatcher_start: ▶ Dispatcher
+dispatcher_stop: ■ Stop
+settings: ⚙ Настройки
+project_label: 'Проект: {name}'
+dispatcher_active: 'dispatcher: active'
+dispatcher_idle: 'dispatcher: idle'
+tab_logs: Логи
+tab_metrics: Метрики
+tab_history: История
+tab_workers: Воркеры
+tab_skills: Навыки
+tab_pev: PEV План
+tab_sentinel: Санитар
+tab_diff: Diff
+template_label: 'Шаблон:'
+send: Отправить
+copy: Копировать
+files_none: (нет) · drag&drop сюда
+files_label: 'Файлы:'
+system_prefix: System
+agent_prefix: Agent
+theme_label: 'Тема:'
+language_label: 'Язык:'
+lang_ru: Русский
+lang_en: English
+projects_title: Проекты
+channel_label: 'Канал:'
+refresh: Обновить
+save: Сохранить
+history_title: История задач
+metrics_title: Метрики
+logs_title: Логи
+workers_title: Воркеры
+skills_learn_title: Навыки (learner)
+pev_title: PEV План
+pev_loaded: План загружен
+pev_empty: Плана нет
+pev_saved: Сохранено
+sentinel_title: Санитар
+settings_tab_providers: Провайдеры
+settings_tab_workers: Воркеры
+settings_tab_context: Контекст
+settings_tab_prompt: Промпт
+settings_tab_language: Язык
+toast_done: AgentBus · готово
+toast_error: AgentBus · ошибка
+history_empty: Пока пусто — отправь задачу из чата
+resend: ↻ снова
+details: детали
+cmd_help: 'Команды:
+
   /help — справка
+
   /status — dispatcher + очередь
+
   /workers — workers.yaml
+
   /metrics — обновить метрики
+
   /history — обновить историю
+
   /clear — очистить чат
 
-why_btn: "Почему?"
-skill_accept: "Создать"
-skill_skip: "Пропустить"
-status_online: "В сети"
-btn_send: "Отправить"
-settings_lang: "Язык интерфейса"
-lang_saved: "Язык сохранён: {lang}"
-
-tab_recipes: "Рецепты"
-tab_phone: "Телефон"
-tab_extensions: "Расширения"
-tab_chat: "Чат"
-recipes_title: "Рецепты"
-recipes_hint: "Готовые сценарии → задача в очередь чата"
-recipes_run: "Запустить"
-recipes_refresh: "Обновить"
-recipes_empty: "Нет recipes/*.json"
-recipes_queued: "В очереди: {name}"
-phase_prepare: "подготовка"
-phase_cache_skills: "кэш и навыки"
-phase_worker: "воркер / модель"
-phase_verify: "проверка"
-phase_desktop_claim: "принята из чата"
-phase_working: "В работе: {label}"
-phase_step: "этап: {label}"
-cost_title: "СТОИМОСТЬ СЕССИИ"
-cost_local_zero: "local Ollama/LM Studio: 0 ₽"
-doctor_ok: "МОЖНО СТАРТОВАТЬ"
-doctor_fail: "СНАЧАЛА ИСПРАВЬ пункты с [NO ]"
-status_bar_ready: "готово"
-status_bar_busy: "идёт задача…"
-
-btn_diagnose: "Диагностика"
-brand_tagline: "локальный AI для кода"
-composer_hint: "Ctrl+Enter — отправить · @файл · /help · рецепты справа"
-drop_hint: "Перетащите файлы сюда · @упоминание · /команды"
-footer_idle: "диспетчер: —  ·  очередь: —"
-
-channel_hint: "desktop = чат ПК (основной)"
-projects_empty: "Нет PROJECT_* в .env"
-quick_refactor: "Рефакторинг"
-quick_tests: "Тесты"
-quick_explain: "Объясни"
-quick_types: "Типы"
-disp_off: "диспетчер выключен"
-disp_on: "диспетчер активен"
-history_no_message: "(без текста)"
-settings_tab_policy: "Политика"
-toast_done: "AgentBus · готово"
-toast_error: "AgentBus · ошибка"
-workers_empty: "Нет данных — запустите диспетчер слева"
-
-clear: "Очистить"
-queue_label: "Очередь: —"
-diff_apply: "Применить"
-diff_reject: "Отклонить"
-diff_empty: "(нет изменений)"
-diff_none_pending: "Нет ожидающих diff"
-diff_none_task: "Нет diff для этой задачи"
-settings_tab_flags: "Флаги"
-settings_tab_ui: "Интерфейс"
-btn_help: "Справка"
-help_title: "Справка AgentBus"
-close: "Закрыть"
-settings_tab_presets: "Пресеты"
-export: "Экспорт"
-skills_catalog_title: "Зарегистрированные навыки"
-skills_no_candidates: "Нет кандидатов (нужно ≥3 похожих успешных LLM-решений)"
-sentinel_scan: "Скан мусора"
-sentinel_shadows: "Теневые кандидаты (*_v2 / _new)"
-sentinel_quarantine: "Карантин (.agentbus/quarantine)"
-
-# FC-21 UI polish
-tab_queue: "Очередь"
-queue_title: "Очередь задач"
-queue_empty: "Очередь пуста — отправь задачу из чата"
-queue_summary: "в очереди {queued} · в работе {processing} · отложено {deferred} · ошибки {errors}"
-chat_placeholder: "Опишите задачу… (Ctrl+Enter)"
-chat_ready: "Готов к задаче"
-chat_busy: "Выполняется…"
-phase_idle: "ожидание"
-phase_done: "готово"
-phase_error: "ошибка"
-phase_retry: "повтор"
-phase_deferred: "отложена"
-status_done: "Готово"
-status_error: "Ошибка"
-status_pending: "В очереди"
-status_processing: "В работе"
-status_waiting_decision: "Ожидает решения"
-status_deferred: "Отложена"
-status_cancelled: "Отменена"
-workers_last: "последний результат"
-workers_none_outcome: "пока нет результатов"
-skills_empty: "Нет зарегистрированных навыков"
-footer_busy: "диспетчер: ON  ·  задача идёт"
-footer_on: "диспетчер: ON  ·  очередь: {n}"
-footer_off: "диспетчер: OFF  ·  очередь: {n}"
-btn_add_file: "+ файл"
-btn_clear_files: "очистить"
-agent_behavior: "Поведение агента"
-btn_continue: "Продолжить"
-btn_review: "Ревью"
-btn_undo: "Отменить"
-workflow: "Workflow"
-health: "Health"
-composer_title: "Composer — новая задача"
-composer_hint_panel: "Явная форма задачи. Отправка → очередь."
-composer_message: "Задача"
-composer_files: "Файлы (через запятую)"
-composer_priority: "Приоритет"
-composer_preview_btn: "Превью"
-composer_submit: "В очередь"
-composer_from_suggest: "Из подсказки"
-settings_tab_agent: "Agent"
-welcome_1: "NVCode: чат — основной ввод. Ctrl+K — Composer и команды."
-welcome_2: "После задачи: Report → Review / Continue / Undo."
-welcome_3: "Agent · … — профиль. ? у Health — почему."
-welcome_beginner_tabs: "Профиль Новичок: технические вкладки скрыты. Ctrl+K → Show all tabs."
+  '
+why_btn: Почему?
+skill_accept: Создать
+skill_skip: Пропустить
+status_online: В сети
+btn_send: Отправить
+settings_lang: Язык интерфейса
+lang_saved: 'Язык сохранён: {lang}'
+tab_recipes: Рецепты
+tab_phone: Телефон
+tab_extensions: Расширения
+tab_chat: Чат
+recipes_title: Рецепты
+recipes_hint: Готовые сценарии → задача в очередь чата
+recipes_run: Запустить
+recipes_refresh: Обновить
+recipes_empty: Нет recipes/*.json
+recipes_queued: 'В очереди: {name}'
+phase_prepare: подготовка
+phase_cache_skills: кэш и навыки
+phase_worker: воркер / модель
+phase_verify: проверка
+phase_desktop_claim: принята из чата
+phase_working: 'В работе: {label}'
+phase_step: 'этап: {label}'
+cost_title: СТОИМОСТЬ СЕССИИ
+cost_local_zero: 'local Ollama/LM Studio: 0 ₽'
+doctor_ok: МОЖНО СТАРТОВАТЬ
+doctor_fail: СНАЧАЛА ИСПРАВЬ пункты с [NO ]
+status_bar_ready: готово
+status_bar_busy: идёт задача…
+btn_diagnose: Диагностика
+brand_tagline: локальный AI для кода
+composer_hint: Ctrl+Enter — отправить · @файл · /help · рецепты справа
+drop_hint: Перетащите файлы сюда · @упоминание · /команды
+footer_idle: 'диспетчер: —  ·  очередь: —'
+channel_hint: desktop = чат ПК (основной)
+projects_empty: Нет PROJECT_* в .env
+quick_refactor: Рефакторинг
+quick_tests: Тесты
+quick_explain: Объясни
+quick_types: Типы
+disp_off: диспетчер выключен
+disp_on: диспетчер активен
+history_no_message: (без текста)
+settings_tab_policy: Политика
+workers_empty: Нет данных — запустите диспетчер слева
+clear: Очистить
+queue_label: 'Очередь: —'
+diff_apply: Применить
+diff_reject: Отклонить
+diff_empty: (нет изменений)
+diff_none_pending: Нет ожидающих diff
+diff_none_task: Нет diff для этой задачи
+settings_tab_flags: Флаги
+settings_tab_ui: Интерфейс
+btn_help: Справка
+help_title: Справка AgentBus
+close: Закрыть
+settings_tab_presets: Пресеты
+export: Экспорт
+skills_catalog_title: Зарегистрированные навыки
+skills_no_candidates: Нет кандидатов (нужно ≥3 похожих успешных LLM-решений)
+sentinel_scan: Скан мусора
+sentinel_shadows: Теневые кандидаты (*_v2 / _new)
+sentinel_quarantine: Карантин (.agentbus/quarantine)
+tab_queue: Очередь
+queue_title: Очередь задач
+queue_empty: Очередь пуста — отправь задачу из чата
+queue_summary: в очереди {queued} · в работе {processing} · отложено {deferred} ·
+  ошибки {errors}
+chat_placeholder: Опишите задачу… (Ctrl+Enter)
+chat_ready: Готов к задаче
+chat_busy: Выполняется…
+phase_idle: ожидание
+phase_done: готово
+phase_error: ошибка
+phase_retry: повтор
+phase_deferred: отложена
+status_done: Готово
+status_error: Ошибка
+status_pending: В очереди
+status_processing: В работе
+status_waiting_decision: Ожидает решения
+status_deferred: Отложена
+status_cancelled: Отменена
+workers_last: последний результат
+workers_none_outcome: пока нет результатов
+skills_empty: Нет зарегистрированных навыков
+footer_busy: 'диспетчер: ON  ·  задача идёт'
+footer_on: 'диспетчер: ON  ·  очередь: {n}'
+footer_off: 'диспетчер: OFF  ·  очередь: {n}'
+btn_add_file: + файл
+btn_clear_files: очистить
+agent_behavior: Поведение агента
+btn_continue: Продолжить
+btn_review: Ревью
+btn_undo: Отменить
+workflow: Workflow
+health: Health
+composer_title: Composer — новая задача
+composer_hint_panel: Явная форма задачи. Отправка → очередь.
+composer_message: Задача
+composer_files: Файлы (через запятую)
+composer_priority: Приоритет
+composer_preview_btn: Превью
+composer_submit: В очередь
+composer_from_suggest: Из подсказки
+settings_tab_agent: Agent
+welcome_1: 'NVCode: чат — основной ввод. Ctrl+K — Composer и команды.'
+welcome_2: 'После задачи: Report → Review / Continue / Undo.'
+welcome_3: Agent · … — профиль. ? у Health — почему.
+welcome_beginner_tabs: 'Профиль Новичок: технические вкладки скрыты. Ctrl+K → Show
+  all tabs.'
+no_project: Выберите проект
+no_selection: Ничего не выбрано
+run_app: Запуск
+stop_app: Стоп
+suggest: Подсказки
+recovery_replan_ok: '↻ Replan: шаг `{err}` остаётся ERROR. → Retry-шаг `{new}` (PENDING).'
+recovery_replan_fail: '⚠ Replan не выполнен: {error}'
+recovery_step_frozen: • Шаг уже DONE — outcome ERROR проигнорирован.
+recovery_block_decision: ⏸ План ждёт вашего решения — откройте Decisions.
+recovery_block_active: ⏸ Уже есть шаг IN_PROGRESS — следующий после завершения.
+recovery_block_error: ⏸ Зависимый шаг в ERROR — нужен retry/replan.
+flags_title: Флаги функций
+flags_readonly_hint: Только просмотр. Изменение — config/feature_flags.yaml или AGENTBUS_FEATURE_*.
+flags_enabled: вкл
+flags_disabled: выкл
+flags_empty: Нет известных флагов
+settings_tab_about: О программе
+settings_tab_night: Ночной режим
+about_title: О программе / обновления
+about_hint: Проверка только читает release.json. Установка — внешний updater.
+about_checking: Проверка обновлений…
+about_up_to_date: Обновлений нет.
+about_later: Напомним позже. Пакет не скачивался.
+about_dismissed: Отложено
+about_check_btn: Проверить обновления
+about_later_btn: Позже
+about_update_dry_btn: Обновить (dry-run)
+about_no_update: Нет доступного обновления
+about_updater_dry: Updater dry-run OK (пакет не установлен)
+night_title: Ночной режим
+night_hint: Статус и утренний отчёт. Запуск цикла — через Runtime/autopilot, не из этой вкладки.
+night_refresh_btn: Обновить статус
+night_report_btn: Утренний отчёт
+night_refreshed: Night status обновлён
