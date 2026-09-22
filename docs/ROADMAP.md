@@ -19,8 +19,8 @@
 | UPDATE-001B | UpdateChecker (fetch + compare) | done |
 | UPDATE-001C | UI / Chat notification | done |
 | UPDATE-001D | External agentbus-updater process | done |
-| UPDATE-001E | Hash verify + rollback | planned |
-| UPDATE-001F | GitHub Release + build pipeline | planned |
+| UPDATE-001E | Hash verify + backup/replace/rollback | done |
+| UPDATE-001F | GitHub Release + build pipeline | done |
 
 ### Update principles
 
