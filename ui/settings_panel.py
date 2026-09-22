@@ -33,6 +33,7 @@ class SettingsPanel(ctk.CTkFrame):
         self._build_flags_tab(tabview.add(_t("settings_tab_flags", default="Флаги")))
         self._build_ui_prefs_tab(tabview.add(_t("settings_tab_ui", default="Интерфейс")))
         self._build_presets_tab(tabview.add(_t("settings_tab_presets", default="Пресеты")))
+        self._build_about_tab(tabview.add(_t("settings_tab_about", default="О программе")))
 
     def _set_status(self, msg: str, ok: bool = True) -> None:
         self._status.configure(text=msg, text_color=("green" if ok else "orange"))
@@ -460,3 +461,88 @@ class SettingsPanel(ctk.CTkFrame):
                 ctk.CTkButton(row, text=label, width=100, command=_mk()).pack(side="left", padx=4)
         except Exception:
             pass
+
+
+    def _build_about_tab(self, parent) -> None:
+        """UPDATE-001C: version + check for updates (no self-install)."""
+        self._ro_banner(parent, tab_key="about")
+        ctk.CTkLabel(
+            parent,
+            text=_t("about_title", default="О программе / обновления"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(anchor="w", padx=8, pady=(8, 4))
+        self._about_version = ctk.CTkLabel(parent, text="…", text_color="gray")
+        self._about_version.pack(anchor="w", padx=8, pady=2)
+        self._about_detail = ctk.CTkTextbox(parent, height=100, wrap="word")
+        self._about_detail.pack(fill="x", padx=8, pady=6)
+        self._about_detail.insert("1.0", _t("about_hint", default="Проверка только читает release.json. Установка — внешний updater."))
+        self._about_detail.configure(state="disabled")
+
+        def _set_detail(text: str) -> None:
+            self._about_detail.configure(state="normal")
+            self._about_detail.delete("1.0", "end")
+            self._about_detail.insert("1.0", text)
+            self._about_detail.configure(state="disabled")
+
+        def do_check() -> None:
+            self._set_status(_t("about_checking", default="Проверка обновлений…"), ok=True)
+            try:
+                from ui.update_notice import run_update_check, status_line
+
+                # Prefer offline-safe if AGENTBUS_OFFLINE; else network
+                result = run_update_check()
+                self._about_version.configure(text=status_line(result))
+                notice = str(result.get("notice") or "")
+                if notice:
+                    _set_detail(notice)
+                elif result.get("error"):
+                    _set_detail(f"{status_line(result)}\nerror={result.get('error')}")
+                else:
+                    _set_detail(status_line(result) + "\n" + _t("about_up_to_date", default="Обновлений нет."))
+                self._set_status(status_line(result), ok=not bool(result.get("error") and not result.get("manifest_ok")))
+            except Exception as exc:
+                self._set_status(str(exc), ok=False)
+
+        def dismiss() -> None:
+            _set_detail(_t("about_later", default="Напомним позже. Пакет не скачивался."))
+            self._set_status(_t("about_dismissed", default="Отложено"), ok=True)
+
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=8, pady=8)
+        ctk.CTkButton(row, text=_t("about_check_btn", default="Проверить обновления"), command=do_check, width=180).pack(side="left", padx=4)
+        ctk.CTkButton(row, text=_t("about_later_btn", default="Позже"), command=dismiss, width=100, fg_color="transparent", border_width=1).pack(side="left", padx=4)
+
+        def do_update_dry() -> None:
+            """UPDATE-001D: write job + launch updater --dry-run (no install)."""
+            try:
+                from ui.update_notice import run_update_check
+                from app.updater_protocol import prepare_and_launch_from_check
+
+                check = run_update_check()
+                if not check.get("update_available"):
+                    self._set_status(_t("about_no_update", default="Нет доступного обновления"), ok=True)
+                    return
+                launched = prepare_and_launch_from_check(check, dry_run=True, wait=True)
+                if launched.get("ok"):
+                    self._set_status(
+                        _t("about_updater_dry", default="Updater dry-run OK (пакет не установлен)"),
+                        ok=True,
+                    )
+                else:
+                    self._set_status(str(launched.get("error") or launched), ok=False)
+            except Exception as exc:
+                self._set_status(str(exc), ok=False)
+
+        ctk.CTkButton(
+            row,
+            text=_t("about_update_dry_btn", default="Обновить (dry-run)"),
+            command=do_update_dry,
+            width=160,
+        ).pack(side="left", padx=4)
+        # initial local version only
+        try:
+            from app.version import get_version
+            from ui.update_notice import status_line
+            self._about_version.configure(text=status_line({"current": get_version()}))
+        except Exception:
+            self._about_version.configure(text="AgentBus")

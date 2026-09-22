@@ -201,6 +201,7 @@ class ChatPanel(ctk.CTkFrame):
         # Tk DnD if available (tkinterdnd2); else parse paths pasted with file:// 
         self._setup_dnd()
         self.after(2000, self._poll_task_results)
+        self.after(5000, self._maybe_notify_update)
 
     def _setup_dnd(self) -> None:
         try:
@@ -593,6 +594,28 @@ class ChatPanel(ctk.CTkFrame):
             self._last_phase.pop(task_id, None)
             self._last_attempts.pop(task_id, None)
             self._notified_deferred.discard(task_id)
+
+
+
+    def _maybe_notify_update(self) -> None:
+        """UPDATE-001C: one-shot soft check; never blocks Chat."""
+        if getattr(self, "_update_notice_shown", False):
+            return
+        try:
+            import os
+            if (os.getenv("AGENTBUS_SKIP_UPDATE_CHECK") or "").strip() in ("1", "true", "yes"):
+                return
+            from ui.update_notice import run_update_check, should_show_chat_banner
+
+            # offline env → no network spam
+            check = run_update_check()
+            if should_show_chat_banner(check):
+                self._update_notice_shown = True
+                notice = str(check.get("notice") or "")
+                if notice:
+                    self.append("System", notice, kind="info")
+        except Exception:
+            pass
 
     def _extract_result_text(self, data: dict) -> str:
         """Достать человекочитаемый итог из done/error JSON."""

@@ -9,16 +9,16 @@
 | R3 | Recovery Controller | done / in repo |
 | R4 | Worker / fallback contract | done |
 | R5 | Context budget | done |
-| R6 | Night Mode v0 | after R4–R5 |
+| R6 | Night Mode v0 | done |
 
 ## Product distribution — UPDATE-001
 
 | ID | Focus | Status |
 |----|--------|--------|
-| **UPDATE-001A** | Version + Release Manifest contract | **now** |
-| UPDATE-001B | UpdateChecker (read-only compare) | skeleton |
-| UPDATE-001C | UI / Chat notification | planned |
-| UPDATE-001D | External `agentbus-updater` process | planned |
+| UPDATE-001A | Version + Release Manifest contract | done |
+| UPDATE-001B | UpdateChecker (fetch + compare) | done |
+| UPDATE-001C | UI / Chat notification | done |
+| UPDATE-001D | External agentbus-updater process | done |
 | UPDATE-001E | Hash verify + rollback | planned |
 | UPDATE-001F | GitHub Release + build pipeline | planned |
 
