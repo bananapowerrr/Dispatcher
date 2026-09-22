@@ -87,13 +87,25 @@ class RPContextMixin:
                     conversation = pre
                 elif "CODEBASE RAG:" in pre:
                     rag = pre
-                return assemble_worker_message(
+                assembled = assemble_worker_message(
                     user_request=user,
                     memory=memory,
                     conversation=conversation,
                     rag=rag,
                     total_chars=max_chars or DEFAULT_TOTAL_CHARS,
                 )
+                # assemble returns dict {message, context_audit, ...}
+                if isinstance(assembled, dict):
+                    try:
+                        self._last_context_audit = assembled.get("context_audit") or {
+                            "chars": assembled.get("chars"),
+                            "truncated": assembled.get("truncated"),
+                            "selected_files": assembled.get("selected_files") or [],
+                        }
+                    except Exception:
+                        pass
+                    return str(assembled.get("message") or msg)
+                return str(assembled or msg)
         except Exception:
             pass
         marker = "USER REQUEST:"
@@ -109,6 +121,26 @@ class RPContextMixin:
         if len(msg) > max_chars:
             return msg[: max_chars // 2] + "\n...[truncated]...\n" + msg[-(max_chars // 2):]
         return msg
+
+
+    def _stash_context_audit(self, raw: dict) -> None:
+        """WIRE-004: persist last assemble audit on task metadata."""
+        try:
+            audit = getattr(self, "_last_context_audit", None)
+            if not isinstance(audit, dict) or not audit:
+                return
+            meta = dict(raw.get("metadata") or {})
+            meta["context_audit"] = {
+                "selected_files": list(audit.get("selected_files") or [])[:40],
+                "selected_n": int(audit.get("selected_n") or len(audit.get("selected_files") or [])),
+                "excluded_n": int(audit.get("excluded_n") or 0),
+                "chars": int(audit.get("chars") or 0),
+                "truncated": bool(audit.get("truncated")),
+                "has_previous_failure": bool(audit.get("has_previous_failure")),
+            }
+            raw["metadata"] = meta
+        except Exception:
+            pass
 
     @safe_stage("_stage_conversation_memory_rag")
     def _stage_conversation_memory_rag(self, raw: dict) -> None:
@@ -173,6 +205,25 @@ class RPContextMixin:
         if REPAIR_ENABLED:
             meta = task.metadata or {}
             prev_failure = str(meta.get("prev_failure") or meta.get("error") or "")[:800]
+            # WIRE-002 / DEV-006: structured previous attempt
+            try:
+                try:
+                    from core.task_continuity import merge_prev_failure
+                except Exception:
+                    from intelligence.task_continuity import merge_prev_failure
+                row = {
+                    "attempts": getattr(task, "attempts", 0),
+                    "metadata": dict(meta) if isinstance(meta, dict) else {},
+                    "result": {},
+                    "error": prev_failure,
+                }
+                if hasattr(task, "result") and isinstance(getattr(task, "result", None), dict):
+                    row["result"] = task.result
+                elif isinstance(meta, dict) and isinstance(meta.get("last_result"), dict):
+                    row["result"] = meta["last_result"]
+                prev_failure = merge_prev_failure(prev_failure, row)[:2500]
+            except Exception:
+                pass
         try:
             task.files = self._expand_files_by_graph(task, proj)
         except Exception:

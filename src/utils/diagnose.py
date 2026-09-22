@@ -237,12 +237,39 @@ def main() -> int:
         print(f"features ERR   : {e}")
         errors += 1
 
+    # Product contracts (offline, no Ollama)
+    try:
+        print("--- product contracts ---")
+        from core.runtime_decision import decide_terminal, evidence_snapshot
+        d = decide_terminal(evidence_snapshot(exec_ok=True, verification={"ok": True, "passed": True}))
+        print(f"  decide_terminal DONE gate : {d.get('terminal_state')}")
+        from core.worker_fallback import allow_worker_fallback
+        print(f"  fallback deny verify     : {not allow_worker_fallback(kind='verification_failed')}")
+        from core.night_runtime_bridge import make_execute_fn
+        out = make_execute_fn(mock=True)({"metadata": {"plan_step_id": "diag"}})
+        print(f"  night mock execute       : {out.get('terminal_state')}")
+        from core.task_continuity import continuity_for_next_prompt
+        b = continuity_for_next_prompt({"attempts": 1, "result": {"error": "x", "changed_files": ["a.py"]}})
+        print(f"  continuity block         : {'yes' if 'PREVIOUS' in b else 'no'}")
+    except Exception as e:
+        print(f"product contracts ERR: {e}")
+        errors += 1
+
     try:
         env_issues = diagnose_environment()
         errors += len(env_issues)
     except Exception as e:
         print(f"environment ERR: {e}")
         errors += 1
+
+    # Day-16: explainable worker route (does not change select_executor)
+    try:
+        from core.worker_route_surface import format_route_for_doctor
+        print("--- worker route (sample) ---")
+        print(format_route_for_doctor())
+    except Exception as e:
+        print(f"worker route   : ERR {e}")
+        # non-fatal for doctor exit code
 
     print("=== end ===")
     print("READY" if errors == 0 else f"ISSUES: {errors}")

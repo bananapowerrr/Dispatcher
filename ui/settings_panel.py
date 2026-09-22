@@ -34,6 +34,7 @@ class SettingsPanel(ctk.CTkFrame):
         self._build_ui_prefs_tab(tabview.add(_t("settings_tab_ui", default="Интерфейс")))
         self._build_presets_tab(tabview.add(_t("settings_tab_presets", default="Пресеты")))
         self._build_about_tab(tabview.add(_t("settings_tab_about", default="О программе")))
+        self._build_night_tab(tabview.add(_t("settings_tab_night", default="Ночной режим")))
 
     def _set_status(self, msg: str, ok: bool = True) -> None:
         self._status.configure(text=msg, text_color=("green" if ok else "orange"))
@@ -546,3 +547,56 @@ class SettingsPanel(ctk.CTkFrame):
             self._about_version.configure(text=status_line({"current": get_version()}))
         except Exception:
             self._about_version.configure(text="AgentBus")
+
+
+    def _build_night_tab(self, parent) -> None:
+        """NIGHT-UI-001: status + morning report (no Runtime start)."""
+        self._ro_banner(parent, tab_key="night")
+        ctk.CTkLabel(
+            parent,
+            text=_t("night_title", default="Ночной режим"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(anchor="w", padx=8, pady=(8, 4))
+        self._night_status = ctk.CTkLabel(parent, text="…", text_color="gray", wraplength=520, justify="left")
+        self._night_status.pack(anchor="w", padx=8, pady=2)
+        self._night_report = ctk.CTkTextbox(parent, height=180, wrap="word")
+        self._night_report.pack(fill="both", expand=True, padx=8, pady=6)
+        self._night_report.insert("1.0", _t("night_hint", default="Статус и утренний отчёт. Запуск цикла — через Runtime/autopilot, не из этой вкладки."))
+        self._night_report.configure(state="disabled")
+
+        def _set_report(text: str) -> None:
+            self._night_report.configure(state="normal")
+            self._night_report.delete("1.0", "end")
+            self._night_report.insert("1.0", text)
+            self._night_report.configure(state="disabled")
+
+        def refresh() -> None:
+            try:
+                from ui.night_notice import night_status_snapshot, format_night_status_line, morning_report_from_last_run
+
+                snap = night_status_snapshot()
+                self._night_status.configure(text=format_night_status_line(snap))
+                _set_report(morning_report_from_last_run())
+                self._set_status(_t("night_refreshed", default="Night status обновлён"), ok=True)
+            except Exception as exc:
+                self._set_status(str(exc), ok=False)
+
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=8, pady=8)
+        ctk.CTkButton(
+            row,
+            text=_t("night_refresh_btn", default="Обновить статус"),
+            command=refresh,
+            width=160,
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            row,
+            text=_t("night_report_btn", default="Утренний отчёт"),
+            command=refresh,
+            width=140,
+        ).pack(side="left", padx=4)
+        try:
+            from ui.night_notice import format_night_status_line
+            self._night_status.configure(text=format_night_status_line())
+        except Exception:
+            self._night_status.configure(text="Night Mode")

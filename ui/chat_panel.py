@@ -202,6 +202,7 @@ class ChatPanel(ctk.CTkFrame):
         self._setup_dnd()
         self.after(2000, self._poll_task_results)
         self.after(5000, self._maybe_notify_update)
+        self.after(7000, self._maybe_notify_night)
 
     def _setup_dnd(self) -> None:
         try:
@@ -571,23 +572,35 @@ class ChatPanel(ctk.CTkFrame):
             self._notified_deferred.discard(task_id)
 
 
-    def notify_error(self, task_id: str = "", detail: str = "") -> None:
+        def notify_error(self, task_id: str = "", detail: str = "", *, row: dict | None = None) -> None:
+        """WIRE-001: preserve recovery multi-line; optional task row for bridge."""
         text = detail or task_id or "ошибка"
+        # Prefer structured recovery when row provided
+        if row and isinstance(row, dict):
+            try:
+                from ui.chat_recovery_bridge import format_error_row_for_chat
+                rec = format_error_row_for_chat(row)
+                if rec.get("chat"):
+                    text = rec["chat"]
+            except Exception:
+                pass
         try:
             from core.error_ux import humanize_error
-            # only humanize raw strings; multi-line blocks from chat_messages stay
-            if "\n" not in text and not text.lstrip().startswith(("⚠", "Не выполнено")):
+            # only humanize short raw strings; keep recovery / UX blocks intact
+            markers = ("⚠", "Не выполнено", "PREVIOUS", "Recovery:", "→ Recovery", "verification:", "INSTRUCTION")
+            if "\n" not in text and not text.lstrip().startswith(markers):
                 text = humanize_error(text)
         except Exception:
             pass
         try:
             from ui.chat_task_bridge import should_prefix_role_label
-            if should_prefix_role_label(text, "error"):
+            if should_prefix_role_label(text, "error") and not text.lstrip().startswith(("⚠", "→")):
                 self.append("System", f"ERROR: {text}", kind="error")
             else:
                 self.append("System", text, kind="error")
         except Exception:
             self.append("System", f"ERROR: {text}", kind="error")
+
         if task_id:
             self._pending_ids.discard(task_id)
             self._notified_processing.discard(task_id)
@@ -596,6 +609,25 @@ class ChatPanel(ctk.CTkFrame):
             self._notified_deferred.discard(task_id)
 
 
+
+
+
+    def _maybe_notify_night(self) -> None:
+        """NIGHT-UI-001: one-shot status if active night run exists."""
+        if getattr(self, "_night_notice_shown", False):
+            return
+        try:
+            import os
+            if (os.getenv("AGENTBUS_SKIP_NIGHT_NOTICE") or "").strip() in ("1", "true", "yes"):
+                return
+            from ui.night_notice import night_status_snapshot, format_night_status_line
+
+            snap = night_status_snapshot()
+            if snap.get("active_run"):
+                self._night_notice_shown = True
+                self.append("System", format_night_status_line(snap), kind="info")
+        except Exception:
+            pass
 
     def _maybe_notify_update(self) -> None:
         """UPDATE-001C: one-shot soft check; never blocks Chat."""
@@ -822,7 +854,7 @@ class ChatPanel(ctk.CTkFrame):
                             detail = ((detail or "") + "\n" + extra).strip()
                     except Exception:
                         pass
-                    self.notify_error(tid, detail)
+                    self.notify_error(tid, detail, row=data)
 
         try:
             from ui.async_poll import run_bg

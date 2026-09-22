@@ -124,8 +124,14 @@ def format_done_story(row: dict[str, Any] | None = None, *, detail: str = "") ->
     meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     res = row.get("result") if isinstance(row.get("result"), dict) else {}
     rp = meta.get("route_preview") if isinstance(meta.get("route_preview"), dict) else {}
-    worker = str(res.get("worker") or meta.get("worker") or rp.get("worker") or "")
-    changed = res.get("changed_files") or meta.get("changed_files") or []
+    ev = meta.get("execution_evidence") if isinstance(meta.get("execution_evidence"), dict) else {}
+    wr = meta.get("worker_result") if isinstance(meta.get("worker_result"), dict) else {}
+    worker = str(
+        res.get("worker") or meta.get("worker") or wr.get("worker")
+        or ev.get("worker") or rp.get("worker") or ""
+    )
+    model = str(res.get("model") or meta.get("model") or wr.get("model") or ev.get("model") or "")
+    changed = res.get("changed_files") or meta.get("changed_files") or ev.get("changed_files") or []
     if isinstance(changed, str):
         changed = [changed]
     lines: list[str] = []
@@ -134,13 +140,24 @@ def format_done_story(row: dict[str, Any] | None = None, *, detail: str = "") ->
     lines.append("✓ accepted")
     if worker:
         lines.append(f"✓ worker: {worker}")
+    if model:
+        lines.append(f"✓ model: {model}")
     if changed:
         lines.append("✓ changed: " + ", ".join(str(c) for c in list(changed)[:8]))
-    ver = res.get("verify") or meta.get("verify") or ""
-    if ver:
-        lines.append(f"✓ verification: {ver}")
+    ver = res.get("verification") if isinstance(res.get("verification"), dict) else {}
+    if not ver:
+        ver = meta.get("verification") if isinstance(meta.get("verification"), dict) else {}
+    if ver.get("ok") is True or ver.get("passed") is True:
+        lines.append("✓ verification passed")
+    elif res.get("verify") or meta.get("verify"):
+        lines.append(f"✓ verification: {res.get('verify') or meta.get('verify')}")
+    elif res.get("verified") is True:
+        lines.append("✓ verification passed")
     else:
         lines.append("✓ DONE")
+    audit = meta.get("context_audit") if isinstance(meta.get("context_audit"), dict) else {}
+    if audit.get("selected_n"):
+        lines.append(f"· context files: {audit.get('selected_n')} (chars={audit.get('chars', '?')})")
     body = (detail or "").strip()
     if body and body not in "\n".join(lines):
         if not body.startswith("✓") and "DONE" not in body[:20]:
@@ -256,3 +273,12 @@ def build_worker_context_message(
             "chars": len(str(message or "")),
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+def attach_audit_to_meta(metadata, assemble_result):
+    """WIRE-004 convenience."""
+    try:
+        from core.context_audit_attach import attach_context_audit
+        return attach_context_audit(metadata, assemble_result)
+    except Exception:
+        return dict(metadata or {})

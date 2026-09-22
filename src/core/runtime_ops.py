@@ -146,18 +146,57 @@ class RuntimeOps:
                 pass
 
         self.executor.on_line = _line
+        result: ExecutionResult | None = None
         try:
             if self._is_foreign(chosen):
                 prov = self._provider_of(chosen)
                 if prov is not None and self._provider_has_key(prov):
-                    return self.executor.run_foreign(
+                    result = self.executor.run_foreign(
                         chosen, prov, project, message, timeout, files=files)
-                if prov is None:
-                    return ExecutionResult(
+                elif prov is None:
+                    result = ExecutionResult(
                         False, stderr=f"провайдер '{chosen.provider}' недоступен")
-                return ExecutionResult(
-                    False, stderr=f"нет api_key для '{chosen.provider}'")
-            return self.executor.run(chosen, project, message, timeout, files=files)
+                else:
+                    result = ExecutionResult(
+                        False, stderr=f"нет api_key для '{chosen.provider}'")
+            else:
+                result = self.executor.run(chosen, project, message, timeout, files=files)
+            # WorkerExecution contract snapshot (does not alter FSM / DONE gate)
+            try:
+                from core.worker_execution import from_worker_result_object
+                from core.worker_failure_contract import to_worker_result
+                contract = from_worker_result_object(
+                    result,
+                    worker=str(getattr(chosen, "name", "") or ""),
+                    model=str(getattr(chosen, "model", "") or ""),
+                )
+                self._last_execution_contract = contract
+                wr = to_worker_result(
+                    result,
+                    worker=str(getattr(chosen, "name", "") or ""),
+                    model=str(getattr(chosen, "model", "") or ""),
+                )
+                self._last_worker_result = wr
+                t_obj = getattr(self, "_current_task", None)
+                if t_obj is not None:
+                    meta = t_obj.metadata if isinstance(getattr(t_obj, "metadata", None), dict) else {}
+                    meta = dict(meta)
+                    meta["execution_result"] = {
+                        k: contract[k]
+                        for k in ("ok", "worker", "model", "timed_out", "error", "latency_sec")
+                        if k in contract
+                    }
+                    meta["worker_result"] = {
+                        k: wr.get(k)
+                        for k in (
+                            "status", "kind", "ok", "timed_out", "exit_code",
+                            "error", "switch_backend", "prefer_local",
+                        )
+                    }
+                    t_obj.metadata = meta
+            except Exception:
+                pass
+            return result
         finally:
             self.executor.on_line = None
 
@@ -167,8 +206,275 @@ class RuntimeOps:
         if status:
             task.status = status
         payload = {**task.to_dict(), "result": result}
+        # Execution evidence on terminal folders (contract: Runtime sets terminal_state)
+        if state in ("done", "errors", "deferred"):
+            try:
+                from core.execution_evidence import (
+                    evidence_from_task_payload,
+                    merge_evidence_into_payload,
+                )
+                ev = evidence_from_task_payload(
+                    payload, terminal_state=status or "", state_folder=state
+                )
+                # DONE requires verification marker when result carries verify outcome
+                if status == "DONE":
+                    res = result if isinstance(result, dict) else {}
+                    verified = bool(
+                        res.get("verified")
+                        or res.get("verify_ok")
+                        or (res.get("verification") or {}).get("ok")
+                        or res.get("verify") in (True, "PASS", "pass", "ok")
+                    )
+                    if res.get("error") and not verified:
+                        verified = False
+                    ev.setdefault("verification", {})
+                    if isinstance(ev["verification"], dict) and "ok" not in ev["verification"]:
+                        ev["verification"]["ok"] = verified
+                if status == "ERROR":
+                    try:
+                        from core.recovery_controller import (
+                            annotate_row_with_recovery,
+                            run_recovery,
+                        )
+                        # apply_plan=False at save-time: Chat/product_surface applies plan
+                        # with project_root; here we only record decision + mechanism.
+                        outcome = run_recovery(payload, apply_plan=False, save_plan=False)
+                        payload = annotate_row_with_recovery(payload, outcome)
+                    except Exception:
+                        try:
+                            from core.recovery_decision import decide_from_task_row
+                            decision = decide_from_task_row(payload)
+                            meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+                            meta = dict(meta)
+                            meta["recovery_decision"] = decision
+                            meta["recovery_mechanism"] = {
+                                "retry": "existing_reclaim_or_retry_states",
+                                "replan": "plan_layer_only",
+                                "ask_user": "ui_only",
+                                "stop": "none",
+                            }.get(str(decision.get("action") or ""), "none")
+                            payload["metadata"] = meta
+                        except Exception:
+                            pass
+                payload = merge_evidence_into_payload(payload, ev)
+            except Exception as exc:
+                try:
+                    self.log.write(f"execution_evidence: {exc}")
+                except Exception:
+                    pass
         self.bus.write(task.channel, state, f"{task.id}.json",
                        json.dumps(payload, ensure_ascii=False, indent=2))
+
+    def finish_task(
+        self,
+        task: "Task",
+        terminal_state: str,
+        result: dict | None = None,
+        *,
+        error: str = "",
+        from_folder: str = "processing",
+        emit: bool = True,
+        queue_terminal: bool = True,
+    ) -> str:
+        """R1 unified terminal path: evidence → bus → queue → emit.
+
+        Returns normalized terminal state (DONE/ERROR/DEFERRED).
+        Does not change FSM vocabulary. Demotes DONE without verification.
+        """
+        from core.terminal_path import (
+            FOLDER,
+            build_terminal_result,
+            enforce_done_contract,
+            normalize_terminal_state,
+        )
+
+        res = build_terminal_result(
+            error=error,
+            worker=str(
+                (result.get("worker") if isinstance(result, dict) else "")
+                or getattr(task, "worker", "")
+                or ""
+            ),
+            extra=dict(result or {}),
+        )
+        if error and not res.get("error"):
+            res["error"] = str(error)[:2000]
+        state, res = enforce_done_contract(terminal_state, res)
+        # DEV-001: evidence-backed decision (may demote DONE)
+        try:
+            from core.runtime_decision import decide_terminal, evidence_snapshot
+            contract = getattr(self, "_last_execution_contract", None) or {}
+            snap = evidence_snapshot(
+                task_id=str(getattr(task, "id", "") or ""),
+                worker=str(res.get("worker") or (contract.get("worker") if isinstance(contract, dict) else "") or ""),
+                model=str(res.get("model") or (contract.get("model") if isinstance(contract, dict) else "") or ""),
+                attempt=int(getattr(task, "attempts", 0) or 0),
+                exit_code=res.get("exit_code", res.get("code")),
+                exec_ok=res.get("ok") if "ok" in res else (False if res.get("error") else None),
+                timed_out=bool(res.get("timed_out") or (contract.get("timed_out") if isinstance(contract, dict) else False)),
+                changed_files=list(res.get("changed_files") or []),
+                stdout_summary=str(res.get("stdout") or "")[-500:],
+                stderr_summary=str(res.get("stderr") or "")[-500:],
+                error=str(res.get("error") or error or ""),
+                verification=res.get("verification") if isinstance(res.get("verification"), dict) else None,
+            )
+            if res.get("verified") is True or res.get("verify_ok") is True or res.get("tests_passed") is True:
+                snap["verification"] = dict(snap.get("verification") or {})
+                snap["verification"]["ok"] = True
+            snap["terminal_state"] = state  # claimed — decide_terminal will re-check
+            decision = decide_terminal(snap, allow_retry=False)
+            if decision.get("contradictions"):
+                res["contradictions"] = decision["contradictions"]
+            if state == "DONE" and decision.get("terminal_state") != "DONE":
+                state = "ERROR"
+                res.setdefault("error", decision.get("reason") or "evidence_rejected_done")
+                res["verified"] = False
+            res["runtime_decision"] = {
+                "terminal_state": decision.get("terminal_state"),
+                "reason": decision.get("reason"),
+                "contradictions": decision.get("contradictions") or [],
+            }
+        except Exception:
+            pass
+        # R2: fold last ExecutionResult contract into terminal result
+        try:
+            contract = getattr(self, "_last_execution_contract", None)
+            if isinstance(contract, dict):
+                for k in ("worker", "model", "timed_out", "latency_sec", "error"):
+                    if contract.get(k) not in (None, "") and not res.get(k):
+                        res[k] = contract[k]
+                if contract.get("changed_files") and not res.get("changed_files"):
+                    res["changed_files"] = list(contract["changed_files"])
+                res.setdefault("exec_ok", contract.get("ok"))
+        except Exception:
+            pass
+        try:
+            from core.execution_evidence import evidence_from_execution_result
+
+            meta = getattr(task, "metadata", None)
+            meta = meta if isinstance(meta, dict) else {}
+            ev2 = evidence_from_execution_result(
+                res,
+                task_id=str(getattr(task, "id", "") or ""),
+                attempt=int(getattr(task, "attempts", 0) or 0),
+                plan_step=str(meta.get("plan_step_id") or meta.get("step_id") or ""),
+                terminal_state=state,
+                started_at=str(meta.get("started_at") or ""),
+                worker_fallback=str(res.get("worker") or ""),
+                model_fallback=str(res.get("model") or ""),
+            )
+            # stash for _save merge (metadata.execution_evidence also built in _save)
+            res["_evidence_preview"] = {
+                k: ev2.get(k)
+                for k in (
+                    "task_id", "worker", "model", "attempt", "terminal_state",
+                    "error", "timed_out", "latency_sec", "exec_ok",
+                )
+                if k in ev2 or k in ("timed_out", "latency_sec", "exec_ok")
+            }
+        except Exception:
+            pass
+        folder = FOLDER.get(state)
+        if not folder:
+            state = "ERROR"
+            folder = "errors"
+            res.setdefault("error", f"invalid_terminal:{terminal_state}")
+
+        # attempts on result for evidence
+        try:
+            res.setdefault("attempts", int(getattr(task, "attempts", 0) or 0))
+        except Exception:
+            pass
+
+        try:
+            
+        # GAP: last_result for task_continuity on retry
+        try:
+            meta_lr = dict(getattr(task, "metadata", None) or {})
+            meta_lr["last_result"] = {
+                "error": str(res.get("error") or error or "")[:2000],
+                "ok": res.get("ok"),
+                "verified": res.get("verified"),
+                "verification": res.get("verification") if isinstance(res.get("verification"), dict) else {},
+                "changed_files": list(res.get("changed_files") or [])[:40],
+                "worker": str(res.get("worker") or ""),
+                "timed_out": bool(res.get("timed_out")),
+                "terminal_state": state,
+            }
+            wr = getattr(self, "_last_worker_result", None)
+            if isinstance(wr, dict):
+                meta_lr["worker_result"] = {
+                    k: wr.get(k) for k in ("status", "kind", "ok", "timed_out", "error") if k in wr
+                }
+                meta_lr["failure_kind"] = str(wr.get("kind") or meta_lr.get("failure_kind") or "")
+            if not hasattr(task, "metadata") or task.metadata is None:
+                task.metadata = {}
+            if isinstance(task.metadata, dict):
+                task.metadata.update(meta_lr)
+            else:
+                task.metadata = meta_lr
+        except Exception:
+            pass
+
+        self._save(task, folder, res)
+        except Exception as exc:
+            try:
+                self.log.write(f"finish_task save: {exc}")
+            except Exception:
+                pass
+
+        # bus move processing → terminal folder
+        try:
+            fname = f"{task.id}.json"
+            self.bus.move(task.channel, from_folder, folder, fname)
+        except Exception as exc:
+            try:
+                self.log.write(f"finish_task move: {exc}")
+            except Exception:
+                pass
+
+        if queue_terminal:
+            try:
+                if state == "DONE":
+                    self.queue.finish(
+                        task.id,
+                        getattr(self, "worker_id", "") or "",
+                        "DONE",
+                        error="",
+                        attempts=int(getattr(task, "attempts", 0) or 0),
+                    )
+                else:
+                    self.queue.terminal(
+                        task.id,
+                        state,
+                        error=str(res.get("error") or error or "")[:500],
+                        attempts=int(getattr(task, "attempts", 0) or 0),
+                    )
+            except Exception as exc:
+                try:
+                    self.log.write(f"finish_task queue: {exc}")
+                except Exception:
+                    pass
+
+        if emit:
+            try:
+                msg = str(res.get("error") or state)[:300]
+                self._emit(
+                    state,
+                    msg,
+                    task_id=getattr(task, "id", ""),
+                    worker=str(res.get("worker") or getattr(self, "worker_id", "") or ""),
+                    payload={"terminal": state, "folder": folder},
+                )
+            except Exception:
+                pass
+
+        try:
+            self.log.write(f"finish_task {getattr(task, 'id', '')} → {state}")
+        except Exception:
+            pass
+        return state
+
 
     def _verify_commands(self, task: Task, ctx=None) -> tuple[bool, str]:
         context = ctx or self.context
