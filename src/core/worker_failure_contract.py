@@ -88,17 +88,33 @@ def classify_execution_outcome(
         }
 
     if result is None:
+        detail = str(error_text or "no_result")[:500]
+        # classify from error text when no ExecutionResult object
+        kind = "worker_crash"
+        prefer_local = False
+        low = detail.lower()
+        if any(x in low for x in ("timeout", "timed out", "deadline")):
+            kind = "worker_timeout"
+        elif any(x in low for x in ("not found", "не найден", "missing", "no such", "unavailable", "preflight")):
+            kind = "worker_unavailable"
+            prefer_local = True
+        elif any(x in low for x in ("rate limit", "429", "quota")):
+            kind = "worker_rate_limit"
+            prefer_local = True
+        elif any(x in low for x in ("auth", "401", "403", "api_key", "api key")):
+            kind = "worker_auth"
+            prefer_local = True
         return {
-            "kind": "worker_crash",
+            "kind": kind,
             "switch_backend": True,
-            "prefer_local": False,
+            "prefer_local": prefer_local,
             "worker_ok": False,
             "verification_ok": None,
             "event": "ERROR",
             "err_type": "ERROR",
             "fail_status": "ERROR",
-            "detail": "no_result",
-            "fallback_kind": "other",
+            "detail": detail or "no_result",
+            "fallback_kind": KIND_TO_FALLBACK.get(kind, "other"),
         }
 
     timed_out = bool(getattr(result, "timed_out", False) if not isinstance(result, dict)

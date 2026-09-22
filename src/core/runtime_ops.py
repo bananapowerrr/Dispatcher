@@ -386,9 +386,7 @@ class RuntimeOps:
         except Exception:
             pass
 
-        try:
-            
-        # GAP: last_result for task_continuity on retry
+        # last_result + worker_result on every terminal (WIRE-003: always on ERROR)
         try:
             meta_lr = dict(getattr(task, "metadata", None) or {})
             meta_lr["last_result"] = {
@@ -402,11 +400,41 @@ class RuntimeOps:
                 "terminal_state": state,
             }
             wr = getattr(self, "_last_worker_result", None)
+            if not isinstance(wr, dict) or not wr:
+                # synthesize when ERROR without prior _exec_worker snapshot
+                try:
+                    from core.worker_failure_contract import to_worker_result
+                    ver = res.get("verification") if isinstance(res.get("verification"), dict) else None
+                    ver_ok = None
+                    if isinstance(ver, dict) and "ok" in ver:
+                        ver_ok = bool(ver.get("ok"))
+                    elif res.get("verified") is True:
+                        ver_ok = True
+                    elif state == "ERROR" and (res.get("error") or error):
+                        ver_ok = False
+                    wr = to_worker_result(
+                        res if isinstance(res, dict) else None,
+                        error_text=str(res.get("error") or error or ""),
+                        worker=str(res.get("worker") or getattr(task, "worker", "") or ""),
+                        model=str(res.get("model") or ""),
+                        verification_ok=ver_ok,
+                    )
+                    self._last_worker_result = wr
+                except Exception:
+                    wr = None
             if isinstance(wr, dict):
                 meta_lr["worker_result"] = {
-                    k: wr.get(k) for k in ("status", "kind", "ok", "timed_out", "error") if k in wr
+                    k: wr.get(k)
+                    for k in (
+                        "status", "kind", "ok", "timed_out", "exit_code",
+                        "error", "switch_backend", "prefer_local", "worker", "model",
+                    )
+                    if k in wr
                 }
                 meta_lr["failure_kind"] = str(wr.get("kind") or meta_lr.get("failure_kind") or "")
+                # also mirror into terminal result for Chat/recovery consumers
+                if state == "ERROR":
+                    res.setdefault("worker_result", meta_lr["worker_result"])
             if not hasattr(task, "metadata") or task.metadata is None:
                 task.metadata = {}
             if isinstance(task.metadata, dict):
@@ -416,7 +444,8 @@ class RuntimeOps:
         except Exception:
             pass
 
-        self._save(task, folder, res)
+        try:
+            self._save(task, folder, res)
         except Exception as exc:
             try:
                 self.log.write(f"finish_task save: {exc}")
