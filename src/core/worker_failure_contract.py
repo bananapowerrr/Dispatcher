@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""R4 Worker Failure / Fallback Contract.
+"""DEV-003 / R4 Worker Failure Contract + WorkerResult.
+
+WorkerResult.status ∈ {success, failure, timeout, unavailable, invalid_output}
 
 Maps ExecutionResult → one outcome kind for Runtime:
 
@@ -169,3 +171,109 @@ def classify_execution_outcome(
 
 def outcome_from_preflight(ok: bool, reason: str = "") -> dict[str, Any]:
     return classify_execution_outcome(None, preflight_ok=ok, preflight_reason=reason)
+
+
+# --- DEV-003 WorkerResult (runtime-facing) ---
+
+WORKER_RESULT_STATUS = frozenset({
+    "success",
+    "failure",
+    "timeout",
+    "unavailable",
+    "invalid_output",
+})
+
+KIND_TO_STATUS = {
+    "worker_ok": "success",
+    "worker_timeout": "timeout",
+    "worker_unavailable": "unavailable",
+    "worker_crash": "failure",
+    "worker_rate_limit": "failure",
+    "worker_billing": "failure",
+    "worker_auth": "failure",
+    "worker_network": "failure",
+    "worker_model": "invalid_output",
+    "worker_loop": "invalid_output",
+    "verification_failed": "success",  # worker ran; verify is separate layer
+}
+
+
+def to_worker_result(
+    result: Any = None,
+    *,
+    preflight_ok: bool | None = None,
+    preflight_reason: str = "",
+    verification_ok: bool | None = None,
+    error_text: str = "",
+    worker: str = "",
+    model: str = "",
+) -> dict[str, Any]:
+    """Canonical WorkerResult for Runtime (not DONE — verification is separate).
+
+    status:
+      success       — process finished ok (may still fail verification later)
+      failure       — crash / rate limit / network / auth / billing
+      timeout       — timed out
+      unavailable   — preflight / binary / key missing
+      invalid_output— loop / bad model / garbage output
+    """
+    outcome = classify_execution_outcome(
+        result,
+        preflight_ok=preflight_ok,
+        preflight_reason=preflight_reason,
+        verification_ok=verification_ok,
+        error_text=error_text,
+    )
+    kind = str(outcome.get("kind") or "worker_crash")
+    status = KIND_TO_STATUS.get(kind, "failure")
+    if kind == "worker_ok" and verification_ok is False:
+        # still success at worker layer
+        status = "success"
+
+    exit_code = None
+    latency = 0.0
+    stdout = stderr = error = ""
+    if result is not None:
+        if isinstance(result, dict):
+            exit_code = result.get("code", result.get("exit_code"))
+            latency = float(result.get("latency") or result.get("latency_sec") or 0)
+            stdout = str(result.get("stdout") or "")
+            stderr = str(result.get("stderr") or "")
+            error = str(result.get("error") or "")
+        else:
+            exit_code = getattr(result, "code", None)
+            latency = float(getattr(result, "latency", 0) or 0)
+            stdout = str(getattr(result, "stdout", "") or "")
+            stderr = str(getattr(result, "stderr", "") or "")
+            error = str(getattr(result, "error", "") or "")
+
+    return {
+        "status": status,
+        "kind": kind,
+        "ok": status == "success",
+        "worker": str(worker or ""),
+        "model": str(model or ""),
+        "exit_code": exit_code,
+        "timed_out": status == "timeout",
+        "latency_sec": latency,
+        "stdout_summary": stdout[-500:],
+        "stderr_summary": stderr[-500:],
+        "error": (error or str(outcome.get("detail") or ""))[:2000],
+        "switch_backend": bool(outcome.get("switch_backend")),
+        "prefer_local": bool(outcome.get("prefer_local")),
+        "fallback_kind": outcome.get("fallback_kind") or "other",
+        "event": outcome.get("event") or "",
+        "verification_ok": verification_ok,
+        # never a terminal DONE claim
+        "terminal_state": None,
+    }
+
+
+def worker_result_from_execution_result(
+    result: Any,
+    *,
+    worker: str = "",
+    model: str = "",
+) -> dict[str, Any]:
+    """Adapter: executor.ExecutionResult → WorkerResult."""
+    return to_worker_result(result, worker=worker, model=model)

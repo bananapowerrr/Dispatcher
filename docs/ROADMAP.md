@@ -44,3 +44,18 @@ LIVE-001 … acceptance on real PC (Ollama/Aider) — parallel, not a blocker fo
 ## Explicitly not now
 
 MCP, heavy RAG, multi-agent parallelism, cloud provider sprawl, Day-doc spam.
+
+
+## Feature development (post R/UPDATE)
+
+| ID | Focus | Status |
+|----|--------|--------|
+| DEV-001 | Execution Evidence → Runtime Decision | done |
+| DEV-002 | Recovery Controller v1 (policies) | done |
+| DEV-003 | Worker Failure Contract (WorkerResult) | done |
+| DEV-004 | Worker Fallback v1 | done |
+| DEV-005 | Context Budget (priority + audit) | done |
+| DEV-006 | Task context / conversation continuity | done |
+| DEV-007 | Night Mode autonomous loop | done |
+
+LIVE-001 remains parallel acceptance on PC.

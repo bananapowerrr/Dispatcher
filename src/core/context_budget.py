@@ -1,26 +1,29 @@
 # -*- coding: utf-8 -*-
-"""R5 Context Budget — 7B-friendly worker prompt assembly.
+"""DEV-005 / R5 Context Budget — 7B-friendly worker prompt assembly.
 
 Order of blocks (priority when truncating):
-  1. USER REQUEST (never truncated below min)
+  1. USER REQUEST
   2. CONSTRAINTS / previous failure
-  3. RELEVANT FILES list
-  4. FILE EXCERPTS (budget-split)
-  5. optional MEMORY / RAG tails
+  3. RELEVANT FILES list (prioritized)
+  4. FILE EXCERPTS
+  5. optional MEMORY tails
 
-Not RAG redesign — char/token-ish budget only.
+context_audit logs what actually went to the worker.
 """
 from __future__ import annotations
 
 from typing import Any
 
-# Soft defaults for qwen2.5-coder:7b local context
 DEFAULT_TOTAL_CHARS = 12_000
 MIN_USER_CHARS = 400
 MAX_FAILURE_CHARS = 1_200
 MAX_CONSTRAINTS_CHARS = 800
 MAX_FILE_LIST_CHARS = 1_000
 DEFAULT_EXCERPT_BUDGET = 6_000
+
+_TEST_HINTS = ("test_", "_test", "/tests/", "spec.")
+_DOC_HINTS = (".md", ".rst", "docs/", "readme")
+_UI_HINTS = ("ui/", "frontend/", "chat_panel", "settings_panel")
 
 
 def clamp_text(text: str, max_chars: int, *, head_ratio: float = 0.55) -> str:
@@ -36,6 +39,36 @@ def clamp_text(text: str, max_chars: int, *, head_ratio: float = 0.55) -> str:
     return s[:head] + "\n…[truncated]…\n" + s[-tail:]
 
 
+def prioritize_files(
+    files: list[str],
+    *,
+    message: str = "",
+    max_files: int = 12,
+) -> list[str]:
+    """Deterministic ranking: message hits > code > tests > ui > docs."""
+    msg = str(message or "").lower()
+    scored: list[tuple[int, int, str]] = []
+    for i, f in enumerate(files or []):
+        path = str(f).replace("\\", "/")
+        low = path.lower()
+        score = 50
+        base = path.rsplit("/", 1)[-1].lower()
+        if base and base in msg:
+            score -= 30
+        if any(h in low for h in _TEST_HINTS):
+            score += 15
+        if any(h in low for h in _DOC_HINTS):
+            score += 25
+        if any(h in low for h in _UI_HINTS):
+            score += 10
+        for part in path.split("/"):
+            if len(part) > 3 and part.lower() in msg:
+                score -= 5
+        scored.append((score, i, path))
+    scored.sort(key=lambda x: (x[0], x[1]))
+    return [p for _, _, p in scored[: max(1, int(max_files or 12))]]
+
+
 def build_context_budget_plan(
     *,
     total_chars: int = DEFAULT_TOTAL_CHARS,
@@ -43,7 +76,6 @@ def build_context_budget_plan(
     n_files: int = 0,
     include_memory: bool = False,
 ) -> dict[str, int]:
-    """Allocate char budgets for prompt sections."""
     total = max(2000, int(total_chars or DEFAULT_TOTAL_CHARS))
     user = max(MIN_USER_CHARS, min(3000, total // 5))
     failure = MAX_FAILURE_CHARS if has_failure else 0
@@ -61,6 +93,27 @@ def build_context_budget_plan(
         "file_list": file_list,
         "excerpts": excerpts,
         "memory": memory,
+    }
+
+
+def build_context_audit(
+    *,
+    selected_files: list[str],
+    excluded_files: list[str] | None = None,
+    plan: dict[str, int] | None = None,
+    chars: int = 0,
+    truncated: bool = False,
+    previous_failure: bool = False,
+) -> dict[str, Any]:
+    return {
+        "selected_files": list(selected_files or [])[:40],
+        "excluded_files": list(excluded_files or [])[:40],
+        "selected_n": len(selected_files or []),
+        "excluded_n": len(excluded_files or []),
+        "plan": dict(plan or {}),
+        "chars": int(chars or 0),
+        "truncated": bool(truncated),
+        "has_previous_failure": bool(previous_failure),
     }
 
 
@@ -88,7 +141,7 @@ def format_previous_failure(text: str, *, max_chars: int = MAX_FAILURE_CHARS) ->
 
 def assemble_worker_message(
     *,
-    user_message: str,
+    user_message: str = "",
     files: list[str] | None = None,
     constraints: list[str] | None = None,
     previous_failure: str = "",
@@ -96,54 +149,64 @@ def assemble_worker_message(
     memory_block: str = "",
     total_chars: int = DEFAULT_TOTAL_CHARS,
     system_note: str = "",
+    max_files: int = 12,
+    all_files: list[str] | None = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
-    """Build final worker-facing message under budget.
-
-    Returns {message, plan, truncated: bool}.
-    """
-    files = list(files or [])
+    """Build worker message under budget. Returns context_audit."""
+    if not user_message and kwargs.get("user_request"):
+        user_message = str(kwargs.get("user_request") or "")
+    if kwargs.get("memory") and not memory_block:
+        memory_block = str(kwargs.get("memory") or "")
+    raw_files = list(all_files or files or [])
+    selected = prioritize_files(raw_files, message=user_message, max_files=max_files)
+    excluded = [f for f in raw_files if f not in selected]
     plan = build_context_budget_plan(
         total_chars=total_chars,
         has_failure=bool(str(previous_failure or "").strip()),
-        n_files=len(files),
+        n_files=len(selected),
         include_memory=bool(str(memory_block or "").strip()),
     )
     parts: list[str] = []
-    if system_note.strip():
+    if str(system_note or "").strip():
         parts.append(clamp_text("SYSTEM:\n" + system_note.strip(), 1500))
-
     user = clamp_text(str(user_message or "").strip() or "(empty request)", plan["user"])
     parts.append("USER REQUEST:\n" + user)
-
     fail = format_previous_failure(previous_failure, max_chars=plan["failure"])
     if fail:
         parts.append(fail)
-
     cons = format_constraints(list(constraints or []), max_chars=plan["constraints"])
     if cons:
         parts.append(cons)
-
-    if files:
-        parts.append(format_file_list(files, max_chars=plan["file_list"]))
-
+    if selected:
+        parts.append(format_file_list(selected, max_chars=plan["file_list"]))
     excerpts = clamp_text(str(file_excerpts or "").strip(), plan["excerpts"])
     if excerpts:
         parts.append("FILE EXCERPTS:\n" + excerpts)
-
     mem = clamp_text(str(memory_block or "").strip(), plan["memory"])
     if mem:
         parts.append(mem)
-
     message = "\n\n".join(parts).strip()
     truncated = len(message) > plan["total"]
     if truncated:
         message = clamp_text(message, plan["total"])
+    audit = build_context_audit(
+        selected_files=selected,
+        excluded_files=excluded,
+        plan=plan,
+        chars=len(message),
+        truncated=truncated,
+        previous_failure=bool(str(previous_failure or "").strip()),
+    )
     return {
         "message": message,
         "plan": plan,
         "truncated": truncated,
         "chars": len(message),
-        "files_n": len(files),
+        "files_n": len(selected),
+        "context_audit": audit,
+        "selected_files": list(selected),
+        "excluded_files": list(excluded),
     }
 
 
@@ -155,7 +218,6 @@ def budget_from_context_report(
     file_excerpts: str = "",
     total_chars: int = DEFAULT_TOTAL_CHARS,
 ) -> dict[str, Any]:
-    """Glue ContextReport → assemble_worker_message."""
     files: list[str] = []
     constraints: list[str] = []
     if report is not None:

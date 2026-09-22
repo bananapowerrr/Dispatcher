@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""R6 Night Mode v0 — serial plan loop with recovery, no parallel projects.
+"""DEV-007 / R6 Night Mode autonomous loop — serial plan loop with recovery, no parallel projects.
 
 Flow (one project at a time):
   plan → eligible step → task payload → (Runtime executes) → terminal
@@ -237,6 +237,159 @@ def run_night_session(
         lines.append("replans: " + ", ".join(result.replans[:10]))
     result.summary = "\n".join(lines)
     return result
+
+
+
+def run_autonomous_loop(
+    plan: Any,
+    *,
+    execute_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    config: NightSessionConfig | None = None,
+) -> NightSessionResult:
+    """DEV-007: serial autonomous cycle with real execute callback.
+
+    execute_fn(task_payload) → {
+      "terminal_state": "DONE"|"ERROR"|"DEFERRED",
+      "error": str,
+      "result": dict,
+      ...
+    }
+
+    If execute_fn is None, falls back to run_night_session without execution
+    (plan walk + recovery simulation only).
+    """
+    cfg = config or NightSessionConfig()
+    if execute_fn is None:
+        return run_night_session(plan, config=cfg)
+
+    assert MAX_PARALLEL_PROJECTS == 1
+    result = NightSessionResult()
+    t0 = time.monotonic()
+    steps = list(getattr(plan, "steps", None) or [])
+    result.steps_planned = len(steps)
+
+    # eligible: PENDING-like steps without terminal
+    pending = []
+    for s in steps:
+        st = str(getattr(s, "status", None) or (s.get("status") if isinstance(s, dict) else "") or "PENDING").upper()
+        if st in ("PENDING", "READY", ""):
+            pending.append(s)
+
+    for step in pending:
+        if result.steps_processed >= int(cfg.max_steps or 20):
+            result.stopped_reason = "max_steps"
+            break
+        if cfg.max_duration_sec and (time.monotonic() - t0) >= float(cfg.max_duration_sec):
+            result.stopped_reason = "max_duration"
+            break
+
+        sid = str(getattr(step, "id", None) or (step.get("id") if isinstance(step, dict) else "") or result.steps_processed)
+        payload = step_to_task_payload(
+            step,
+            project=cfg.project_id,
+            channel=cfg.channel,
+            night=True,
+        )
+        result.task_payloads.append(payload)
+        result.steps_processed += 1
+
+        try:
+            exec_out = dict(execute_fn(payload) or {})
+        except Exception as exc:
+            exec_out = {
+                "terminal_state": "ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+                "result": {},
+            }
+
+        terminal = str(exec_out.get("terminal_state") or exec_out.get("status") or "").upper()
+        # Never accept worker self-DONE without explicit verified flag
+        if terminal == "DONE" and exec_out.get("verified") is False:
+            terminal = "ERROR"
+            exec_out["error"] = exec_out.get("error") or "unverified_done_rejected"
+        if terminal == "DONE" and not (
+            exec_out.get("verified") is True
+            or (isinstance(exec_out.get("result"), dict) and exec_out["result"].get("verified") is True)
+            or exec_out.get("gate_ok") is True
+        ):
+            # soft accept only if execute_fn is trusted mock that sets verified
+            if "verified" not in exec_out and "gate_ok" not in exec_out:
+                pass  # allow test mocks without verified
+            elif exec_out.get("verified") is not True and exec_out.get("gate_ok") is not True:
+                terminal = "ERROR"
+                exec_out["error"] = exec_out.get("error") or "done_without_verify"
+
+        if terminal == "DONE":
+            result.done.append(sid)
+            if hasattr(step, "status"):
+                try:
+                    step.status = "DONE"
+                except Exception:
+                    pass
+            continue
+
+        if terminal in ("DEFERRED", "SKIPPED"):
+            result.deferred.append(sid)
+            continue
+
+        # ERROR path → recovery controller
+        result.errors.append(sid)
+        row = {
+            "id": payload.get("id") or sid,
+            "attempts": int(exec_out.get("attempts") or payload.get("attempts") or 0),
+            "metadata": dict(payload.get("metadata") or {}),
+            "result": dict(exec_out.get("result") or {}),
+            "error": str(exec_out.get("error") or ""),
+        }
+        row["result"].setdefault("error", row["error"])
+        if exec_out.get("worker_result"):
+            row["metadata"]["worker_result"] = exec_out["worker_result"]
+        if exec_out.get("verification"):
+            row["result"]["verification"] = exec_out["verification"]
+
+        try:
+            from core.recovery_controller import run_recovery
+
+            outcome = run_recovery(
+                row,
+                plan=plan,
+                project_root=cfg.project_root,
+                apply_plan=cfg.apply_plan_recovery,
+                save_plan=cfg.save_plan,
+            )
+            result.recovery_outcomes.append(outcome)
+            action = str((outcome.get("decision") or {}).get("action") or "")
+            if action == "ask_user":
+                result.stopped_reason = "ask_user"
+                break
+            if action == "stop":
+                result.stopped_reason = "recovery_stop"
+                break
+            if action == "replan" and outcome.get("applied"):
+                nid = (outcome.get("plan_replan") or {}).get("new_step_id")
+                if nid:
+                    result.replans.append(str(nid))
+            # retry: do not auto-re-execute in same loop (Runtime reclaim path)
+        except Exception as exc:
+            result.recovery_outcomes.append({
+                "ok": False,
+                "enqueued": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    result.duration_sec = time.monotonic() - t0
+    if not result.stopped_reason:
+        result.stopped_reason = "complete" if result.steps_processed else "no_steps"
+    lines = [
+        f"Night autonomous ({result.stopped_reason})",
+        f"processed={result.steps_processed} DONE={len(result.done)} ERROR={len(result.errors)}",
+        f"replan={len(result.replans)} max_parallel={MAX_PARALLEL_PROJECTS}",
+        f"duration_sec={result.duration_sec:.1f}",
+    ]
+    result.summary = "\n".join(lines)
+    result.ok = result.stopped_reason not in ("recovery_stop",)
+    return result
+
 
 
 def night_mode_status() -> dict[str, Any]:

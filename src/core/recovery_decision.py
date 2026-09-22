@@ -28,6 +28,36 @@ def decide_recovery(
       ask_user  — needs human choice
       stop      — no automatic recovery
     """
+    att = int(attempts or 0)
+    max_a = max(1, int(max_attempts or 3))
+    # DEV-002: policy table first
+    try:
+        from core.recovery_policy import decide_with_policy
+
+        pol = decide_with_policy(
+            failure_layer=failure_layer,
+            error=error or reclaim_reason,
+            timed_out="timeout" in str(error or "").lower() or "timeout" in str(reclaim_reason or "").lower(),
+            attempts=att,
+            max_attempts=max_a,
+            verification=verification,
+        )
+        return {
+            "action": pol.get("action") or "stop",
+            "recoverable": bool(pol.get("recoverable")),
+            "failure_layer": failure_layer or pol.get("failure_kind") or "",
+            "failure_kind": pol.get("failure_kind") or "",
+            "reason": pol.get("reason") or "",
+            "suggest": pol.get("suggest") or "",
+            "next_attempt": pol.get("next_attempt"),
+            "allow_fallback": bool(pol.get("allow_fallback")),
+            "prefer_local": bool(pol.get("prefer_local")),
+            "attempts": att,
+            "max_attempts": max_a,
+        }
+    except Exception:
+        pass
+
     layer = failure_layer
     rec = recoverable
     if not layer:
@@ -38,9 +68,6 @@ def decide_recovery(
             rec = rec_guess
     if rec is None:
         rec = True
-
-    att = int(attempts or 0)
-    max_a = max(1, int(max_attempts or 3))
 
     if layer == "reclaim_max_attempts" or att >= max_a:
         return {
@@ -103,6 +130,23 @@ def decide_from_task_row(row: dict[str, Any] | None) -> dict[str, Any]:
     res = raw.get("result") if isinstance(raw.get("result"), dict) else {}
     ev = meta.get("execution_evidence") if isinstance(meta.get("execution_evidence"), dict) else {}
     err = str(res.get("error") or raw.get("error") or ev.get("error") or "")
+    wo = meta.get("worker_outcome") if isinstance(meta.get("worker_outcome"), dict) else {}
+    # Prefer DEV-002 policy with explicit kind
+    try:
+        from core.recovery_policy import decide_with_policy
+
+        return decide_with_policy(
+            kind=str(meta.get("failure_kind") or wo.get("kind") or ""),
+            failure_layer=str(meta.get("failure_layer") or ""),
+            error=err,
+            timed_out=bool(res.get("timed_out") or wo.get("event") == "TIMEOUT" or ev.get("timed_out")),
+            worker_outcome=wo,
+            attempts=int(raw.get("attempts") or meta.get("attempts") or ev.get("attempt") or 0),
+            max_attempts=int(meta.get("max_attempts") or 3),
+            verification=res.get("verification") if isinstance(res.get("verification"), dict) else ev.get("verification"),
+        )
+    except Exception:
+        pass
     return decide_recovery(
         error=err,
         reclaim_reason=str(meta.get("reclaim_reason") or ""),

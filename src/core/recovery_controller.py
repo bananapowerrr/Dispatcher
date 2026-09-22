@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""R3 Recovery Controller — single managed recovery path.
+"""DEV-002 Recovery Controller v1 — single managed recovery path.
 
 ERROR → classify (via recovery_decision) → mechanism → optional plan replan.
 
@@ -35,6 +35,25 @@ def run_recovery(
     Returns outcome dict; always enqueued=False.
     """
     raw = dict(row or {})
+    # DEV-002: enrich row metadata from worker_outcome before decide
+    try:
+        meta = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+        meta = dict(meta)
+        wo = meta.get("worker_outcome") if isinstance(meta.get("worker_outcome"), dict) else {}
+        if wo.get("kind") and not meta.get("failure_kind"):
+            meta["failure_kind"] = wo.get("kind")
+            raw["metadata"] = meta
+        if wo.get("kind") and not meta.get("failure_layer"):
+            # map for legacy classify
+            from core.recovery_policy import normalize_failure_kind
+            meta["failure_layer"] = {
+                "verification_failed": "verification",
+                "worker_timeout": "worker_infra",
+                "worker_unavailable": "worker_infra",
+            }.get(str(wo.get("kind")), meta.get("failure_layer") or "")
+            raw["metadata"] = meta
+    except Exception:
+        pass
     decision = decide_from_task_row(raw)
     mechanism = mechanism_for_decision(decision)
     out: dict[str, Any] = {
