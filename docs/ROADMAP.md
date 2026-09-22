@@ -57,5 +57,7 @@ MCP, heavy RAG, multi-agent parallelism, cloud provider sprawl, Day-doc spam.
 | DEV-005 | Context Budget (priority + audit) | done |
 | DEV-006 | Task context / conversation continuity | done |
 | DEV-007 | Night Mode autonomous loop | done |
+| DEV-008 | Persistent Night Run / Crash Recovery | done |
+| DEV-009 | Night Mode Policy/Scheduler | done |
 
 LIVE-001 remains parallel acceptance on PC.
