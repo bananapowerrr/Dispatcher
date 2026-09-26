@@ -13,6 +13,10 @@ except ImportError:  # pragma: no cover
     ctk = None  # type: ignore
 
 
+# "src/foo.py:42", "C:\p\foo.py:42:" — путь с расширением и номер строки
+_FILE_LINE = re.compile(r"([\w./\\-]+\.[A-Za-z0-9_]+):(\d+)")
+
+
 def collect_problems(project_root: Path) -> list[dict[str, Any]]:
     """Scan .agentbus for error/verify artifacts — no live worker required."""
     out: list[dict[str, Any]] = []
@@ -37,11 +41,17 @@ def collect_problems(project_root: Path) -> list[dict[str, Any]]:
                 continue
             if not err and status.upper() not in ("ERROR", "FAILED", "FAIL"):
                 continue
+            # pytest / SyntaxError сообщают позицию как "путь:строка" — извлекаем,
+            # иначе панель не может перейти к проблемной строке
+            hit = _FILE_LINE.search(err)
+            hit_file = hit.group(1) if hit else ""
+            hit_line = int(hit.group(2)) if hit else 0
             files = data.get("files") or []
-            f0 = files[0] if isinstance(files, list) and files else ""
+            fallback = files[0] if isinstance(files, list) and files else ""
             out.append({
                 "kind": sub if sub != "history" else "task",
-                "file": str(f0),
+                "file": hit_file or str(fallback),
+                "line": hit_line,
                 "message": (err or status or path.stem)[:300],
                 "task_id": str(data.get("id") or path.stem),
             })
@@ -110,7 +120,13 @@ class ProblemsPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             self._status.configure(text="0 problems")
             return
         lines = [
-            f"{i}. [{it.get('kind')}] {it.get('file') or '-'}  {it.get('message', '')[:120]}"
+            "{0}. [{1}] {2}{3}  {4}".format(
+                i,
+                it.get("kind"),
+                it.get("file") or "-",
+                ":{}".format(it["line"]) if it.get("line") else "",
+                str(it.get("message", ""))[:120],
+            )
             for i, it in enumerate(items, 1)
         ]
         self._list.insert("1.0", "\n".join(lines))
@@ -128,12 +144,13 @@ class ProblemsPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 f = row.get("file") or ""
                 tid = str(row.get("task_id") or "")
                 msg = str(row.get("message") or "")
-                line_no = None
-                for pat in (r":(\d+):", r"line\s+(\d+)", r"Ln\s*(\d+)"):
-                    m = re.search(pat, msg, re.I)
-                    if m:
-                        line_no = int(m.group(1))
-                        break
+                line_no = row.get("line") or None
+                if not line_no:
+                    for pat in (r":(\d+):", r"line\s+(\d+)", r"Ln\s*(\d+)"):
+                        m = re.search(pat, msg, re.I)
+                        if m:
+                            line_no = int(m.group(1))
+                            break
                 if f and self._on_open:
                     try:
                         self._on_open(f, line_no)  # type: ignore[call-arg]

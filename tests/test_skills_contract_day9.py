@@ -15,20 +15,20 @@ import pytest
 # Prefer package under src/ — avoid root-level legacy skills.py shadowing
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-_blocked = {ROOT.resolve(), Path.cwd().resolve()}
 
 
 @pytest.fixture(autouse=True)
 def _prefer_src_package():
-    """Hide the repo root for these tests only, then restore it.
+    """Put src/ first in sys.path for these tests, then restore.
 
-    Editing sys.path at import time leaked into the whole session and broke
-    every later test that needs a root-level import.
+    Removing the repo root outright is wrong: providers/ and eventbus/ live at
+    the root, so dropping it breaks any module that imports them. Ordering alone
+    is enough to keep src/skills ahead of a legacy root-level skills.py.
     """
     saved = list(sys.path)
-    sys.path = [p for p in sys.path if Path(p).resolve() not in _blocked]
-    if str(SRC) not in sys.path:
-        sys.path.insert(0, str(SRC))
+    while str(SRC) in sys.path:
+        sys.path.remove(str(SRC))
+    sys.path.insert(0, str(SRC))
     try:
         yield
     finally:

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Skill matching helpers (Sprint C) — pure functions, no registry needed."""
 from __future__ import annotations
-
+import re
 from typing import Callable
+
 
 
 COMPLEX_MARKERS = (
@@ -51,7 +52,10 @@ def match_cleanup(msg: str) -> str | None:
         return "normalize_newlines"
     if any(k in m for k in ("utf-8 coding", "coding: utf", "ensure utf")):
         return "ensure_utf8_coding"
-    if any(k in m for k in ("count lines", "loc", "сколько строк")):
+    if "count lines" in m or "сколько строк" in m or re.search(r"\bloc\b", m):
+        # "loc" только отдельным словом: подстрокой он ловится в "block",
+        # "local", "allocate" и т.п., из-за чего "extract function from this
+        # block" уходил в count_lines вместо extract_function
         return "count_lines"
     return None
 
