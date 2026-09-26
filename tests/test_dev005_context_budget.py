@@ -37,7 +37,9 @@ def test_assemble_includes_audit():
 
 
 def test_user_request_alias():
-    from intelligence.context_budget import assemble_worker_message
+    # core-вариант возвращает dict (контракт FC-01…07) и принимает
+    # user_request как алиас user_message; intelligence-вариант возвращает str
+    from core.context_budget import assemble_worker_message
     out = assemble_worker_message(user_request="hello alias", total_chars=3000)
     assert "hello alias" in out["message"]
 

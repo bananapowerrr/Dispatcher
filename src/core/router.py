@@ -10,6 +10,7 @@ from .config import COMPLEXITY_LOCAL_MAX
 
 SOFT_QUOTA_PENALTY = 3.0
 LOCAL_CTX_BUDGET = 6000  # грубо: 4 байта/символа на токен, с запасом для ответа
+BYTES_PER_TOKEN = 4
 
 
 def _safe_size(path: str | os.PathLike[str]) -> int:
@@ -20,8 +21,10 @@ def _safe_size(path: str | os.PathLike[str]) -> int:
         return 0
 
 
-def estimate_tokens(files: list[str] | None, project_root: str | os.PathLike[str] | None = None) -> int:
-    """Грубая оценка токенов только по файлам, которые реально передаются задаче."""
+def _target_bytes(
+    files: list[str] | None, project_root: str | os.PathLike[str] | None
+) -> int:
+    """Суммарный размер целевых файлов в байтах."""
     total = 0
     root = Path(project_root) if project_root else None
     for file in files or []:
@@ -29,13 +32,23 @@ def estimate_tokens(files: list[str] | None, project_root: str | os.PathLike[str
         if not p.is_absolute() and root is not None:
             p = root / p
         total += _safe_size(p)
-    return total // 4
+    return total
+
+
+def estimate_tokens(files: list[str] | None, project_root: str | os.PathLike[str] | None = None) -> int:
+    """Грубая оценка токенов только по файлам, которые реально передаются задаче."""
+    return _target_bytes(files, project_root) // BYTES_PER_TOKEN
 
 
 def adjust_for_context(complexity: int, files: list[str] | None,
                        project_root: str | os.PathLike[str] | None = None) -> int:
-    """Поднимает complexity до 4, если целевые файлы не помещаются в локальный контекст."""
-    if files and estimate_tokens(files, project_root) > LOCAL_CTX_BUDGET:
+    """Поднимает complexity до 4, если целевые файлы не помещаются в локальный контекст.
+
+    Сравниваем байты, а не округлённые токены: при делении на 4 файл размером
+    ровно 4*LOCAL_CTX_BUDGET давал ровно LOCAL_CTX_BUDGET токенов, и переполнение
+    даже на один байт терялось — complexity не повышался.
+    """
+    if files and _target_bytes(files, project_root) > LOCAL_CTX_BUDGET * BYTES_PER_TOKEN:
         return max(complexity, 4)
     return complexity
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Телеметрия бюджетов: лимиты, ошибки, latency, usage report."""
+"""РўРµР»РµРјРµС‚СЂРёСЏ Р±СЋРґР¶РµС‚РѕРІ: Р»РёРјРёС‚С‹, РѕС€РёР±РєРё, latency, usage report."""
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,12 +17,32 @@ class BudgetLimit:
 
 
 class Budget:
-    """Обратная совместимость + soft limits per worker name."""
+    """РћР±СЂР°С‚РЅР°СЏ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚СЊ + soft limits per worker name."""
 
+    # "aider_or" — префиксный ключ: ограничивает всю ветку *_free (например
+    # aider_or_free), не перечисляя конкретные имена воркеров.
     LIMITS = {
+        "aider_or": BudgetLimit(per_day=50),
         "aider_openrouter": BudgetLimit(per_day=50),
         "aider_together": BudgetLimit(per_month_tokens=1_000_000),
     }
+
+    def _limit_for(self, worker: str) -> BudgetLimit | None:
+        """Р›РёРјРёС‚ РїРѕ РёРјРµРЅРё РІРѕСЂРєРµСЂР°; РїСЂРё РѕС‚СЃСѓС‚СЃС‚РІРёРё С‚РѕС‡РЅРѕРіРѕ вЂ” РїРѕ СЃР°РјРѕРјСѓ РґР»РёРЅРЅРѕРјСѓ
+        РїСЂРµС„РёРєСЃСѓ СЃ РіСЂР°РЅРёС†РµР№ "_".
+
+        Р Р°РЅСЊС€Рµ Р±С‹Р»Рѕ С‚РѕС‡РЅРѕРµ СЃРѕРІРїР°РґРµРЅРёРµ, РёР·-Р·Р° С‡РµРіРѕ РІРѕСЂРєРµСЂ РІРёРґР°
+        "aider_together_big" РёР»Рё "aider_or_free" РѕР±С…РѕРґРёР» РјРµСЃСЏС‡РЅС‹Р№ Рё РґРЅРµРІРЅРѕР№
+        Р»РёРјРёС‚С‹ РІРѕРѕР±С‰Рµ.
+        """
+        exact = self.LIMITS.get(worker)
+        if exact is not None:
+            return exact
+        best_key = None
+        for key in self.LIMITS:
+            if worker.startswith(key + "_") and (best_key is None or len(key) > len(best_key)):
+                best_key = key
+        return self.LIMITS[best_key] if best_key else None
 
     def __init__(self) -> None:
         self.calls: dict[str, dict[str, Any]] = {}
@@ -58,7 +78,7 @@ class Budget:
     def remaining(self, worker: str) -> dict[str, int | None]:
         with self._lock:
             e = self._entry(worker)
-            lim = self.LIMITS.get(worker)
+            lim = self._limit_for(worker)
             if not lim:
                 return {"per_day": None, "per_month_tokens": None}
             return {
@@ -77,7 +97,7 @@ class Budget:
             out = {}
             for worker in set(self.calls) | set(self.LIMITS):
                 e = dict(self._entry(worker))
-                lim = self.LIMITS.get(worker)
+                lim = self._limit_for(worker)
                 out[worker] = {
                     "day": e["day"],
                     "day_calls": e["day_calls"],
@@ -91,7 +111,7 @@ class Budget:
 
 
 class BudgetTracker:
-    """Расширенная телеметрия: requests, errors, latency, usage report."""
+    """Р Р°СЃС€РёСЂРµРЅРЅР°СЏ С‚РµР»РµРјРµС‚СЂРёСЏ: requests, errors, latency, usage report."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
