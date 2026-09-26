@@ -16,9 +16,23 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 _blocked = {ROOT.resolve(), Path.cwd().resolve()}
-sys.path = [p for p in sys.path if Path(p).resolve() not in _blocked]
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+
+
+@pytest.fixture(autouse=True)
+def _prefer_src_package():
+    """Hide the repo root for these tests only, then restore it.
+
+    Editing sys.path at import time leaked into the whole session and broke
+    every later test that needs a root-level import.
+    """
+    saved = list(sys.path)
+    sys.path = [p for p in sys.path if Path(p).resolve() not in _blocked]
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    try:
+        yield
+    finally:
+        sys.path = saved
 
 
 # ---------------------------------------------------------------------------

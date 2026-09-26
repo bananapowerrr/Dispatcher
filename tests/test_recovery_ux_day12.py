@@ -27,6 +27,8 @@ from intelligence.plan_runtime_bridge import (
     replan_after_error,
 )
 
+sys.path = _saved_sys_path
+
 
 def _plan() -> LivingPlan:
     return LivingPlan(
