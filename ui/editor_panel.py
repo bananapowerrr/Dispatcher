@@ -65,6 +65,11 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
         # P3 IDE foundation shortcuts
         self._text.bind("<Control-s>", lambda e: (self.save_current(), "break")[1])
         self._text.bind("<Control-S>", lambda e: (self.save_current(), "break")[1])
+        # find / find-and-replace: the bar was implemented but never bound
+        self.bind_all("<Control-f>", lambda e: (self._show_find(), "break")[1])
+        self.bind_all("<Control-F>", lambda e: (self._show_find(), "break")[1])
+        self.bind_all("<Control-h>", lambda e: (self._show_find(replace=True), "break")[1])
+        self.bind_all("<Control-H>", lambda e: (self._show_find(replace=True), "break")[1])
         self.bind_all("<Control-w>", self._on_ctrl_w)
         self.bind_all("<Control-W>", self._on_ctrl_w)
         self.bind_all("<Control-Tab>", self._on_ctrl_tab)

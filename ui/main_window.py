@@ -288,6 +288,14 @@ class MainWindow(ctk.CTk):
         except Exception:
             self.terminal_panel = None
 
+        # --- shortcuts that need the widgets to exist ---------------------
+        try:
+            self.bind_all("<F8>", lambda e: (self._focus_terminal(), "break")[1])
+            self.bind_all("<Alt-1>", lambda e: (self._focus_pane("projects"), "break")[1])
+            self.bind_all("<Alt-2>", lambda e: (self._focus_pane("chat"), "break")[1])
+        except Exception:
+            pass
+
         tabs = ctk.CTkTabview(right)
         self._right_tabs = tabs
         tabs.pack(fill="both", expand=True, padx=4, pady=4)
