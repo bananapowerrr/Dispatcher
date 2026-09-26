@@ -151,7 +151,11 @@ class ToolRegistry:
         if not path or path in (".", "./"):
             return self.root
         raw = str(path).strip().replace(chr(92), "/")
-        if raw.startswith("~") or (len(raw) >= 2 and raw[1] == ":"):
+        # ".." запрещён явно, чтобы дать понятную ошибку; "~" не раскрываем.
+        # Абсолютные пути НЕ отклоняем: проверка relative_to(root) ниже
+        # и так отсекает всё, что вне проекта, а прежняя проверка буквы диска
+        # отказывала в корректных путях внутри корня.
+        if raw.startswith("~"):
             raise ValueError(f"path outside project root: {path!r}")
         parts = [x for x in raw.split("/") if x not in ("", ".")]
         if ".." in parts:
