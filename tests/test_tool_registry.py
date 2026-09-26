@@ -1,15 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from workers import Worker
-from tool_registry import (
-    adapt_for_worker,
-    to_openai_tools,
-    to_text_protocol,
-    parse_text_tool_line,
-    execute_via_deterministic,
-    UnifiedToolGateway,
-)
+from core.workers import Worker
+from core.tool_registry import adapt_for_worker, to_openai_tools, to_text_protocol, parse_text_tool_line, execute_via_deterministic, UnifiedToolGateway
 
 
 def test_openai_schema_shape():

@@ -8,13 +8,13 @@ import time
 import uuid
 from pathlib import Path
 
-from executor import ExecutionResult
-from health import HealthRegistry
-from workers import Worker
-from project import ProjectContext
-from context import ContextBuilder
-from gitops import GitOps
-from tests import TestRunner
+from core.executor import ExecutionResult
+from safety.health import HealthRegistry
+from core.workers import Worker
+from core.project import ProjectContext
+from intelligence.context import ContextBuilder
+from safety.gitops import GitOps
+from skills.test_runner import TestRunner
 
 
 def python_exe() -> str:
@@ -161,8 +161,8 @@ class ScriptedWorker:
 
 def make_runtime(repo: Path, names=None):
     """Runtime, привязанный к repo (без Supabase и реального исполнения CLI)."""
-    import runtime as runtime_mod
-    import config as cfg_mod
+    import core.runtime as runtime_mod
+    import core.config as cfg_mod
     # процесс смотрит на runtime.PROJECT_ROOT и config.PROJECTS (registry):
     # регистрируем temp-репо как реальный проект.
     runtime_mod.PROJECT_ROOT = repo

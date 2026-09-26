@@ -45,5 +45,5 @@ def test_handle_error_recovery_replan_with_plan(tmp_path: Path):
 
 
 def test_chat_panel_has_handle_error_recovery():
-    src = Path("/home/workdir/artifacts/ui/chat_panel.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "ui" / "chat_panel.py").read_text(encoding="utf-8")
     assert "handle_error_recovery" in src

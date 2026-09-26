@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
-from skill_sandbox import validate_skill_source
-from skill_learner import SkillLearner
-from structured_output import parse_json, extract_json_text, repair_prompt
+from safety.skill_sandbox import validate_skill_source
+from skills.skill_learner import SkillLearner
+from utils.structured_output import parse_json, extract_json_text, repair_prompt
 
 
 def test_sandbox_rejects_os_import():

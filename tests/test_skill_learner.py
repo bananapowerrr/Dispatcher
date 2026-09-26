@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
-from skill_learner import SkillLearner
+from skills.skill_learner import SkillLearner
 
 
 def test_observe_and_candidates(tmp_path: Path):
@@ -34,7 +34,7 @@ def test_accept_records(tmp_path: Path):
 
 def test_feature_flag_skips_observe(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("AGENTBUS_FEATURE_SKILL_LEARNER", "0")
-    import feature_flags as ff
+    import core.feature_flags as ff
     ff.reload_flags()
     sl = SkillLearner(min_examples=1, store=tmp_path / "obs.json")
     sl.observe({"message": "format code"}, {"success": True})

@@ -45,7 +45,7 @@ class ProjectsPanel(ctk.CTkFrame):
             w.destroy()
         ensure_sys_path()
         try:
-            from config import list_projects
+            from core.config import list_projects
             projects = list_projects()
         except Exception as exc:
             ctk.CTkLabel(self.listbox, text=f"Ошибка: {exc}").pack(anchor="w")

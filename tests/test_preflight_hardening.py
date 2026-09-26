@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
-from structured_output import should_attempt_repair, MAX_REPAIR_ATTEMPTS
-from codebase_rag import _safe_read_text
-from pev_loop import write_progress
+from utils.structured_output import should_attempt_repair, MAX_REPAIR_ATTEMPTS
+from intelligence.codebase_rag import _safe_read_text
+from intelligence.pev_loop import write_progress
 
 
 def test_repair_limit_one():

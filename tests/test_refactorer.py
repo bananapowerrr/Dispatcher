@@ -3,11 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from refactorer import (
-    add_none_return_annotations,
-    remove_unused_imports,
-    try_refactor_from_message,
-)
+from skills.refactorer import add_none_return_annotations, remove_unused_imports, try_refactor_from_message
 
 
 def test_remove_unused(tmp_path: Path) -> None:

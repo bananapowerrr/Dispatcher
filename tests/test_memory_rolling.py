@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from session_memory import SessionMemory
-from log_archive import archive_old_logs
+from intelligence.session_memory import SessionMemory
+from utils.log_archive import archive_old_logs
 
 
 def test_rolling_compacts_and_archives(tmp_path):

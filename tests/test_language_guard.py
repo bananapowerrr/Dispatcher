@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-from language_guard import (
-    check_russian_prose,
-    needs_language_repair,
-    language_system_prompt,
-    format_stream_badge,
-    set_agent_language,
-    get_agent_language,
-)
+from safety.language_guard import check_russian_prose, needs_language_repair, language_system_prompt, format_stream_badge, set_agent_language, get_agent_language
 
 
 def test_russian_majority():

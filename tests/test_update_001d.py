@@ -33,7 +33,7 @@ def test_write_and_dry_run_updater(tmp_path: Path):
     }
     job = build_update_job(check=check, install_dir=tmp_path / "inst")
     job_path = write_update_job(job, tmp_path / "job.json")
-    script = Path("/home/workdir/artifacts/scripts/agentbus_updater.py")
+    script = Path(__file__).resolve().parent.parent / "scripts" / "agentbus_updater.py"
     assert script.is_file()
     result = launch_updater(job_path, updater=script, dry_run=True, wait=True)
     assert result.get("ok") is True

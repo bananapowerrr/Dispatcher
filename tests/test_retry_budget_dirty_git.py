@@ -9,7 +9,7 @@ import pytest
 
 
 def test_config_verify_fail_max():
-    from config import VERIFY_FAIL_MAX, DIRTY_GIT_POLICY, MAX_ATTEMPTS
+    from core.config import VERIFY_FAIL_MAX, DIRTY_GIT_POLICY, MAX_ATTEMPTS
     assert VERIFY_FAIL_MAX >= 1
     assert MAX_ATTEMPTS >= 1
     assert DIRTY_GIT_POLICY in ("park", "stash", "branch", "allow") or isinstance(DIRTY_GIT_POLICY, str)
@@ -17,7 +17,7 @@ def test_config_verify_fail_max():
 
 def test_gitops_clean_ok(tmp_path):
     import subprocess
-    from gitops import GitOps
+    from safety.gitops import GitOps
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True, capture_output=True)
@@ -34,7 +34,7 @@ def test_gitops_clean_ok(tmp_path):
 
 def test_gitops_dirty_park(tmp_path):
     import subprocess
-    from gitops import GitOps
+    from safety.gitops import GitOps
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True, capture_output=True)
@@ -53,7 +53,7 @@ def test_gitops_dirty_park(tmp_path):
 
 def test_gitops_allow_dirty(tmp_path):
     import subprocess
-    from gitops import GitOps
+    from safety.gitops import GitOps
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True, capture_output=True)
@@ -71,7 +71,7 @@ def test_gitops_allow_dirty(tmp_path):
 
 def test_verify_budget_logic_standalone():
     """Mirror RuntimeOps consecutive-verify counter without importing runtime."""
-    from config import VERIFY_FAIL_MAX
+    from core.config import VERIFY_FAIL_MAX
 
     class FakeTask:
         def __init__(self):

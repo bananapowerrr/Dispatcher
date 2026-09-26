@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from meta_classifier import classify_task, enrich_task_metadata
+from skills.meta_classifier import classify_task, enrich_task_metadata
 from skills import SkillRegistry
-from solution_cache import SolutionCache
-from tools import ToolRegistry
+from intelligence.solution_cache import SolutionCache
+from skills.tools import ToolRegistry
 
 
 def test_pipeline_skill_hit_skips_llm(tmp_path: Path):
@@ -59,7 +59,7 @@ def test_pipeline_complex_goes_to_llm_not_skill():
 
 def test_pipeline_bus_write_claim_shape(tmp_path: Path):
     """Task JSON shape that runtime expects."""
-    from bus import FileBus
+    from core.bus import FileBus
     import json
 
     bus = FileBus(tmp_path, ("gpt",))

@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from health import HealthRegistry, WorkerState
+from safety.health import HealthRegistry, WorkerState
 
 
 @pytest.fixture

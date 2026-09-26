@@ -67,12 +67,21 @@ def _diagnose() -> int:
     except Exception as exp:
         print(f"  err: {exp}")
     print("\n-- python-модули --")
-    for mod in ("git", "pytest", "aider", "opencode"):
+    # A bare __import__ is not proof: PyPI `aider` is an unrelated package that
+    # imports fine but ships no CLI. Ask the *distribution* what is installed.
+    for dist, mod in (("gitpython", "git"), ("pytest", "pytest"), ("aider-chat", "aider")):
         try:
-            m = __import__(mod)
-            print(f"  {mod:12s} OK v{getattr(m, '__version__', '?')}")
+            from importlib.metadata import version
+
+            ver = version(dist)
         except Exception:
             print(f"  {mod:12s} НЕ найден")
+            continue
+        try:
+            __import__(mod)
+            print(f"  {mod:12s} OK v{ver}")
+        except Exception:
+            print(f"  {mod:12s} v{ver} (дистрибутив есть, импорт падает)")
     print("\n-- провайдеры / воркеры --")
     try:
         ps = load_providers()

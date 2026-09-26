@@ -2,12 +2,7 @@
 """Offline tests for meta_classifier (heuristics; ollama optional)."""
 from __future__ import annotations
 
-from meta_classifier import (
-    classify_task,
-    enrich_task_metadata,
-    heuristic_complexity,
-    heuristic_task_type,
-)
+from skills.meta_classifier import classify_task, enrich_task_metadata, heuristic_complexity, heuristic_task_type
 
 
 def test_heuristic_types() -> None:

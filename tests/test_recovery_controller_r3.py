@@ -66,6 +66,6 @@ def test_annotate_row():
 
 
 def test_finish_task_error_uses_controller():
-    src = Path("/home/workdir/artifacts/src/core/runtime_ops.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py").read_text(encoding="utf-8")
     assert "recovery_controller" in src
     assert "run_recovery" in src

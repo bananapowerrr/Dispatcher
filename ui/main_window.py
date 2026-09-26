@@ -854,6 +854,27 @@ class MainWindow(ctk.CTk):
         except Exception as exp:
             self._term("ui", f"save layout: {exp}")
 
+    def _should_show_advanced_tabs(self) -> bool:
+        """Create the optional right-side tabs only if the mode asks for them.
+
+        Beginner/agent keeps the panel set small; `full` shows everything.
+        Panels stay registered-but-optional, so a False just means "not built".
+        """
+        try:
+            mode_id = self._workspace_mode.get() if hasattr(self, "_workspace_mode") else "agent"
+        except Exception:
+            mode_id = "agent"
+        try:
+            from app.workspace_mode import panel_visibility
+            vis = panel_visibility(mode_id)
+        except Exception:
+            return True
+        keys = (
+            "workers", "skills", "recipes", "pev",
+            "sentinel", "phone", "extensions",
+        )
+        return any(bool(vis.get(k)) for k in keys)
+
     def _set_workspace_mode(self, mode_id: str) -> None:
 
         try:
@@ -1288,7 +1309,6 @@ class MainWindow(ctk.CTk):
             qn = 0
             try:
                 from core.local_queue import get_local_queue
-                from ui.paths import agentbus_root
                 qn = get_local_queue(agentbus_root()).size()
             except Exception:
                 pass

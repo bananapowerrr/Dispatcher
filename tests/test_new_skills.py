@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from skills import SkillRegistry
-from tools import ToolRegistry
+from skills.tools import ToolRegistry
 
 
 def test_match_new_skills():

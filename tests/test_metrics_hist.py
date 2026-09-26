@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from metrics import MetricsCollector
+from utils.metrics import MetricsCollector
 
 
 def test_duration_histogram_buckets():

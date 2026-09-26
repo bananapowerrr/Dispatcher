@@ -572,7 +572,7 @@ class ChatPanel(ctk.CTkFrame):
             self._notified_deferred.discard(task_id)
 
 
-        def notify_error(self, task_id: str = "", detail: str = "", *, row: dict | None = None) -> None:
+    def notify_error(self, task_id: str = "", detail: str = "", *, row: dict | None = None) -> None:
         """WIRE-001: preserve recovery multi-line; optional task row for bridge."""
         text = detail or task_id or "ошибка"
         # Prefer structured recovery when row provided
@@ -1155,6 +1155,51 @@ class ChatPanel(ctk.CTkFrame):
         except Exception as exc:
             self.append("System", f"{action}: {exc}")
 
+
+    def _load_templates(self) -> dict[str, dict]:
+        """Шаблоны задач: config/task_templates.json → {name: {message, files_required}}."""
+        try:
+            path = agentbus_root() / "config" / "task_templates.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        if isinstance(data, dict):
+            items = list(data.items())
+        elif isinstance(data, list):
+            items = [
+                (str(x.get("id") or x.get("name") or ""), x)
+                for x in data if isinstance(x, dict)
+            ]
+        else:
+            return {}
+        out: dict[str, dict] = {}
+        for name, spec in items:
+            if not name or not isinstance(spec, dict):
+                continue
+            message = str(spec.get("message") or spec.get("text") or "").strip()
+            if not message:
+                continue
+            out[str(name)] = {
+                "message": message,
+                "files_required": bool(spec.get("files_required")),
+            }
+        return out
+
+    def _apply_template(self, name: str = "") -> None:
+        """Подставить шаблон в поле ввода (файлы → {files})."""
+        name = (name or "").strip()
+        if not name or name == "—":
+            return
+        spec = (getattr(self, "_templates", None) or {}).get(name)
+        if not spec:
+            self.append("System", f"Шаблон «{name}» не найден.", kind="info")
+            return
+        files = list(getattr(self, "_files", None) or [])
+        if spec.get("files_required") and not files:
+            self.append("System", f"Шаблон «{name}»: сначала добавь файлы.", kind="info")
+            return
+        target = ", ".join(Path(f).name for f in files) or "выбранные файлы"
+        self._fill_prompt(str(spec["message"]).replace("{files}", target))
 
     def _load_recipe_names(self) -> list[str]:
         names = ["—"]

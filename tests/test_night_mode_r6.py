@@ -3,13 +3,13 @@ from pathlib import Path
 
 
 def test_max_parallel_is_one():
-    from intelligence.night_mode_controller import MAX_PARALLEL_PROJECTS
+    from core.night_mode_controller import MAX_PARALLEL_PROJECTS
     assert MAX_PARALLEL_PROJECTS == 1
 
 
 def test_step_to_payload():
     from types import SimpleNamespace
-    from intelligence.night_mode_controller import step_to_task_payload
+    from core.night_mode_controller import step_to_task_payload
 
     step = SimpleNamespace(id="s1", action="fix tests", files=["a.py"], complexity=4, meta={}, target="")
     p = step_to_task_payload(step, project="demo")
@@ -20,7 +20,7 @@ def test_step_to_payload():
 
 def test_dry_run_session():
     from intelligence.living_plan import LivingPlan, LivingStep
-    from intelligence.night_mode_controller import run_night_session, NightSessionConfig
+    from core.night_mode_controller import run_night_session, NightSessionConfig
 
     plan = LivingPlan(summary="night")
     plan.steps.append(LivingStep(id="a", action="work a", status="PENDING", complexity=5, depends_on=[]))
@@ -34,7 +34,7 @@ def test_dry_run_session():
 
 def test_error_triggers_recovery_replan(tmp_path: Path):
     from intelligence.living_plan import LivingPlan, LivingStep, save_living_plan
-    from intelligence.night_mode_controller import run_night_session, NightSessionConfig
+    from core.night_mode_controller import run_night_session, NightSessionConfig
 
     plan = LivingPlan(summary="n")
     plan.steps.append(
@@ -78,7 +78,7 @@ def test_error_triggers_recovery_replan(tmp_path: Path):
 
 def test_ask_user_stops():
     from intelligence.living_plan import LivingPlan, LivingStep
-    from intelligence.night_mode_controller import run_night_session, NightSessionConfig
+    from core.night_mode_controller import run_night_session, NightSessionConfig
 
     plan = LivingPlan(summary="n")
     plan.steps.append(LivingStep(id="s1", action="x", status="PENDING", complexity=5, depends_on=[]))

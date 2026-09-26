@@ -11,7 +11,7 @@ import pytest
 
 def test_meta_unavailable_falls_back_to_heuristic(monkeypatch: pytest.MonkeyPatch) -> None:
     """Если ollama meta недоступна — heuristic, не exception."""
-    import meta_classifier as mc
+    import skills.meta_classifier as mc
 
     monkeypatch.setenv("AGENTBUS_META", "1")
     monkeypatch.setattr(mc, "_meta_enabled", lambda: True)
@@ -30,7 +30,7 @@ def test_meta_unavailable_falls_back_to_heuristic(monkeypatch: pytest.MonkeyPatc
 
 def test_cache_corrupted_skips_to_worker(tmp_path: Path) -> None:
     """Повреждённый cache file не роняет get()."""
-    from solution_cache import SolutionCache
+    from intelligence.solution_cache import SolutionCache
 
     bad = tmp_path / "solution_cache.json"
     bad.write_text("{not-json", encoding="utf-8")
@@ -43,7 +43,7 @@ def test_cache_corrupted_skips_to_worker(tmp_path: Path) -> None:
 
 
 def test_alerts_high_error_rate() -> None:
-    from alerts import AlertManager
+    from utils.alerts import AlertManager
 
     am = AlertManager(error_rate_threshold=0.5, cooldown_sec=0)
     fired = am.check_from_metrics(
@@ -53,7 +53,7 @@ def test_alerts_high_error_rate() -> None:
 
 
 def test_alerts_cache_ineffective() -> None:
-    from alerts import AlertManager
+    from utils.alerts import AlertManager
 
     am = AlertManager(cache_hit_floor=0.1, cooldown_sec=0)
     fired = am.check_from_metrics(
@@ -67,7 +67,7 @@ def test_alerts_cache_ineffective() -> None:
 
 
 def test_alerts_queue_depth() -> None:
-    from alerts import AlertManager
+    from utils.alerts import AlertManager
 
     am = AlertManager(queue_depth_limit=10, cooldown_sec=0)
     fired = am.check_queue({"incoming": 50, "processing": 0})
@@ -75,7 +75,7 @@ def test_alerts_queue_depth() -> None:
 
 
 def test_ttl_cache_expires() -> None:
-    from performance import TTLCache
+    from utils.performance import TTLCache
     import time
 
     c: TTLCache[str] = TTLCache(maxsize=8, ttl=0.05)
@@ -86,7 +86,7 @@ def test_ttl_cache_expires() -> None:
 
 
 def test_cached_with_ttl_decorator() -> None:
-    from performance import cached_with_ttl
+    from utils.performance import cached_with_ttl
 
     calls = {"n": 0}
 
@@ -101,7 +101,7 @@ def test_cached_with_ttl_decorator() -> None:
 
 
 def test_router_task_complexity_from_meta() -> None:
-    from router import task_complexity
+    from core.router import task_complexity
 
     assert task_complexity({"message": "x", "metadata": {"complexity": 5}}) == 5
     assert 1 <= task_complexity({"message": "hi", "files": []}) <= 5

@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from sub_agent import SubAgent, spawn_subtasks
+from intelligence.sub_agent import SubAgent, spawn_subtasks
 
 
 def test_spawn_and_registry(tmp_path: Path):
@@ -59,7 +59,7 @@ def test_cancel_pending(tmp_path: Path):
 
 def test_feature_flag_disables_spawn(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("AGENTBUS_FEATURE_SUB_AGENTS", "0")
-    import feature_flags as ff
+    import core.feature_flags as ff
     ff.reload_flags()
     res = spawn_subtasks(tmp_path, [{"message": "nope"}], parent_id="px")
     assert res.task_ids == []

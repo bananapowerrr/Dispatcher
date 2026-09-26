@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from code_intelligence import CodeIntelligence
+from intelligence.code_intelligence import CodeIntelligence
 
 
 def test_build_and_critical(tmp_path: Path) -> None:

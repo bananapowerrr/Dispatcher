@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bus import FileBus, STATES
+from core.bus import FileBus, STATES
 
 
 def test_filebus_write_move(tmp_path: Path) -> None:

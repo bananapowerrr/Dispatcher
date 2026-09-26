@@ -1,4 +1,4 @@
-from budget import Budget
+from utils.budget import Budget
 
 
 def test_daily_limit_counts_calls_and_remaining():

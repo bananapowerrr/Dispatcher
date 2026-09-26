@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def test_notify_error_signature_accepts_row():
-    src = Path("/home/workdir/artifacts/ui/chat_panel.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "ui" / "chat_panel.py").read_text(encoding="utf-8")
     assert "def notify_error" in src
     assert "row:" in src or "row=" in src
     assert "format_error_row_for_chat" in src
@@ -24,13 +24,13 @@ def test_bridge_enriches_decision():
 
 
 def test_rp_context_has_continuity():
-    src = Path("/home/workdir/artifacts/src/core/rp_context.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_context.py").read_text(encoding="utf-8")
     assert "task_continuity" in src
     assert "merge_prev_failure" in src
 
 
 def test_task_continuity_importable():
-    from intelligence.task_continuity import continuity_for_next_prompt
+    from core.task_continuity import continuity_for_next_prompt
 
     block = continuity_for_next_prompt({
         "attempts": 1,

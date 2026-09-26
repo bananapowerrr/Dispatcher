@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
-from conversation import Conversation
-from session_memory import SessionMemory
-from codebase_rag import CodebaseRAG
+from intelligence.conversation import Conversation
+from intelligence.session_memory import SessionMemory
+from intelligence.codebase_rag import CodebaseRAG
 
 
 def test_compact_preserves_pending_and_summarizes():

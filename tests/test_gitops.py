@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from gitops import GitOps, _gitignored
+from safety.gitops import GitOps, _gitignored
 import _helpers as h
 
 

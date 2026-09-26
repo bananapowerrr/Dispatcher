@@ -60,7 +60,7 @@ def test_runtime_ops_save_contains_evidence_wire():
 
     roots = [
         Path(__file__).resolve().parents[1] / "src" / "core" / "runtime_ops.py",
-        Path("/home/workdir/artifacts/src/core/runtime_ops.py"),
+        Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py",
     ]
     src = ""
     for p in roots:

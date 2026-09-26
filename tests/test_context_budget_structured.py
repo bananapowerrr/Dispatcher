@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-from context_budget import assemble_worker_message, estimate_tokens, compress_to_bullets
-from structured_output import parse_json, repair_prompt, extract_json_text
+from intelligence.context_budget import assemble_worker_message, estimate_tokens, compress_to_bullets
+from utils.structured_output import parse_json, repair_prompt, extract_json_text
 
 
 def test_assemble_keeps_user_request():

@@ -74,5 +74,5 @@ def test_filter_pool_allows_timeout():
 
 def test_rp_llm_has_dev004_gate():
     from pathlib import Path
-    src = Path("/home/workdir/artifacts/src/core/rp_llm.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_llm.py").read_text(encoding="utf-8")
     assert "allow_worker_fallback" in src

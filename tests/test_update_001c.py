@@ -22,13 +22,13 @@ def test_run_update_check_offline():
 
 
 def test_settings_has_about_tab():
-    src = Path("/home/workdir/artifacts/ui/settings_panel.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "ui" / "settings_panel.py").read_text(encoding="utf-8")
     assert "_build_about_tab" in src
     assert "run_update_check" in src
     assert "Позже" in src or "about_later" in src
 
 
 def test_chat_has_maybe_notify():
-    src = Path("/home/workdir/artifacts/ui/chat_panel.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "ui" / "chat_panel.py").read_text(encoding="utf-8")
     assert "_maybe_notify_update" in src
     assert "AGENTBUS_SKIP_UPDATE_CHECK" in src

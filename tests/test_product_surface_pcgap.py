@@ -30,8 +30,8 @@ def test_format_error_story_fallback():
 def test_chat_panel_wires_product_surface():
     roots = [
         Path(__file__).resolve().parents[1] / "ui" / "chat_panel.py",
-        Path("/home/workdir/artifacts/ui/chat_panel.py"),
-        Path("/home/workdir/artifacts/chat_panel.py"),
+        Path(__file__).resolve().parent.parent / "ui" / "chat_panel.py",
+        Path(__file__).resolve().parent.parent / "chat_panel.py",
     ]
     src = ""
     for p in roots:

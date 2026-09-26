@@ -214,11 +214,18 @@ def run_doctor() -> DoctorReport:
 
     # --- worker CLI tools (warning only; live needs these) ---
     try:
+        import os
         import shutil
+        # honour AIDER_PATH / OPENCODE_PATH too: the tips below tell the user to
+        # set them, so a PATH-only check reported a correctly configured tool as missing
         tools = {
-            "ollama": shutil.which("ollama"),
-            "aider": shutil.which("aider"),
-            "opencode": shutil.which("opencode") or __import__("os").environ.get("OPENCODE_BIN"),
+            "ollama": shutil.which("ollama") or os.environ.get("OLLAMA_PATH"),
+            "aider": shutil.which("aider") or os.environ.get("AIDER_PATH"),
+            "opencode": (
+                shutil.which("opencode")
+                or os.environ.get("OPENCODE_BIN")
+                or os.environ.get("OPENCODE_PATH")
+            ),
         }
         for name, path in tools.items():
             ok = bool(path)
@@ -367,9 +374,20 @@ def worker_stack_section() -> str:
         return f"Worker stack unavailable: {exp}"
 
 
+def doctor_verdict_line(report: DoctorReport | None = None) -> str:
+    """Single-line readiness verdict: 'VERDICT: READY' / 'VERDICT: BLOCKED'."""
+    rep = report if report is not None else run_doctor()
+    try:
+        verdict = rep.to_dict().get("verdict") or ("READY" if rep.critical_ok else "BLOCKED")
+    except Exception:
+        verdict = "ERROR"
+    return f"VERDICT: {verdict}"
+
+
 def doctor_full_text(*, include_capability: bool = True, include_board: bool = True) -> str:
     """Checklist + optional configuration advisor + status board for UI/CLI."""
-    body = run_doctor().format_human()
+    report = run_doctor()
+    body = report.format_human()
     body = body + "\n\n" + worker_stack_section()
     if include_capability:
         body = body + "\n\n" + capability_section()
@@ -379,4 +397,5 @@ def doctor_full_text(*, include_capability: bool = True, include_board: bool = T
             body = body + "\n\n" + format_board_text()
         except Exception as exp:
             body = body + f"\n\n(status board unavailable: {exp})"
+    body = body + "\n\n" + doctor_verdict_line(report)
     return body

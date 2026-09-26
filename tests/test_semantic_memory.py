@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from semantic_memory import SemanticMemory, should_attach_semantic
+from intelligence.semantic_memory import SemanticMemory, should_attach_semantic
 
 
 def test_jaccard_similar(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from bus import FileBus
+from core.bus import FileBus
 
 
 def test_filebus_allows_sub_channel(tmp_path):

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from project_lock import ProjectLock
+from safety.project_lock import ProjectLock
 
 
 def test_same_project_blocked():

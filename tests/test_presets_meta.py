@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from meta_classifier import classify_task, heuristic_risk, heuristic_suggested_worker
-from presets import apply_preset, list_presets, load_preset
+from skills.meta_classifier import classify_task, heuristic_risk, heuristic_suggested_worker
+from intelligence.presets import apply_preset, list_presets, load_preset
 from skills import SkillRegistry
-from tools import ToolRegistry
-from workers import Worker
+from skills.tools import ToolRegistry
+from core.workers import Worker
 
 
 def test_list_presets():

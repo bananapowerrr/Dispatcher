@@ -88,7 +88,7 @@ def test_chat_panel_error_path_wires_bridge():
     """Source contract: poll ERROR uses format_error_row_for_chat."""
     roots = [
         Path(__file__).resolve().parents[1] / "ui" / "chat_panel.py",
-        Path("/home/workdir/artifacts/chat_panel.py"),
+        Path(__file__).resolve().parent.parent / "chat_panel.py",
     ]
     src = ""
     for p in roots:

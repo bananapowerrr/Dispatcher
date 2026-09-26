@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from router import LOCAL_CTX_BUDGET, adjust_for_context, estimate_tokens, task_complexity
+from core.router import LOCAL_CTX_BUDGET, adjust_for_context, estimate_tokens, task_complexity
 
 
 def test_estimate_tokens_counts_only_target_files(tmp_path):

@@ -254,7 +254,7 @@ def run_autonomous_loop(
     execute_fn(task_payload) → {terminal_state, verified?, error?, ...}
     state_dir: where to store night run JSON (default user_data/night_runs)
     """
-    from intelligence.night_run_state import (
+    from core.night_run_state import (
         MAX_ACTIVE_NIGHT_RUNS,
         STATUS_ASK_USER,
         STATUS_COMPLETED,
@@ -291,7 +291,7 @@ def run_autonomous_loop(
     existing = None
     if resume:
         if run_id:
-            from intelligence.night_run_state import load_state
+            from core.night_run_state import load_state
             existing = load_state(state_path_for(run_id, sdir))
         if existing is None:
             existing = find_resumable_run(sdir)
@@ -330,7 +330,7 @@ def run_autonomous_loop(
 
     path = state_path_for(rid, sdir)
     try:
-        from intelligence.night_run_state import atomic_write_state
+        from core.night_run_state import atomic_write_state
         atomic_write_state(path, state)
 
         steps = list(getattr(plan, "steps", None) or [])

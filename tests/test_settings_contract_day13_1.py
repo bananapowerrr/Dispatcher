@@ -15,7 +15,7 @@ def _panel_source() -> str:
     p = ROOT / "ui" / "settings_panel.py"
     if not p.is_file():
         # offline artifact path
-        p = Path("/home/workdir/artifacts/settings_panel.py")
+        p = Path(__file__).resolve().parent.parent / "settings_panel.py"
     return p.read_text(encoding="utf-8")
 
 

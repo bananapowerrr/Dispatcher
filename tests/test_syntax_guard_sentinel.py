@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
-from syntax_guard import check_source, check_paths, guard_or_error, SyntaxReport
-from file_sentinel import FileSentinel, SHADOW_RE
+from safety.syntax_guard import check_source, check_paths, guard_or_error, SyntaxReport
+from safety.file_sentinel import FileSentinel, SHADOW_RE
 
 
 def test_syntax_ok():
@@ -77,7 +77,7 @@ def test_protected_import(tmp_path):
 
 
 def test_memory_extract_complex(tmp_path):
-    from session_memory import SessionMemory
+    from intelligence.session_memory import SessionMemory
     sm = SessionMemory(tmp_path)
     facts = sm.auto_extract(
         {"message": "refactor auth with poetry run pytest", "complexity": 5, "files": ["tests/test_auth.py"]},

@@ -55,9 +55,11 @@ def diagnose_environment() -> list[str]:
     need_coder = (os.getenv("CODER_MODEL") or "qwen2.5-coder:7b").replace("ollama_chat/", "")
     need_meta = (os.getenv("META_MODEL") or "qwen2.5:1.5b-instruct").replace("ollama_chat/", "")
     for label, need in (("coder", need_coder), ("meta", need_meta)):
-        # match by family prefix or full name
+        # match by family prefix or full name; ollama tags are case-insensitive
+        want = need.lower()
+        family = want.split(":")[0]
         hit = any(
-            need == m or need.split(":")[0] in m or m.startswith(need.split(":")[0])
+            want == m.lower() or family in m.lower() or m.lower().startswith(family)
             for m in models_found
         )
         mark = "OK" if hit else "НЕТ"

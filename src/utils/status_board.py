@@ -51,8 +51,8 @@ def safety_flags() -> dict[str, str]:
     }
 
 
-def print_board(bus_root: str | Path | None = None, channels: tuple[str, ...] | list[str] | None = None) -> None:
-    """Print a compact status table to stdout."""
+def format_board_text(bus_root: str | Path | None = None, channels: tuple[str, ...] | list[str] | None = None) -> str:
+    """Render the compact status table as text (same content as print_board)."""
     try:
         from core.config import BUS_ROOT, CHANNELS
         root = Path(bus_root or BUS_ROOT)
@@ -61,21 +61,18 @@ def print_board(bus_root: str | Path | None = None, channels: tuple[str, ...] | 
         root = Path(bus_root or ".")
         chans = list(channels or ("gpt", "autopilot"))
 
-    print("\n--- status board ---")
+    out: list[str] = ["", "--- status board ---"]
     flags = safety_flags()
-    print(
-        "safety: "
-        + " · ".join(f"{k}={v}" for k, v in flags.items())
-    )
+    out.append("safety: " + " · ".join(f"{k}={v}" for k, v in flags.items()))
     rows = channel_snapshot(root, chans)
     if not rows:
-        print("queues: (no channels)")
-        return
+        out.append("queues: (no channels)")
+        return "\n".join(out)
     hdr = f"{'channel':12} {'in':>4} {'proc':>4} {'done':>4} {'err':>4} {'def':>4}"
-    print(hdr)
-    print("-" * len(hdr))
+    out.append(hdr)
+    out.append("-" * len(hdr))
     for r in rows:
-        print(
+        out.append(
             f"{r['channel'][:12]:12} "
             f"{r['incoming']:4d} {r['processing']:4d} {r['done']:4d} "
             f"{r['errors']:4d} {r['deferred']:4d}"
@@ -83,10 +80,10 @@ def print_board(bus_root: str | Path | None = None, channels: tuple[str, ...] | 
     # quarantine count
     qdir = root / ".agentbus" / "quarantine" / "tasks"
     qn = _count_json(qdir) if qdir.is_dir() else 0
-    print(f"quarantine tasks : {qn}")
+    out.append(f"quarantine tasks : {qn}")
     lessons = root / ".agentbus" / "lessons"
     ln = _count_json(lessons) if lessons.is_dir() else 0
-    print(f"post-mortem notes: {ln}")
+    out.append(f"post-mortem notes: {ln}")
     try:
         from utils.metrics import GLOBAL_METRICS
         c = getattr(GLOBAL_METRICS, "counters", None) or {}
@@ -95,14 +92,18 @@ def print_board(bus_root: str | Path | None = None, channels: tuple[str, ...] | 
             "retry_budget_exhausted", "task_quarantined",
             "cache_hit", "skill_hit",
         )
-        bits = [f"{k}={c.get(k, 0)}" for k in keys if k in c or True]
-        # always show
         bits = []
         for k in keys:
             bits.append(f"{k}={int(c.get(k, 0) if isinstance(c, dict) else 0)}")
-        print("metrics          : " + " · ".join(bits))
+        out.append("metrics          : " + " · ".join(bits))
     except Exception:
         pass
+    return "\n".join(out)
+
+
+def print_board(bus_root: str | Path | None = None, channels: tuple[str, ...] | list[str] | None = None) -> None:
+    """Print a compact status table to stdout."""
+    print(format_board_text(bus_root, channels))
 
 
 def board_dict(bus_root: str | Path | None = None) -> dict[str, Any]:

@@ -3,10 +3,9 @@
 дедупликация, free-only guard, события. Без сети и CLI."""
 from __future__ import annotations
 
-from dynamicpool import (build_dynamic_workers, emit_pool_event, is_foreign_provider,
-                         _wm_key)
+from core.dynamicpool import build_dynamic_workers, emit_pool_event, is_foreign_provider, _wm_key
 from providers.registry import Provider
-from workers import Worker
+from core.workers import Worker
 
 
 def _provider(**kw):

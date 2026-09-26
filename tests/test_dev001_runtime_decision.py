@@ -70,6 +70,6 @@ def test_worker_self_done_blocked():
 
 def test_finish_task_source_has_decision():
     from pathlib import Path
-    src = Path("/home/workdir/artifacts/src/core/runtime_ops.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py").read_text(encoding="utf-8")
     assert "decide_terminal" in src
     assert "runtime_decision" in src

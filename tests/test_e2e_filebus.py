@@ -10,7 +10,7 @@ import pytest
 
 
 def test_security_rejects_bad_verify_command():
-    from security import validate_task, SecurityError
+    from safety.security import validate_task, SecurityError
     with pytest.raises(SecurityError):
         validate_task({
             "id": "t1",
@@ -22,7 +22,7 @@ def test_security_rejects_bad_verify_command():
 
 def test_filebus_write_and_claim_structure(tmp_path: Path):
     try:
-        from bus import FileBus
+        from core.bus import FileBus
     except ImportError:
         pytest.skip("bus not importable offline")
 
@@ -47,7 +47,7 @@ def test_filebus_write_and_claim_structure(tmp_path: Path):
 
 
 def test_project_validate_commands_hook():
-    from project import ProjectContext
+    from core.project import ProjectContext
     ctx = ProjectContext(tempfile.gettempdir())
     ctx.validate_commands(verify=["pytest -q"], run=[])
     with pytest.raises(ValueError):

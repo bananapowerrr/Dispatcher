@@ -14,7 +14,7 @@ def test_core_task_continuity_import():
 
 
 def test_rp_context_imports_core_or_intelligence():
-    src = Path("/home/workdir/artifacts/src/core/rp_context.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_context.py").read_text(encoding="utf-8")
     assert "task_continuity" in src
     assert "merge_prev_failure" in src
 

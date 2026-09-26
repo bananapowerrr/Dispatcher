@@ -16,6 +16,8 @@ from typing import Any
 
 PREFERRED_CODER_MODEL = "qwen2.5-coder:7b"
 OLLAMA_TAGS_PATH = "/api/tags"
+# pip name != CLI name (aider-chat provides the `aider` CLI; PyPI `aider` is unrelated)
+_PIP_PACKAGES = {"aider": "aider-chat"}
 
 
 @dataclass
@@ -197,7 +199,9 @@ def probe_cli(name: str, *, env_path: str = "", critical: bool = False) -> Probe
         False,
         f"{name} not on PATH",
         critical_for_live=critical,
-        fix=f"pip install {name}" if name == "aider" else f"install {name} CLI",
+        fix=f"pip install {_PIP_PACKAGES.get(name, name)}"
+        if name in _PIP_PACKAGES
+        else f"install {name} CLI",
     )
 
 

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 
 def test_risk_blocks_critical():
-    from intelligence.night_policy import filter_by_risk, NightPolicyConfig
+    from core.night_policy import filter_by_risk, NightPolicyConfig
 
     tasks = [
         {"id": "1", "complexity": 5, "metadata": {"risk": "low"}},
@@ -16,7 +16,7 @@ def test_risk_blocks_critical():
 
 
 def test_select_respects_max_tasks():
-    from intelligence.night_policy import select_evening_batch, NightPolicyConfig
+    from core.night_policy import select_evening_batch, NightPolicyConfig
 
     tasks = [
         {"id": str(i), "complexity": 5, "metadata": {"priority": i}, "message": f"t{i}"}
@@ -28,7 +28,7 @@ def test_select_respects_max_tasks():
 
 
 def test_outside_night_defers():
-    from intelligence.night_policy import select_evening_batch, NightPolicyConfig
+    from core.night_policy import select_evening_batch, NightPolicyConfig
     from intelligence.night_scheduler import NightConfig, NightScheduler
 
     # noon
@@ -41,7 +41,7 @@ def test_outside_night_defers():
 
 
 def test_plan_night_run_payloads():
-    from intelligence.night_policy import plan_night_run, NightPolicyConfig
+    from core.night_policy import plan_night_run, NightPolicyConfig
 
     tasks = [
         {"id": "a", "complexity": 4, "message": "fix x", "project": "p1", "metadata": {"risk": "low"}},
@@ -53,8 +53,8 @@ def test_plan_night_run_payloads():
 
 
 def test_morning_report_contains_counts():
-    from intelligence.night_policy import build_morning_report
-    from intelligence.night_mode_controller import NightSessionResult
+    from core.night_policy import build_morning_report
+    from core.night_mode_controller import NightSessionResult
 
     res = NightSessionResult(done=["s0"], errors=["s1"], stopped_reason="complete")
     text = build_morning_report(session_result=res, selection={"selected": [1, 2], "blocked": []})
@@ -64,7 +64,7 @@ def test_morning_report_contains_counts():
 
 
 def test_run_policy_night_with_loop(tmp_path):
-    from intelligence.night_policy import run_policy_night, NightPolicyConfig
+    from core.night_policy import run_policy_night, NightPolicyConfig
 
     plan = SimpleNamespace(steps=[
         SimpleNamespace(id="s0", title="t0", status="PENDING"),

@@ -12,7 +12,7 @@ def _plan(n=3):
 
 
 def test_atomic_write_and_no_secrets(tmp_path: Path):
-    from intelligence.night_run_state import atomic_write_state, load_state, new_run_state
+    from core.night_run_state import atomic_write_state, load_state, new_run_state
 
     st = new_run_state(project_id="p1")
     st["api_key"] = "SECRET_KEY_XXX"
@@ -29,8 +29,8 @@ def test_atomic_write_and_no_secrets(tmp_path: Path):
 
 
 def test_checkpoint_completed_not_rerun(tmp_path: Path):
-    from intelligence.night_mode_controller import run_autonomous_loop, NightSessionConfig
-    from intelligence.night_run_state import load_state
+    from core.night_mode_controller import run_autonomous_loop, NightSessionConfig
+    from core.night_run_state import load_state
 
     calls = []
 
@@ -56,13 +56,7 @@ def test_checkpoint_completed_not_rerun(tmp_path: Path):
 
 
 def test_interrupted_processing_not_done(tmp_path: Path):
-    from intelligence.night_run_state import (
-        PHASE_STEP_STARTED,
-        checkpoint,
-        new_run_state,
-        resume_plan,
-        state_path_for,
-    )
+    from core.night_run_state import PHASE_STEP_STARTED, checkpoint, new_run_state, resume_plan, state_path_for
 
     st = new_run_state(plan_step_ids=["s0"])
     path = state_path_for(st["run_id"], tmp_path)
@@ -74,13 +68,7 @@ def test_interrupted_processing_not_done(tmp_path: Path):
 
 
 def test_interrupted_verifying_not_done(tmp_path: Path):
-    from intelligence.night_run_state import (
-        PHASE_VERIFICATION_FINISHED,
-        checkpoint,
-        new_run_state,
-        resume_plan,
-        state_path_for,
-    )
+    from core.night_run_state import PHASE_VERIFICATION_FINISHED, checkpoint, new_run_state, resume_plan, state_path_for
 
     st = new_run_state()
     path = state_path_for(st["run_id"], tmp_path)
@@ -90,8 +78,8 @@ def test_interrupted_verifying_not_done(tmp_path: Path):
 
 
 def test_second_run_blocked(tmp_path: Path):
-    from intelligence.night_mode_controller import run_autonomous_loop, NightSessionConfig
-    from intelligence.night_run_state import acquire_lock
+    from core.night_mode_controller import run_autonomous_loop, NightSessionConfig
+    from core.night_run_state import acquire_lock
 
     lock = acquire_lock(tmp_path, run_id="first")
     assert lock["ok"]
@@ -108,13 +96,7 @@ def test_second_run_blocked(tmp_path: Path):
 
 
 def test_recovery_idempotent(tmp_path: Path):
-    from intelligence.night_run_state import (
-        checkpoint,
-        new_run_state,
-        recovery_already_applied,
-        state_path_for,
-        PHASE_RECOVERY_FINISHED,
-    )
+    from core.night_run_state import checkpoint, new_run_state, recovery_already_applied, state_path_for, PHASE_RECOVERY_FINISHED
 
     st = new_run_state()
     path = state_path_for(st["run_id"], tmp_path)
@@ -125,7 +107,7 @@ def test_recovery_idempotent(tmp_path: Path):
 
 
 def test_corrupted_state_safe(tmp_path: Path):
-    from intelligence.night_run_state import load_state
+    from core.night_run_state import load_state
 
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
@@ -135,15 +117,8 @@ def test_corrupted_state_safe(tmp_path: Path):
 
 
 def test_full_resume_after_crash(tmp_path: Path):
-    from intelligence.night_mode_controller import run_autonomous_loop, NightSessionConfig
-    from intelligence.night_run_state import (
-        PHASE_EXECUTION_FINISHED,
-        checkpoint,
-        load_state,
-        new_run_state,
-        state_path_for,
-        STATUS_RUNNING,
-    )
+    from core.night_mode_controller import run_autonomous_loop, NightSessionConfig
+    from core.night_run_state import PHASE_EXECUTION_FINISHED, checkpoint, load_state, new_run_state, state_path_for, STATUS_RUNNING
 
     # Simulate crash after step0 started/exec finished without terminal DONE
     st = new_run_state(plan_step_ids=["s0", "s1"], project_id="p")
@@ -176,7 +151,7 @@ def test_full_resume_after_crash(tmp_path: Path):
 
 
 def test_lock_release_allows_next(tmp_path: Path):
-    from intelligence.night_run_state import acquire_lock, release_lock
+    from core.night_run_state import acquire_lock, release_lock
 
     a = acquire_lock(tmp_path, run_id="a")
     assert a["ok"]

@@ -1,4 +1,4 @@
-from ranking import ExecutorProfile
+from core.ranking import ExecutorProfile
 
 
 def test_estimated_latency_requires_three_samples():

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from security import SecurityError, validate_path, validate_command, validate_task
+from safety.security import SecurityError, validate_path, validate_command, validate_task
 
 
 def test_path_traversal_blocked():

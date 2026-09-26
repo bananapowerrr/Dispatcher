@@ -2,7 +2,7 @@
 """LoopGuard: детекция зацикливания."""
 from __future__ import annotations
 
-from loopguard import LoopGuard, detect_loop_in_text
+from safety.loopguard import LoopGuard, detect_loop_in_text
 
 
 def test_same_line_triggers():

@@ -2,7 +2,7 @@ from pathlib import Path
 
 def test_day21_audit_has_p0_and_chain():
     paths = [
-        Path("/home/workdir/artifacts/docs/DAY21_PRODUCT_READINESS_AUDIT.md"),
+        Path(__file__).resolve().parent.parent / "docs" / "DAY21_PRODUCT_READINESS_AUDIT.md",
         Path(__file__).resolve().parents[1] / "docs" / "DAY21_PRODUCT_READINESS_AUDIT.md",
     ]
     p = next(x for x in paths if x.is_file())

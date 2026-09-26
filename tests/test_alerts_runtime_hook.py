@@ -2,7 +2,7 @@
 """Offline: AlertManager API used by runtime hook."""
 from __future__ import annotations
 
-from alerts import AlertManager, GLOBAL_ALERTS
+from utils.alerts import AlertManager, GLOBAL_ALERTS
 
 
 def test_global_alerts_singleton():

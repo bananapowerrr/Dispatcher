@@ -4,7 +4,7 @@ from pathlib import Path
 def test_day20_constraints_doc():
     paths = [
         Path(__file__).resolve().parents[1] / "docs" / "DAY20_NIGHT_MODE_CONSTRAINTS.md",
-        Path("/home/workdir/artifacts/docs/DAY20_NIGHT_MODE_CONSTRAINTS.md"),
+        Path(__file__).resolve().parent.parent / "docs" / "DAY20_NIGHT_MODE_CONSTRAINTS.md",
     ]
     p = next(x for x in paths if x.is_file())
     text = p.read_text(encoding="utf-8")
@@ -16,7 +16,7 @@ def test_day20_constraints_doc():
 def test_index_lists_days():
     paths = [
         Path(__file__).resolve().parents[1] / "docs" / "INDEX_OFFLINE_DAYS_13_20.md",
-        Path("/home/workdir/artifacts/docs/INDEX_OFFLINE_DAYS_13_20.md"),
+        Path(__file__).resolve().parent.parent / "docs" / "INDEX_OFFLINE_DAYS_13_20.md",
     ]
     p = next(x for x in paths if x.is_file())
     text = p.read_text(encoding="utf-8")
@@ -26,7 +26,7 @@ def test_index_lists_days():
 
 def test_optional_string_keys_if_present():
     for lang in ("ru", "en"):
-        p = Path(f"/home/workdir/artifacts/strings_{lang}.yaml")
+        p = Path(__file__).resolve().parent.parent / f"strings_{lang}.yaml"
         if not p.is_file():
             continue
         text = p.read_text(encoding="utf-8")

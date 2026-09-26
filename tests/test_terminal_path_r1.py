@@ -32,7 +32,7 @@ def test_done_with_verify_ok():
 
 
 def test_finish_task_exists_and_uses_terminal_path():
-    src = Path("/home/workdir/artifacts/src/core/runtime_ops.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py").read_text(encoding="utf-8")
     assert "def finish_task(" in src
     assert "enforce_done_contract" in src
     assert "self._save(task, folder, res)" in src
@@ -40,7 +40,7 @@ def test_finish_task_exists_and_uses_terminal_path():
 
 
 def test_lifecycle_uses_finish_task_for_missing_project():
-    src = Path("/home/workdir/artifacts/src/core/rp_lifecycle.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_lifecycle.py").read_text(encoding="utf-8")
     assert 'return self.finish_task(' in src
     assert 'Проект не найден' in src
     # no longer triple-write for that path
@@ -48,13 +48,13 @@ def test_lifecycle_uses_finish_task_for_missing_project():
 
 
 def test_llm_error_deferred_use_finish_task():
-    src = Path("/home/workdir/artifacts/src/core/rp_llm.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_llm.py").read_text(encoding="utf-8")
     assert src.count("return self.finish_task(") >= 2
 
 
 def test_finish_task_body_order_in_source():
     """finish_task: save → move → queue → emit order in source."""
-    src = Path("/home/workdir/artifacts/src/core/runtime_ops.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py").read_text(encoding="utf-8")
     body = src.split("def finish_task")[1].split("def _verify_commands")[0]
     assert body.find("self._save") < body.find("self.bus.move")
     assert "queue.terminal" in body or "queue.finish" in body

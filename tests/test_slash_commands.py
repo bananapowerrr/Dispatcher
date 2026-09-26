@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from slash_commands import handle_slash, COMMANDS
+from utils.slash_commands import handle_slash, COMMANDS
 
 
 def test_help_lists_new_commands():

@@ -11,7 +11,7 @@ def _plan(n=3):
 
 
 def test_all_done_serial():
-    from intelligence.night_mode_controller import run_autonomous_loop, MAX_PARALLEL_PROJECTS
+    from core.night_mode_controller import run_autonomous_loop, MAX_PARALLEL_PROJECTS
 
     assert MAX_PARALLEL_PROJECTS == 1
 
@@ -25,7 +25,7 @@ def test_all_done_serial():
 
 
 def test_error_triggers_recovery_no_enqueue():
-    from intelligence.night_mode_controller import run_autonomous_loop
+    from core.night_mode_controller import run_autonomous_loop
 
     def exec_fn(payload):
         return {
@@ -42,7 +42,7 @@ def test_error_triggers_recovery_no_enqueue():
 
 
 def test_ask_user_stops():
-    from intelligence.night_mode_controller import run_autonomous_loop, NightSessionConfig
+    from core.night_mode_controller import run_autonomous_loop, NightSessionConfig
 
     def exec_fn(payload):
         return {
@@ -60,7 +60,7 @@ def test_ask_user_stops():
 
 
 def test_max_steps():
-    from intelligence.night_mode_controller import run_autonomous_loop, NightSessionConfig
+    from core.night_mode_controller import run_autonomous_loop, NightSessionConfig
 
     def exec_fn(payload):
         return {"terminal_state": "DONE", "verified": True}
@@ -72,7 +72,7 @@ def test_max_steps():
 
 
 def test_unverified_done_rejected():
-    from intelligence.night_mode_controller import run_autonomous_loop
+    from core.night_mode_controller import run_autonomous_loop
 
     def exec_fn(payload):
         return {"terminal_state": "DONE", "verified": False}

@@ -262,7 +262,7 @@ def run_policy_night(
         out["morning_report"] = build_morning_report(selection=planned.get("selection"))
         return out
     if plan is not None and execute_fn is not None:
-        from intelligence.night_mode_controller import NightSessionConfig, run_autonomous_loop
+        from core.night_mode_controller import NightSessionConfig, run_autonomous_loop
 
         session = run_autonomous_loop(
             plan,

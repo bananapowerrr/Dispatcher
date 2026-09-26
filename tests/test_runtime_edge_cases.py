@@ -8,7 +8,7 @@ import pytest
 
 
 def test_dedupe_fingerprint_stable(tmp_path):
-    from dedupe import task_fingerprint, DedupeRegistry
+    from core.dedupe import task_fingerprint, DedupeRegistry
     a = {"message": "fix x", "files": ["a.py"], "project": "p"}
     b = {"message": "fix x", "files": ["a.py"], "project": "p"}
     c = {"message": "fix y", "files": ["a.py"], "project": "p"}
@@ -22,7 +22,7 @@ def test_dedupe_fingerprint_stable(tmp_path):
 
 
 def test_project_lock_same_project_blocks():
-    from project_lock import ProjectLock
+    from safety.project_lock import ProjectLock
     lock = ProjectLock(max_global=2)
     assert lock.acquire("projA", "t1") is True
     assert lock.acquire("projA", "t2") is False
@@ -32,7 +32,7 @@ def test_project_lock_same_project_blocks():
 
 
 def test_project_lock_different_projects_parallel():
-    from project_lock import ProjectLock
+    from safety.project_lock import ProjectLock
     lock = ProjectLock(max_global=2)
     assert lock.acquire("projA", "t1") is True
     assert lock.acquire("projB", "t2") is True
@@ -45,7 +45,7 @@ def test_project_lock_different_projects_parallel():
 
 def test_health_verify_degraded_path():
     """3 consecutive verify failures should mark worker degraded if API supports it."""
-    from health import HealthRegistry
+    from safety.health import HealthRegistry
     h = HealthRegistry()
     h.register("w1", 1)
     if not hasattr(h, "verify_failure"):
@@ -62,10 +62,7 @@ def test_health_verify_degraded_path():
 
 
 def test_errors_module_payloads():
-    from errors import (
-        TaskTimeoutError, VerifyFailureError, DuplicateTaskError,
-        ProjectBusyError, QuotaDeferredError, LoopDetectedError,
-    )
+    from core.errors import TaskTimeoutError, VerifyFailureError, DuplicateTaskError, ProjectBusyError, QuotaDeferredError, LoopDetectedError
     e = TaskTimeoutError(worker="w", timeout=100, estimated=90)
     d = e.to_dict()
     assert d["error"] == "TaskTimeoutError"
@@ -81,7 +78,7 @@ def test_latency_ratio_constant():
     """Latency reroute threshold is 80% of timeout (documented contract)."""
     # constant lives in runtime module when consolidated
     try:
-        import runtime as rt
+        import core.runtime as rt
         ratio = getattr(rt, "_LATENCY_TIMEOUT_RATIO", 0.80)
     except Exception:
         ratio = 0.80

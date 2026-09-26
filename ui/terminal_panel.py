@@ -11,6 +11,13 @@ except ImportError:  # pragma: no cover
     ctk = None  # type: ignore
 
 
+def format_term_line(source: str, message: str, *, ts: str | None = None) -> str:
+    """Format one terminal log line: '[HH:MM:SS] source: message\\n'."""
+    stamp = ts or time.strftime("%H:%M:%S")
+    who = source or "system"
+    return f"[{stamp}] {who}: {message}\n"
+
+
 class TerminalPanel(ctk.CTkFrame if ctk else object):  # type: ignore
     def __init__(self, master, **kwargs: Any):
         if ctk is None:
@@ -42,8 +49,7 @@ class TerminalPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             pass
 
     def append(self, source: str, message: str) -> None:
-        ts = time.strftime("%H:%M:%S")
-        line = f"[{ts}] {source}: {message}\n"
+        line = format_term_line(source, message)
         try:
             self._text.insert("end", line)
             self._text.see("end")

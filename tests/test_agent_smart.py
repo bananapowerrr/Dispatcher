@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from project_index import ProjectIndex
-from lesson_learner import LessonLearner, classify_task, generate_avoidance
-from task_grouper import TaskGrouper
+from intelligence.project_index import ProjectIndex
+from intelligence.lesson_learner import LessonLearner, classify_task, generate_avoidance
+from skills.task_grouper import TaskGrouper
 
 
 def test_project_index(tmp_path: Path) -> None:

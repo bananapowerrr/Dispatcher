@@ -3,13 +3,13 @@ from pathlib import Path
 
 
 def test_lifecycle_touches_worker_phase():
-    src = Path("/home/workdir/artifacts/src/core/rp_lifecycle.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_lifecycle.py").read_text(encoding="utf-8")
     assert 'phase="worker"' in src
     assert "touch_task_lease(task, phase=\"worker\")" in src
 
 
 def test_rp_llm_touches_exec_phases():
-    src = Path("/home/workdir/artifacts/src/core/rp_llm.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_llm.py").read_text(encoding="utf-8")
     assert 'phase="exec"' in src
     assert 'phase="post_exec"' in src
 
@@ -52,6 +52,6 @@ def test_worker_execution_normalize():
 
 
 def test_rp_verify_touches_verify_phase():
-    src = Path("/home/workdir/artifacts/src/core/rp_verify.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_verify.py").read_text(encoding="utf-8")
     assert 'phase="verify"' in src
     assert "touch_task_lease" in src

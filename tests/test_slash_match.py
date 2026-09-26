@@ -1,7 +1,7 @@
 """Slash command autocomplete helpers."""
 from __future__ import annotations
 
-from utils.slash_commands import list_slash_commands, match_slash
+from ui.slash_commands import list_slash_commands, match_slash
 
 
 def test_list_slash_has_help():

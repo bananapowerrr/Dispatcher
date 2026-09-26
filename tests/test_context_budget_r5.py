@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 def test_plan_allocates():
-    from intelligence.context_budget import build_context_budget_plan
+    from core.context_budget import build_context_budget_plan
 
     p = build_context_budget_plan(total_chars=10000, has_failure=True, n_files=5)
     assert p["user"] >= 400
@@ -11,7 +11,7 @@ def test_plan_allocates():
 
 
 def test_assemble_truncates():
-    from intelligence.context_budget import assemble_worker_message
+    from core.context_budget import assemble_worker_message
 
     big = "x" * 50000
     out = assemble_worker_message(
@@ -28,7 +28,7 @@ def test_assemble_truncates():
 
 
 def test_previous_failure_priority():
-    from intelligence.context_budget import assemble_worker_message
+    from core.context_budget import assemble_worker_message
 
     out = assemble_worker_message(
         user_message="retry",
@@ -40,6 +40,6 @@ def test_previous_failure_priority():
 
 
 def test_verification_distinct_from_empty():
-    from intelligence.context_budget import format_constraints
+    from core.context_budget import format_constraints
     assert format_constraints([]) == ""
     assert "Constraints" in format_constraints(["no cloud"])

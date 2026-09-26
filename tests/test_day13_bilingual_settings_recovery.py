@@ -10,7 +10,7 @@ import yaml
 
 # Allow importing from artifacts / src when run offline
 ROOT = Path(__file__).resolve().parents[1]
-for p in (ROOT, ROOT / "src", Path("/home/workdir/artifacts")):
+for p in (ROOT, ROOT / "src", Path(__file__).resolve().parent.parent):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
@@ -19,7 +19,7 @@ def _load_strings(name: str) -> dict:
     # Prefer repo config if present, else artifacts snapshot
     candidates = [
         ROOT / "config" / name,
-        Path("/home/workdir/artifacts") / name,
+        Path(__file__).resolve().parent.parent / name,
     ]
     for c in candidates:
         if c.is_file():
@@ -48,13 +48,7 @@ def test_parity_keys_have_nonempty_values():
 
 
 def test_settings_contract_editable_vs_readonly():
-    from settings_contract import (
-        EDITABLE_TABS,
-        READ_ONLY_TABS,
-        is_editable_tab,
-        is_read_only_tab,
-        settings_contract_summary,
-    )
+    from app.settings_contract import EDITABLE_TABS, READ_ONLY_TABS, is_editable_tab, is_read_only_tab, settings_contract_summary
 
     assert "workers" in EDITABLE_TABS
     assert "providers" in READ_ONLY_TABS
@@ -70,10 +64,10 @@ def test_settings_contract_editable_vs_readonly():
 def test_recovery_bridge_formats_error_block():
     # Prefer app.recovery_ux if on path; else import local recovery_ux artifact
     try:
-        from chat_recovery_bridge import format_recovery_for_chat, merge_terminal_with_recovery
+        from ui.chat_recovery_bridge import format_recovery_for_chat, merge_terminal_with_recovery
     except ImportError:
-        sys.path.insert(0, "/home/workdir/artifacts")
-        from chat_recovery_bridge import format_recovery_for_chat, merge_terminal_with_recovery
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from ui.chat_recovery_bridge import format_recovery_for_chat, merge_terminal_with_recovery
 
     # Stub recovery_ux if package missing
     try:
@@ -113,12 +107,12 @@ def test_recovery_ux_still_pure_formatters():
     try:
         from app.recovery_ux import format_block_reason, format_replan_result
     except Exception:
-        sys.path.insert(0, "/home/workdir/artifacts")
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         # recovery_ux was downloaded to artifacts root
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
-            "recovery_ux", "/home/workdir/artifacts/recovery_ux.py"
+            "recovery_ux", str(Path(__file__).resolve().parent.parent / "recovery_ux.py")
         )
         mod = importlib.util.module_from_spec(spec)
         assert spec and spec.loader

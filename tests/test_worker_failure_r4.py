@@ -52,6 +52,6 @@ def test_network_from_text():
 
 def test_llm_uses_contract():
     from pathlib import Path
-    src = Path("/home/workdir/artifacts/src/core/rp_llm.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_llm.py").read_text(encoding="utf-8")
     assert "worker_failure_contract" in src
     assert "worker_outcome" in src

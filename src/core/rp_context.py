@@ -8,8 +8,27 @@ from __future__ import annotations
 from core.stage_guard import safe_stage
 
 from pathlib import Path
+import re
 import uuid
 from typing import Any
+
+# code payloads the worker prompt carries: <file_content path=...> or <code>
+_CTX_BLOCK_RE = re.compile(r"<(file_content|code)\b[^>]*>.*?</\1\s*>", re.S | re.I)
+_USER_MARKER = "USER REQUEST:"
+
+
+def _split_context_prefix(pre: str) -> tuple[str, str]:
+    """(memory, rag) from the CONVERSATION / PROJECT MEMORY / CODEBASE RAG prefix."""
+    memory_parts: list[str] = []
+    rag_parts: list[str] = []
+    for chunk in re.split(r"\n\s*\n", pre or ""):
+        c = chunk.strip()
+        if not c:
+            continue
+        head = c.split(":", 1)[0].upper()
+        (rag_parts if "RAG" in head else memory_parts).append(c)
+    return "\n\n".join(memory_parts), "\n\n".join(rag_parts)
+
 
 try:
     from core.feature_flags import is_enabled
@@ -23,13 +42,20 @@ except Exception:  # pragma: no cover
     Task = None  # type: ignore
 
 try:
-    from core.config import DEFAULT_CHANNEL, PROJECT_ROOT, resolve_project, BUS_ROOT
+    from core.config import DEFAULT_CHANNEL, PROJECT_ROOT, resolve_project, BUS_ROOT, REPAIR_ENABLED
 except Exception:  # pragma: no cover
     DEFAULT_CHANNEL = "gpt"
     PROJECT_ROOT = None
+    REPAIR_ENABLED = False
     def resolve_project(x):
         return x
     BUS_ROOT = Path(".")
+
+try:
+    from core.router import task_complexity
+except Exception:  # pragma: no cover
+    def task_complexity(raw):
+        return 3
 
 try:
     from core.ranking import infer_task_type
@@ -58,6 +84,34 @@ except Exception:  # pragma: no cover
     ProjectContext = None  # type: ignore
 
 class RPContextMixin:
+    def _apply_context_planner_budget(self, message: str, *, sys_prompt: str = "") -> str:
+        """Hard char budget for the worker prompt via ContextPlanner.
+
+        Splits the assembled message into ContextPlanner slots
+        (system / memory / rag / task / code), lets the planner trim each
+        under its share, then renders it back. USER REQUEST is never dropped
+        for the sake of context. Never raises; falls back to the input.
+        """
+        msg = str(message or "")
+        system = str(sys_prompt or "")
+        if not msg.strip():
+            return system
+        try:
+            from intelligence.context_planner import ContextPlanner
+
+            pre, marker, rest = msg.partition(_USER_MARKER)
+            task = (marker + rest).strip() if marker else msg.strip()
+            code = "\n\n".join(m.group(0) for m in _CTX_BLOCK_RE.finditer(task))
+            if code:
+                task = _CTX_BLOCK_RE.sub("", task).strip()
+            memory, rag = _split_context_prefix(pre)
+            plan = ContextPlanner().plan(
+                system=system, task=task, code=code, rag=rag, memory=memory,
+            )
+            return plan.render() or msg
+        except Exception:
+            return msg
+
     def _clamp_context_blocks(self, message: str, *, max_chars: int = 12000) -> str:
         """Keep USER REQUEST + budget for CONVERSATION/MEMORY/RAG prefixes (7B-aware)."""
         msg = message or ""
@@ -210,7 +264,7 @@ class RPContextMixin:
                 try:
                     from core.task_continuity import merge_prev_failure
                 except Exception:
-                    from intelligence.task_continuity import merge_prev_failure
+                    from core.task_continuity import merge_prev_failure
                 row = {
                     "attempts": getattr(task, "attempts", 0),
                     "metadata": dict(meta) if isinstance(meta, dict) else {},

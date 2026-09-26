@@ -627,6 +627,58 @@ def history_card_lines(row: dict[str, Any] | None) -> dict[str, str]:
     return out
 
 
+def format_task_report(row: dict[str, Any] | None) -> str:
+    """Human multi-section report for one task row (never raises)."""
+    row = dict(row or {})
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    try:
+        tr = build_task_result(row)
+    except Exception:
+        tr = None
+
+    if tr is not None:
+        task_id = tr.task_id or str(row.get("id") or "")
+        status = (tr.status or "").upper() or ("DONE" if tr.ok else "ERROR")
+        request = str(row.get("message") or row.get("msg") or tr.summary or "")
+        worker = " · ".join(
+            x for x in (tr.worker, f"skill:{tr.skill}" if tr.skill else "") if x
+        )
+        files = list(tr.changes.files or [])
+        verification = dict(tr.verification or {})
+        error = tr.error or str(row.get("error") or "")
+    else:
+        task_id = str(row.get("id") or "")
+        status = str(row.get("status") or "").upper()
+        request = str(row.get("message") or "")
+        worker = str(meta.get("worker") or "")
+        files = list(meta.get("files_changed") or [])
+        vr = meta.get("verification_report")
+        verification = dict(vr) if isinstance(vr, dict) else {}
+        error = str(row.get("error") or "")
+
+    lines = [f"Task #{task_id}  RESULT: {status}"]
+    if request:
+        lines.append(f"REQUEST  : {request}")
+    if worker:
+        lines.append(f"WORKER   : {worker}")
+    lines.append("CHANGES  : " + (", ".join(files) if files else "(none)"))
+    if verification:
+        parts: list[str] = []
+        for key in ("syntax", "tests"):
+            if key in verification:
+                parts.append(f"{key}={verification[key]}")
+        if verification.get("passed") is not None:
+            parts.append(f"passed={verification['passed']}")
+        if verification.get("summary"):
+            parts.append(f"summary={verification['summary']}")
+        lines.append("VERIFY   : " + " · ".join(parts))
+    else:
+        lines.append("VERIFY   : (no verification report)")
+    if error:
+        lines.append(f"ERROR    : {error}")
+    return "\n".join(lines)
+
+
 def history_detail_text(row: dict[str, Any] | None) -> str:
     """FC-10: human product detail block for history details window."""
     row = dict(row or {})
@@ -634,8 +686,11 @@ def history_detail_text(row: dict[str, Any] | None) -> str:
     try:
         tr = build_task_result(row)
         card = history_card_lines(row)
-        st = (tr.status or "").upper() or ("DONE" if tr.ok else "ERROR")
-        lines.append(f"{'✓' if tr.ok else '✗'} {st}  id={tr.task_id or row.get('id') or ''}")
+        try:
+            header = format_task_report(row).splitlines()[0]
+        except Exception:
+            header = f"{'✓' if tr.ok else '✗'} {tr.task_id or row.get('id') or ''}"
+        lines.append(header)
         if card.get("prompt"):
             lines.append(f"Запрос: {card['prompt']}")
         if tr.worker or tr.skill:

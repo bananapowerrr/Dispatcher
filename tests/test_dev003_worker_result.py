@@ -60,7 +60,7 @@ def test_verify_fail_still_worker_success():
 
 def test_ops_stores_worker_result():
     from pathlib import Path
-    src = Path("/home/workdir/artifacts/src/core/runtime_ops.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py").read_text(encoding="utf-8")
     assert "to_worker_result" in src
     assert "_last_worker_result" in src
     assert "worker_result" in src

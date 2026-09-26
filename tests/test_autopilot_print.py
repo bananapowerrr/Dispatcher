@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
-from autopilot import Autopilot
+from skills.autopilot import Autopilot
 
 
 def test_find_print_debug(tmp_path: Path):

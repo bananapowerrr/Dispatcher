@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-from health import HealthRegistry, WorkerState
-from project_lock import FileLockSet, ProjectLock
+from safety.health import HealthRegistry, WorkerState
+from safety.project_lock import FileLockSet, ProjectLock
 
 
 def test_file_lock_blocks_overlap():

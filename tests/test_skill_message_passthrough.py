@@ -8,7 +8,7 @@ from pathlib import Path
 def test_try_skill_passes_message_to_rename(tmp_path: Path) -> None:
     """rename_symbol gets message and renames identifier."""
     from skills import SkillRegistry
-    from tools import ToolRegistry
+    from skills.tools import ToolRegistry
 
     (tmp_path / "a.py").write_text("def old_fn():\n    return 1\n", encoding="utf-8")
 
@@ -30,7 +30,7 @@ def test_try_skill_passes_message_to_rename(tmp_path: Path) -> None:
 def test_rename_without_message_fails_gracefully(tmp_path: Path) -> None:
     """Without message, skill returns structured error, not TypeError."""
     from skills import SkillRegistry
-    from tools import ToolRegistry
+    from skills.tools import ToolRegistry
 
     (tmp_path / "a.py").write_text("def old_fn():\n    pass\n", encoding="utf-8")
     skills = SkillRegistry(ToolRegistry(project_root=str(tmp_path)))
@@ -43,7 +43,7 @@ def test_rename_without_message_fails_gracefully(tmp_path: Path) -> None:
 
 def test_extract_function_needs_message(tmp_path: Path) -> None:
     from skills import SkillRegistry
-    from tools import ToolRegistry
+    from skills.tools import ToolRegistry
 
     src = "def outer():\n    x = 1\n    y = 2\n    return x + y\n"
     (tmp_path / "b.py").write_text(src, encoding="utf-8")

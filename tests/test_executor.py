@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import _helpers as h
-from executor import Executor, _GITPYTHON_SNIPPET
+from core.executor import Executor, _GITPYTHON_SNIPPET
 
 
 @pytest.fixture
@@ -94,7 +94,7 @@ def test_snippet_catches_missing_git_exc(executor, python_exe, fake_git_pkg):
 
 # ---------- {files}/{yes} контракт (P1 yaml-согласованность) ----------
 def test_args_expands_files_and_yes(executor):
-    from workers import Worker
+    from core.workers import Worker
     w = Worker(name="w", command=("{aider}", "{yes}", "{files}", "--message", "{message}"))
     args = executor._args(w, "hi", ["a.py", "src/b.py"])
     assert "--yes" in args
@@ -108,8 +108,8 @@ def test_args_expands_files_and_yes(executor):
 
 def test_args_recorded_all_yaml_aiders_get_files_and_yes():
     """P1: все aider-воркеры из workers.yaml содержат {files} и {yes}."""
-    from config import WORKERS_FILE
-    from workers import _from_yaml
+    from core.config import WORKERS_FILE
+    from core.workers import _from_yaml
     workers = _from_yaml(Path(WORKERS_FILE))
     aielder = [w for w in workers if w.harness == "aider"]
     assert aielder, "в yaml должны быть aider-воркеры"
@@ -121,8 +121,8 @@ def test_args_recorded_all_yaml_aiders_get_files_and_yes():
 
 
 def test_yaml_workers_have_max_parallel():
-    from config import WORKERS_FILE
-    from workers import _from_yaml
+    from core.config import WORKERS_FILE
+    from core.workers import _from_yaml
     for w in _from_yaml(Path(WORKERS_FILE)):
         assert w.max_parallel >= 1
 
@@ -138,7 +138,7 @@ class _FakeProv:
 
 
 def _w(model="m", provider="groq"):
-    from workers import Worker
+    from core.workers import Worker
     return Worker(name="gw", command=("{aider}", "{model}", "{files}", "{message}"),
                   harness="aider", provider=provider, model=model,
                   complexity=3, enabled=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from router import select_executor, task_complexity, _role_bonus
+from core.router import select_executor, task_complexity, _role_bonus
 
 
 class _Health:

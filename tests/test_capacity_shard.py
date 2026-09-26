@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from task_decomposer import TaskDecomposer
-from router import min_tier_for_complexity, needs_capacity_shard, max_available_tier
-from workers import Worker
+from skills.task_decomposer import TaskDecomposer
+from core.router import min_tier_for_complexity, needs_capacity_shard, max_available_tier
+from core.workers import Worker
 
 
 class _Health:

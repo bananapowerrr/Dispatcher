@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 
-from executor import ExecutionResult, is_billing_error
-from health import HealthRegistry
+from core.executor import ExecutionResult, is_billing_error
+from safety.health import HealthRegistry
 
 
 def test_billing_markers_are_detected_case_insensitively():

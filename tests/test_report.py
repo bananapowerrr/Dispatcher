@@ -2,7 +2,7 @@
 """Тесты NightlyReport: per-provider статистика и cooldown-снапшот (v3)."""
 from __future__ import annotations
 
-from report import NightlyReport
+from intelligence.report import NightlyReport
 
 
 def test_report_no_provider_without_records():

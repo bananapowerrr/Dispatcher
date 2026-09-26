@@ -1,14 +1,8 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
-from pev_loop import (
-    heuristic_plan,
-    write_plan,
-    enrich_message_with_plan,
-    verify_retry_message,
-    should_use_pev,
-)
-from meta_classifier import _parse_meta_json
+from intelligence.pev_loop import heuristic_plan, write_plan, enrich_message_with_plan, verify_retry_message, should_use_pev
+from skills.meta_classifier import _parse_meta_json
 
 
 def test_should_use_pev_threshold(monkeypatch):

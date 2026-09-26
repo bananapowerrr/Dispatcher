@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from budget import Budget, GLOBAL_BUDGET
+from utils.budget import Budget, GLOBAL_BUDGET
 
 
 def test_real_worker_names():

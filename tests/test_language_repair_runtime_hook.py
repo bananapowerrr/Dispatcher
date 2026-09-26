@@ -1,12 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from language_guard import (
-    needs_language_repair,
-    language_repair_message,
-    language_system_prompt,
-    is_mostly_russian,
-)
+from safety.language_guard import needs_language_repair, language_repair_message, language_system_prompt, is_mostly_russian
 
 
 def test_english_prose_triggers_repair():

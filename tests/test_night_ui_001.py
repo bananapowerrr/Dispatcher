@@ -21,11 +21,11 @@ def test_morning_report_empty():
 
 
 def test_settings_has_night_tab():
-    src = Path("/home/workdir/artifacts/ui/settings_panel.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "ui" / "settings_panel.py").read_text(encoding="utf-8")
     assert "_build_night_tab" in src
     assert "morning_report_from_last_run" in src
 
 
 def test_chat_has_night_notice():
-    src = Path("/home/workdir/artifacts/ui/chat_panel.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "ui" / "chat_panel.py").read_text(encoding="utf-8")
     assert "_maybe_notify_night" in src

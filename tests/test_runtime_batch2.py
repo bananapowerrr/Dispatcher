@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_exec_worker_contract_wire():
-    src = Path("/home/workdir/artifacts/src/core/runtime_ops.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py").read_text(encoding="utf-8")
     assert "from_worker_result_object" in src
     assert "_last_execution_contract" in src
     assert "recovery_decision" in src

@@ -76,8 +76,8 @@ def test_does_not_import_runtime_executor():
 def test_diagnose_source_wires_route():
     roots = [
         Path(__file__).resolve().parents[1] / "src" / "utils" / "diagnose.py",
-        Path("/home/workdir/artifacts/src/utils/diagnose.py"),
-        Path("/home/workdir/artifacts/diagnose.py"),
+        Path(__file__).resolve().parent.parent / "src" / "utils" / "diagnose.py",
+        Path(__file__).resolve().parent.parent / "diagnose.py",
     ]
     src = ""
     for p in roots:

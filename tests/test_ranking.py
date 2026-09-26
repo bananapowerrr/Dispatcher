@@ -4,10 +4,9 @@
 from __future__ import annotations
 import time
 
-from health import HealthRegistry
-from ranking import (AdaptiveRanker, ExecutorProfile, OutcomeStats, _bucket,
-                     make_key)
-from workers import Worker
+from safety.health import HealthRegistry
+from core.ranking import AdaptiveRanker, ExecutorProfile, OutcomeStats, _bucket, make_key
+from core.workers import Worker
 from providers.registry import Provider
 
 

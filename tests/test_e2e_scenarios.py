@@ -13,7 +13,7 @@ import pytest
 
 def test_cache_hit(tmp_path: Path) -> None:
     """Put solution once → second get is a hit (no worker needed)."""
-    from solution_cache import SolutionCache
+    from intelligence.solution_cache import SolutionCache
 
     cache_path = tmp_path / "solution_cache.json"
     cache = SolutionCache(cache_path=cache_path, max_entries=50, ttl_seconds=86400)
@@ -79,9 +79,9 @@ def test_skill_hit() -> None:
 
 def test_full_cycle_layers_offline(tmp_path: Path) -> None:
     """Cache miss → skill match → (would be LLM) order is coherent."""
-    from solution_cache import SolutionCache
+    from intelligence.solution_cache import SolutionCache
     from skills import SkillRegistry
-    from metrics import MetricsCollector
+    from utils.metrics import MetricsCollector
 
     metrics = MetricsCollector()
     cache = SolutionCache(cache_path=tmp_path / "c.json")
@@ -114,7 +114,7 @@ def test_full_cycle_layers_offline(tmp_path: Path) -> None:
 
 def test_lesson_learning(tmp_path: Path) -> None:
     """Failure is stored; similar task gets avoidance warnings."""
-    from lesson_learner import LessonLearner
+    from intelligence.lesson_learner import LessonLearner
 
     path = tmp_path / "lessons.json"
     learner = LessonLearner(lessons_path=path, max_lessons=50)
@@ -129,7 +129,7 @@ def test_lesson_learning(tmp_path: Path) -> None:
 
 
 def test_metrics_hit_rates() -> None:
-    from metrics import MetricsCollector
+    from utils.metrics import MetricsCollector
 
     m = MetricsCollector()
     m.record("cache_hit")
@@ -157,7 +157,7 @@ def test_metrics_hit_rates() -> None:
 
 
 def test_grouper_orders_related() -> None:
-    from task_grouper import TaskGrouper
+    from skills.task_grouper import TaskGrouper
 
     tasks = [
         {"id": "1", "project": "a", "message": "fix login", "files": ["auth.py"]},

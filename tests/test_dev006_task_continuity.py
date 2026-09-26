@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 def test_block_contains_instruction():
-    from intelligence.task_continuity import build_previous_attempt_block
+    from core.task_continuity import build_previous_attempt_block
     text = build_previous_attempt_block(
         attempt=2,
         error="pytest failed on test_x",
@@ -17,7 +17,7 @@ def test_block_contains_instruction():
 
 
 def test_extract_from_payload():
-    from intelligence.task_continuity import continuity_for_next_prompt
+    from core.task_continuity import continuity_for_next_prompt
     payload = {
         "attempts": 1,
         "metadata": {
@@ -37,7 +37,7 @@ def test_extract_from_payload():
 
 
 def test_merge_prefers_structured():
-    from intelligence.task_continuity import merge_prev_failure
+    from core.task_continuity import merge_prev_failure
     out = merge_prev_failure(
         "raw error",
         {
@@ -54,11 +54,11 @@ def test_merge_prefers_structured():
 
 
 def test_empty_when_no_history():
-    from intelligence.task_continuity import continuity_for_next_prompt
+    from core.task_continuity import continuity_for_next_prompt
     assert continuity_for_next_prompt({}) == "" or "PREVIOUS" not in continuity_for_next_prompt({"attempts": 0})
 
 
 def test_rp_context_mentions_continuity():
     from pathlib import Path
-    src = Path("/home/workdir/artifacts/src/core/rp_context.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "src" / "core" / "rp_context.py").read_text(encoding="utf-8")
     assert "task_continuity" in src

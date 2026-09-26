@@ -77,7 +77,7 @@ def test_reclaim_max_attempts_writes_evidence(tmp_path: Path):
 
 
 def test_reclaim_source_has_failure_layer():
-    p = Path("/home/workdir/artifacts/src/core/reclaim.py")
+    p = Path(__file__).resolve().parent.parent / "src" / "core" / "reclaim.py"
     src = p.read_text(encoding="utf-8")
     assert "failure_layer" in src
     assert "recoverable" in src

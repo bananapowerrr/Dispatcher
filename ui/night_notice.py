@@ -40,7 +40,7 @@ def night_status_snapshot() -> dict[str, Any]:
             }
     except Exception:
         try:
-            from intelligence.night_run_state import find_resumable_run, default_state_dir
+            from core.night_run_state import find_resumable_run, default_state_dir
 
             run = find_resumable_run(default_state_dir())
             if run:
@@ -92,7 +92,7 @@ def build_morning_report_text(
         )
     except Exception:
         try:
-            from intelligence.night_policy import build_morning_report
+            from core.night_policy import build_morning_report
 
             return build_morning_report(
                 session_result=session,
@@ -122,7 +122,7 @@ def morning_report_from_last_run() -> str:
                     break
     except Exception:
         try:
-            from intelligence.night_run_state import default_state_dir, find_resumable_run, load_state
+            from core.night_run_state import default_state_dir, find_resumable_run, load_state
 
             d = default_state_dir()
             run = find_resumable_run(d)

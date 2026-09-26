@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime, time as dtime
 from pathlib import Path
 
-from autopilot import Autopilot, GeneratedTask
-from night_scheduler import NightConfig, NightScheduler
+from skills.autopilot import Autopilot, GeneratedTask
+from intelligence.night_scheduler import NightConfig, NightScheduler
 
 
 def test_autopilot_finds_todo_and_long_fn(tmp_path: Path) -> None:

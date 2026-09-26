@@ -13,7 +13,7 @@ def test_pack_includes_triage(tmp_path: Path):
     import importlib.util
     candidates = [
         Path(__file__).resolve().parents[1] / "scripts" / "pack_run_evidence.py",
-        Path("/home/workdir/artifacts/scripts/pack_run_evidence.py"),
+        Path(__file__).resolve().parent.parent / "scripts" / "pack_run_evidence.py",
     ]
     path = next(p for p in candidates if p.is_file())
     spec = importlib.util.spec_from_file_location("pack_run_evidence", path)
@@ -43,7 +43,7 @@ def test_pack_includes_triage(tmp_path: Path):
 def test_pack_no_result_still_ok(tmp_path: Path):
     import importlib.util
 
-    path = Path("/home/workdir/artifacts/scripts/pack_run_evidence.py")
+    path = Path(__file__).resolve().parent.parent / "scripts" / "pack_run_evidence.py"
     if not path.is_file():
         path = Path(__file__).resolve().parents[1] / "scripts" / "pack_run_evidence.py"
     spec = importlib.util.spec_from_file_location("pack_run_evidence", path)
