@@ -174,10 +174,13 @@ def load_providers(path: str | Path | None = None) -> list[Provider]:
 
 def _from_yaml(path: Path) -> list[Provider]:
     text = path.read_text(encoding="utf-8")
-    blocks = re.split(r"^\s*-\s*id\s*:", text, flags=re.M)
+    # The split consumes the "- id:" marker, so the id must be taken from the
+    # head of each block; otherwise every entry looks id-less and we silently
+    # fall back to the built-in defaults.
     out: list[Provider] = []
-    for block in blocks[1:]:
-        raw: dict[str, Any] = {}
+    for part in re.split(r"^\s*-\s*id\s*:\s*", text, flags=re.M)[1:]:
+        head, _, block = part.partition("\n")
+        raw: dict[str, Any] = {"id": head.strip().strip("\"'")}
         for m in re.finditer(r"^\s*(\w+)\s*:\s*(.*)$", block, flags=re.M):
             k, v = m.group(1).strip(), m.group(2).strip()
             if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":

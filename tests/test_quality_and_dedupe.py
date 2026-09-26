@@ -1,6 +1,6 @@
-from health import HealthRegistry
-from dedupe import DedupeRegistry, task_fingerprint
-from runtime_dedupe_patch import apply as apply_dedupe
+from safety.health import HealthRegistry
+from core.dedupe import DedupeRegistry, task_fingerprint
+from core.runtime_dedupe_patch import apply as apply_dedupe
 
 
 def test_verify_failures_degrade_and_success_recovers(tmp_path):

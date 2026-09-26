@@ -131,22 +131,8 @@ def decide_from_task_row(row: dict[str, Any] | None) -> dict[str, Any]:
     ev = meta.get("execution_evidence") if isinstance(meta.get("execution_evidence"), dict) else {}
     err = str(res.get("error") or raw.get("error") or ev.get("error") or "")
     wo = meta.get("worker_outcome") if isinstance(meta.get("worker_outcome"), dict) else {}
-    # Prefer DEV-002 policy with explicit kind
-    try:
-        from core.recovery_policy import decide_with_policy
-
-        return decide_with_policy(
-            kind=str(meta.get("failure_kind") or wo.get("kind") or ""),
-            failure_layer=str(meta.get("failure_layer") or ""),
-            error=err,
-            timed_out=bool(res.get("timed_out") or wo.get("event") == "TIMEOUT" or ev.get("timed_out")),
-            worker_outcome=wo,
-            attempts=int(raw.get("attempts") or meta.get("attempts") or ev.get("attempt") or 0),
-            max_attempts=int(meta.get("max_attempts") or 3),
-            verification=res.get("verification") if isinstance(res.get("verification"), dict) else ev.get("verification"),
-        )
-    except Exception:
-        pass
+    # Route everything through decide_recovery: it consults the DEV-002 policy
+    # first and always returns the normalized shape (incl. failure_layer).
     return decide_recovery(
         error=err,
         reclaim_reason=str(meta.get("reclaim_reason") or ""),

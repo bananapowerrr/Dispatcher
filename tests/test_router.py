@@ -9,9 +9,9 @@ import time
 
 import pytest
 
-from health import HealthRegistry
-from router import select_executor, task_complexity
-from workers import Worker
+from safety.health import HealthRegistry
+from core.router import select_executor, task_complexity
+from core.workers import Worker
 
 
 @pytest.fixture
@@ -131,15 +131,17 @@ def test_soft_quota_factor_zero_default_available(health):
 
 
 # ---------- provider-gate (v3, P0.4): воркер выключенного провайдера не кандидат ----------
-def test_provider_gate_blocks_disabled_provider(health, tmp_path):
+def test_provider_gate_blocks_disabled_provider(health, tmp_path, monkeypatch):
     from providers.registry import load_providers
     from providers.capacity import FreeCapacityManager
     from providers.state import ProviderRegistry
+    # выключаем openrouter через его env-gate, чтобы тест не зависел от providers.yaml
+    monkeypatch.setenv("AGENTBUS_PROVIDER_OPENROUTER_ENABLED", "0")
     for n in ("l", "c"):
         health.register(n)
     l = _w("l", provider="ollama", model="lm", complexity=2, quality=1.0)
     c = _w("c", provider="openrouter", model="orf", complexity=2, quality=1.0)
-    # openrouter в providers.yaml выключен -> provider-gate отсекает воркера,
+    # provider-gate отсекает воркера выключенного провайдера,
     # даже если сам worker.enabled=True (иначе воркер обходил бы provider gate)
     cap = FreeCapacityManager(load_providers(),
                               state=ProviderRegistry(state_file=tmp_path / "ps.json"))

@@ -14,6 +14,20 @@ from pathlib import Path
 from typing import Any
 
 
+def _reject_unsafe_files(data: dict[str, Any]) -> None:
+    """Fail-closed intake: the desktop queue must never carry unsafe paths."""
+    files = data.get("files")
+    if not files:
+        return
+    from safety.security import SecurityError, validate_path
+
+    for item in files:
+        try:
+            validate_path(item)
+        except SecurityError as exc:
+            raise ValueError(f"reject unsafe path in files: {item!r} ({exc})") from exc
+
+
 class LocalQueue:
     """Thread-safe FIFO of task dicts for the desktop agent."""
 
@@ -26,6 +40,7 @@ class LocalQueue:
 
     def put(self, task: dict[str, Any]) -> str:
         data = dict(task)
+        _reject_unsafe_files(data)
         tid = str(data.get("id") or f"ui-{uuid.uuid4().hex[:10]}")
         data["id"] = tid
         data.setdefault("status", "PENDING")
@@ -94,31 +109,58 @@ class LocalQueue:
 
 
 _GLOBAL: LocalQueue | None = None
+_BY_ROOT: dict[str, LocalQueue] = {}
 _GLOBAL_LOCK = threading.Lock()
 
 
-def reset_local_queue() -> None:
-    """Test/helper: drop process-global queue instance."""
+def _root_key(root: Path | str | None) -> str:
+    if root is None:
+        return ""
+    try:
+        return str(Path(root).resolve())
+    except OSError:
+        return str(root)
+
+
+def _new_queue(root: Path | None) -> LocalQueue:
+    spill = None
+    try:
+        if root is None:
+            from core.config import BASE_DIR
+            root = Path(BASE_DIR)
+        # desktop queue on disk so UI process → dispatcher process works
+        spill = Path(root) / ".agentbus" / "desktop_queue"
+    except Exception:
+        spill = Path(".agentbus") / "desktop_queue"
+    return LocalQueue(spill_dir=spill)
+
+
+def reset_local_queue(root: Path | str | None = None) -> None:
+    """Test/helper: drop queue instance(s). Without root, drop all."""
     global _GLOBAL
+    key = _root_key(root)
     with _GLOBAL_LOCK:
-        _GLOBAL = None
+        if key == "":
+            _GLOBAL = None
+            _BY_ROOT.clear()
+            return
+        _BY_ROOT.pop(key, None)
 
 
 def get_local_queue(root: Path | None = None) -> LocalQueue:
+    """Per-root queue instance: projects must not share a desktop queue."""
     global _GLOBAL
+    key = _root_key(root)
     with _GLOBAL_LOCK:
-        if _GLOBAL is None:
-            spill = None
-            try:
-                if root is None:
-                    from core.config import BASE_DIR
-                    root = Path(BASE_DIR)
-                # desktop queue on disk so UI process → dispatcher process works
-                spill = Path(root) / ".agentbus" / "desktop_queue"
-            except Exception:
-                spill = Path(".agentbus") / "desktop_queue"
-            _GLOBAL = LocalQueue(spill_dir=spill)
-        return _GLOBAL
+        if key == "":
+            if _GLOBAL is None:
+                _GLOBAL = _new_queue(None)
+            return _GLOBAL
+        q = _BY_ROOT.get(key)
+        if q is None:
+            q = _new_queue(Path(root))
+            _BY_ROOT[key] = q
+        return q
 
 
 def enqueue_desktop_task(

@@ -1,7 +1,0 @@
-app
-cli
-core
-intelligence
-safety
-skills
-utils

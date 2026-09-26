@@ -45,6 +45,57 @@ class ChangesService:
         except Exception:
             return []
 
+    def count_changes(self) -> int:
+        """Number of files with open git changes."""
+        return len(self.list_changes())
+
+    def _safe_rel(self, rel_path: str) -> tuple[Path | None, str]:
+        """Resolve rel_path inside the project root, or explain the refusal."""
+        rel = str(rel_path or "").strip()
+        if not rel:
+            return None, "empty path"
+        root = self._root()
+        try:
+            target = (root / rel).resolve()
+            target.relative_to(root)
+        except ValueError:
+            return None, f"path outside project root: {rel}"
+        except OSError as exp:
+            return None, f"bad path {rel}: {exp}"
+        return target, ""
+
+    def _git(self, *args: str, timeout: int = 15) -> tuple[bool, str]:
+        try:
+            import subprocess
+
+            r = subprocess.run(
+                ["git", "-C", str(self._root()), *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except Exception as exp:
+            return False, f"git {args[0]} failed: {exp}"
+        if r.returncode != 0:
+            return False, (r.stderr or f"git {args[0]} failed").strip()
+        return True, "ok"
+
+    def stage_path(self, rel_path: str) -> tuple[bool, str]:
+        """git add one file; refuses anything outside the project root."""
+        target, err = self._safe_rel(rel_path)
+        if target is None:
+            return False, err
+        ok, msg = self._git("add", "--", str(target))
+        return (True, "staged") if ok else (False, msg)
+
+    def discard_path(self, rel_path: str) -> tuple[bool, str]:
+        """git checkout one file; refuses anything outside the project root."""
+        target, err = self._safe_rel(rel_path)
+        if target is None:
+            return False, err
+        ok, msg = self._git("checkout", "--", str(target))
+        return (True, "discarded") if ok else (False, msg)
+
     def diff_file(self, rel_path: str) -> str:
         root = self._root()
         try:

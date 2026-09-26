@@ -9,8 +9,8 @@ import pytest
 
 
 def _rt():
-    from runtime import Runtime
-    import runtime_patch
+    from core.runtime import Runtime
+    from core import runtime_patch
     runtime_patch.apply(Runtime)
     return Runtime
 
@@ -25,8 +25,8 @@ def _write_deferred(bus_root: Path, channel: str, tid: str, result: dict) -> Pat
 
 
 def test_recover_by_wake_epoch(tmp_path, monkeypatch):
-    from bus import FileBus
-    import config as cfg
+    from core.bus import FileBus
+    import core.config as cfg
     monkeypatch.setattr(cfg, "BUS_ROOT", tmp_path)
     monkeypatch.setattr(cfg, "CHANNELS", ("gpt",))
     monkeypatch.setattr(cfg, "RETRY_DELAY_SECONDS", 3600)
@@ -45,8 +45,8 @@ def test_recover_by_wake_epoch(tmp_path, monkeypatch):
 
 
 def test_recover_mtime_fallback(tmp_path, monkeypatch):
-    from bus import FileBus
-    import config as cfg
+    from core.bus import FileBus
+    import core.config as cfg
     import os
     monkeypatch.setattr(cfg, "BUS_ROOT", tmp_path)
     monkeypatch.setattr(cfg, "CHANNELS", ("gpt",))
@@ -66,9 +66,9 @@ def test_recover_mtime_fallback(tmp_path, monkeypatch):
 
 
 def test_deferred_capacity_writes_wake_epoch(tmp_path, monkeypatch):
-    from bus import FileBus
-    from tasks import Task
-    import config as cfg
+    from core.bus import FileBus
+    from core.tasks import Task
+    import core.config as cfg
     monkeypatch.setattr(cfg, "BUS_ROOT", tmp_path)
     monkeypatch.setattr(cfg, "CHANNELS", ("gpt",))
     bus = FileBus(tmp_path, ("gpt",))

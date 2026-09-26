@@ -47,6 +47,25 @@ def load_custom_skills(registry: Any, custom_dir: str | Path | None = None) -> l
     for path in sorted(root.glob("*.py")):
         if path.name.startswith("_"):
             continue
+        # Static sandbox check BEFORE any execution: custom skills run at import
+        # time, so untrusted source must never reach exec_module.
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning("custom skill unreadable %s: %s", path, exc)
+            continue
+        try:
+            from safety.skill_sandbox import validate_skill_source
+
+            verdict = validate_skill_source(source)
+        except Exception as exc:
+            logger.warning("custom skill sandbox unavailable %s: %s", path, exc)
+            continue
+        if not verdict.ok:
+            logger.warning(
+                "custom skill rejected by sandbox %s: %s", path, verdict.errors
+            )
+            continue
         try:
             spec = importlib.util.spec_from_file_location(
                 f"agentbus_custom_{path.stem}", path

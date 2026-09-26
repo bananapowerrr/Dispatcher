@@ -84,6 +84,49 @@ class RPLifecycleMixin:
             pass
 
     
+    def _finalize_early_terminal(
+        self, raw: dict, *, state: str, result: dict[str, Any]
+    ) -> None:
+        """Write terminal JSON for a task that ended before the worker stage.
+
+        PC-27: when a stage aborts early the task file would stay in
+        processing/ forever, so the UI keeps listing it as pending and the
+        reclaim loop eventually re-queues already-finished work.
+        """
+        payload = dict(raw or {})
+        try:
+            task = Task.from_dict(payload)
+        except Exception as exc:
+            try:
+                self.log.write(f"early_terminal: bad task: {exc}")
+            except Exception:
+                pass
+            return
+        task.id = str(task.id or uuid.uuid4())
+        # move first: bus.move copies the source over the destination, so a
+        # preceding _save would be overwritten by the raw processing file
+        try:
+            self.bus.move(task.channel, "processing", state, f"{task.id}.json")
+        except Exception:
+            pass
+        try:
+            self._save(task, state, result)
+        except Exception as exc:
+            try:
+                self.log.write(f"early_terminal: {exc}")
+            except Exception:
+                pass
+            return
+        try:
+            self.queue.terminal(
+                task.id,
+                "ERROR" if state == "errors" else "DONE",
+                error=str(result.get("error") or ""),
+                attempts=int(getattr(task, "attempts", 0) or 0),
+            )
+        except Exception:
+            pass
+
     def _stage_pre_hooks(self, raw: dict) -> str | None:
         """Run project pre-hooks; return ERROR if abort requested."""
         try:
@@ -105,6 +148,15 @@ class RPLifecycleMixin:
                         except Exception:
                             pass
                         if "abort" in (hr.detail or "").lower():
+                            self._finalize_early_terminal(
+                                raw,
+                                state="errors",
+                                result={
+                                    "error": f"pre_hook abort: {hr.detail}",
+                                    "method": "pre_hook",
+                                    "worker": "hooks",
+                                },
+                            )
                             return "ERROR"
                 raw.setdefault("metadata", {})
                 if isinstance(raw["metadata"], dict):
@@ -195,6 +247,16 @@ class RPLifecycleMixin:
                     )
                 except Exception:
                     pass
+                self._finalize_early_terminal(
+                    raw,
+                    state="done",
+                    result={
+                        "error": "",
+                        "method": "decompose",
+                        "worker": "decomposer",
+                        "subtasks": len(written),
+                    },
+                )
                 return "DONE"
         except Exception:
             pass
@@ -248,24 +310,18 @@ class RPLifecycleMixin:
             try:
                 proj = resolve_project(task.project)
             except (ValueError, FileNotFoundError) as exc:
-                self._save(task, "errors", {"error": str(exc), "attempts": task.attempts})
-                try:
-                    self.queue.terminal(task.id, "ERROR", error=str(exc), attempts=task.attempts)
-                except Exception as qexc:
-                    self.log.write(f"terminal: {qexc}")
-                self.bus.move(task.channel, "processing", "errors", f"{task.id}.json")
-                self._emit("ERROR", str(exc)[-300:], task_id=task.id, worker=self.worker_id)
-                return "ERROR"
+                return self.finish_task(
+                    task, "ERROR",
+                    {"error": str(exc), "attempts": task.attempts},
+                    error=str(exc),
+                )
         if proj is None:
             err = f"Проект не найден: {task.project or '(empty)'}"
-            self._save(task, "errors", {"error": err, "attempts": task.attempts})
-            try:
-                self.queue.terminal(task.id, "ERROR", error=err, attempts=task.attempts)
-            except Exception as qexc:
-                self.log.write(f"terminal: {qexc}")
-            self.bus.move(task.channel, "processing", "errors", f"{task.id}.json")
-            self._emit("ERROR", err[-300:], task_id=task.id, worker=self.worker_id)
-            return "ERROR"
+            return self.finish_task(
+                task, "ERROR",
+                {"error": err, "attempts": task.attempts},
+                error=err,
+            )
 
         try:
             ctx = ProjectContext(proj)
@@ -299,6 +355,7 @@ class RPLifecycleMixin:
 
         try:
             self._set_phase(task, "worker")
+            self._touch_task_lease(task, phase="worker")
         except Exception:
             pass
         return self._stage_llm_pipeline(

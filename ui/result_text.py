@@ -9,6 +9,18 @@ from __future__ import annotations
 from typing import Any
 
 
+def _failure_hint(error: str) -> str:
+    """Actionable suffix for a failure; empty when we have nothing to add."""
+    low = str(error or "").lower()
+    if "timeout" in low or "timed_out" in low:
+        return " Подсказка: увеличьте timeout воркера или проверьте Ollama."
+    if "verify" in low or "тест" in low or "pytest" in low:
+        return " Подсказка: смотрите verify/тесты; задача не помечена DONE."
+    if "busy" in low or "project_busy" in low:
+        return " Подсказка: проект занят — задача отложена, повторится сама."
+    return ""
+
+
 def extract_result_text(data: dict[str, Any] | None) -> str:
     """Flatten runtime done/error JSON into a short user-facing string.
 
@@ -18,6 +30,10 @@ def extract_result_text(data: dict[str, Any] | None) -> str:
     """
     if not isinstance(data, dict):
         return "готово"
+
+    # A plain string result is already user-facing text: pass it through.
+    if isinstance(data.get("result"), str) and data["result"].strip():
+        return data["result"].strip()[:2000]
 
     # Day-4: unified chat block for clear terminal statuses
     try:
@@ -45,6 +61,11 @@ def extract_result_text(data: dict[str, Any] | None) -> str:
             or tr.skill
             or tr.worker
         ):
+            # keep the actionable hint: the contract block drops it
+            nested0 = data.get("result") if isinstance(data.get("result"), dict) else {}
+            st0 = str(data.get("status") or data.get("_state") or "").lower()
+            if tr.error or nested0.get("error") or st0 in ("error", "errors", "failed"):
+                human = human + _failure_hint(str(tr.error or nested0.get("error") or ""))
             return human[:1200]
     except Exception:
         pass
@@ -90,15 +111,7 @@ def extract_result_text(data: dict[str, Any] | None) -> str:
                 parts.append(f"этап={stage}")
             head = " · ".join(parts)
             body = err[:1000]
-            hint = ""
-            low = err.lower()
-            if "timeout" in low or "timed_out" in low:
-                hint = " Подсказка: увеличьте timeout воркера или проверьте Ollama."
-            elif "verify" in low or "тест" in low or "pytest" in low:
-                hint = " Подсказка: смотрите verify/тесты; задача не помечена DONE."
-            elif "busy" in low or "project_busy" in low:
-                hint = " Подсказка: проект занят — задача отложена, повторится сама."
-            return (f"{head}: {body}" if head else body) + hint
+            return (f"{head}: {body}" if head else body) + _failure_hint(err)
         if skill and method == "skill":
             preview = summary[:400] if summary else "ok"
             return f"skill:{skill} — {preview}"

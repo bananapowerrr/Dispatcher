@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
-from project_lock import FileLockSet
-from sub_agent import SubAgent
+from safety.project_lock import FileLockSet
+from intelligence.sub_agent import SubAgent
 from skills import SkillRegistry, load_custom_skills
-from tools import ToolRegistry
+from skills.tools import ToolRegistry
 
 
 def test_load_custom_skills_disabled_by_default(tmp_path, monkeypatch):
@@ -40,15 +40,12 @@ def test_load_custom_skills_when_enabled(tmp_path, monkeypatch):
     )
     # Call with monkeypatched Path inside by setting env and injecting dir via writing to real relative - use direct load by simulating
     loaded_names = []
-    from skill_sandbox import validate_skill_source
+    from safety.skill_sandbox import validate_skill_source
     src = (custom / "demo.py").read_text(encoding="utf-8")
     assert validate_skill_source(src).ok
     # manual register path exercised by load_custom_skills with BASE_DIR mock
-    class _Cfg:
-        BASE_DIR = tmp_path
-    import sys
-    sys.modules["config"] = type(sys)("config")
-    sys.modules["config"].BASE_DIR = tmp_path
+    # the loader resolves the project root from core.config.BASE_DIR
+    monkeypatch.setattr("core.config.BASE_DIR", tmp_path, raising=False)
     names = skills_mod.load_custom_skills(reg)
     assert "demo_hello" in names or any("demo" in n for n in names)
     assert reg.execute("demo_hello", path=str(tmp_path)).get("success") is True or reg.execute(

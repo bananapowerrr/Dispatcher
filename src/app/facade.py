@@ -84,11 +84,11 @@ class AppFacade:
             def _t(k, default=""):
                 return default
         mapping = {
-            "queue": _t("queue_empty", default="Queue is empty"),
-            "history": _t("history_empty", default="Nothing yet — send a task from chat"),
-            "project": _t("no_project", default="Select a project"),
-            "selection": _t("no_selection", default="Nothing selected"),
-            "changes": _t("no_selection", default="No pending changes"),
+            "queue": _t("queue_empty", default="Очередь пуста"),
+            "history": _t("history_empty", default="Пусто — отправь задачу из чата"),
+            "project": _t("no_project", default="Выберите проект"),
+            "selection": _t("no_selection", default="Ничего не выбрано"),
+            "changes": _t("changes_empty", default="Нет сохранённых изменений"),
         }
         return mapping.get(kind, _t("no_selection", default="—"))
 

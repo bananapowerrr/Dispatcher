@@ -9,7 +9,8 @@ from app.files_service import FilesService
 
 def test_open_save_roundtrip(tmp_path: Path):
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "main.py").write_text("a = 1\n", encoding="utf-8")
+    # write_bytes: Path.write_text would emit CRLF on Windows
+    (tmp_path / "src" / "main.py").write_bytes(b"a = 1\n")
     fs = FilesService(tmp_path)
     body = fs.read_text("src/main.py")
     assert body == "a = 1\n"

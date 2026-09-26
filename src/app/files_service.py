@@ -2,6 +2,7 @@
 """FilesService — project tree and file IO for Explorer/Editor."""
 from __future__ import annotations
 
+import fnmatch
 import os
 from pathlib import Path
 from typing import Any
@@ -136,7 +137,7 @@ class FilesService:
         path = self._safe(rel_path)
         if create_dirs:
             path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_bytes(content.encode("utf-8"))
         return str(path.relative_to(self._root())).replace("\\", "/")
 
     def list_dir(self, rel_path: str = ".") -> list[dict[str, Any]]:
@@ -190,6 +191,8 @@ class FilesService:
         max_hits: int = 80,
         max_file_bytes: int = 400_000,
         extensions: tuple[str, ...] | None = None,
+        glob: str | None = None,
+        case_sensitive: bool = False,
     ) -> list[dict[str, Any]]:
         """Substring search across text files (offline, no ripgrep required)."""
         q = (query or "").strip()
@@ -202,6 +205,8 @@ class FilesService:
         )
         hits: list[dict[str, Any]] = []
         q_lower = q.lower()
+        needle = q if case_sensitive else q_lower
+        pattern = (glob or "").strip() or None
 
         def walk(dir_path: Path) -> None:
             if len(hits) >= max_hits:
@@ -221,6 +226,11 @@ class FilesService:
                     continue
                 if entry.suffix.lower() not in exts and entry.name not in ("Makefile", "Dockerfile"):
                     continue
+                rel = str(entry.relative_to(root)).replace("\\", "/")
+                if pattern and not (
+                    fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(entry.name, pattern)
+                ):
+                    continue
                 try:
                     if entry.stat().st_size > max_file_bytes:
                         continue
@@ -228,8 +238,7 @@ class FilesService:
                 except OSError:
                     continue
                 for i, line in enumerate(text.splitlines(), 1):
-                    if q_lower in line.lower():
-                        rel = str(entry.relative_to(root)).replace("\\", "/")
+                    if needle in (line if case_sensitive else line.lower()):
                         hits.append({
                             "path": rel,
                             "line": i,

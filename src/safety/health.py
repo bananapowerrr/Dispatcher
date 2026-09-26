@@ -15,6 +15,7 @@ from utils.budget import GLOBAL_BUDGET
 
 _VERIFY_DEGRADED_THRESHOLD = 3
 _VERIFY_DEGRADED_SCORE_PENALTY = 0.55
+_VERIFY_FAILURE_SCORE_PENALTY = 0.9
 _RATE_TIERS = (300, 900, 3600, 10800)
 _FAIL_TIERS = (60, 300, 900, 1800, 3600)
 _BILLING_COOLDOWN = 86400.0
@@ -170,6 +171,8 @@ class HealthRegistry:
             + HEALTH_SPEED_WEIGHT * speed
             + quality * 0.2
         ) * rec
+        if st.consecutive_verify_failures > 0:
+            score *= _VERIFY_FAILURE_SCORE_PENALTY ** st.consecutive_verify_failures
         if st.consecutive_verify_failures >= _VERIFY_DEGRADED_THRESHOLD:
             score *= _VERIFY_DEGRADED_SCORE_PENALTY
         return round(max(0, score), 3)

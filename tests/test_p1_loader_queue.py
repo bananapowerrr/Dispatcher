@@ -51,7 +51,23 @@ def test_local_queue_isolated_by_root(tmp_path: Path):
     reset_local_queue()
 
 
-def test_zen_in_providers():
+def test_providers_yaml_entries_all_load():
+    """Каждый блок "- id:" в providers.yaml обязан попасть в реестр.
+
+    Регекс-сплит в providers/registry.py::_from_yaml раньше съедал сам id,
+    все записи отбрасывались, и реестр молча возвращал встроенные default'ы —
+    то есть правка YAML не давала никакого эффекта.
+    """
+    import re
+
+    from providers.registry import load_providers
+    from core.config import PROVIDERS_FILE
     from pathlib import Path
-    text = Path("config/providers.yaml").read_text(encoding="utf-8")
-    assert "zen:" in text or "\nzen\n" in text
+
+    text = Path(PROVIDERS_FILE).read_text(encoding="utf-8")
+    declared = [m.strip() for m in re.findall(r"^\s*-\s*id\s*:\s*(\S+)", text, flags=re.M)]
+    loaded = [p.id for p in load_providers()]
+    assert declared, "providers.yaml не содержит ни одного провайдера"
+    assert sorted(declared) == sorted(loaded), (
+        f"часть провайдеров потерялась при загрузке: declared={declared} loaded={loaded}"
+    )

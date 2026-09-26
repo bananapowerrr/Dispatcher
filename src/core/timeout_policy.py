@@ -43,12 +43,17 @@ _WORKER_HINTS: tuple[tuple[str, float], ...] = (
 
 
 def clamp_exec_timeout(timeout: int | float | None) -> int:
-    """Bound worker timeout into [EXEC_MIN, EXEC_HARD_CAP]."""
+    """Bound worker timeout into [EXEC_MIN, AGENTBUS_EXEC_HARD_CAP].
+
+    The cap is read per call, not from the module constant, so operators can
+    retune AGENTBUS_EXEC_HARD_CAP at runtime without a restart.
+    """
+    hard_cap = _env_int("AGENTBUS_EXEC_HARD_CAP", EXEC_HARD_CAP, minimum=1)
     try:
         t = int(timeout)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         t = 300
-    return max(EXEC_MIN, min(t, EXEC_HARD_CAP))
+    return max(EXEC_MIN, min(t, hard_cap))
 
 
 def worker_class_factor(worker: str | None) -> float:

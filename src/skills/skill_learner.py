@@ -225,16 +225,22 @@ class SkillLearner:
     def materialize_plugin(self, pattern: str, *, source: str | None = None) -> dict[str, Any]:
         """Validate and write plugin under src/skills/custom/. Does not auto-load into live registry."""
         from safety.skill_sandbox import validate_skill_source
-        candidates = {c.pattern: c for c in self.find_candidates()}
-        cand = candidates.get(pattern)
-        code = source or (cand.suggested_code if cand else self._generate_stub(pattern))
+        # Fail-closed: a learned skill is never stub-generated into the tree.
+        # Only an explicitly supplied source is validated and written.
+        if not source or not str(source).strip():
+            return {
+                "status": "needs_implementation",
+                "pattern": pattern,
+                "reason": "no source provided; a plugin must be materialized from explicit code",
+            }
+        code = str(source)
         result = validate_skill_source(code)
         if not result.ok:
             return {"status": "rejected", "validation": result.to_dict()}
         safe = re.sub(r"[^a-zA-Z0-9_]", "_", pattern)[:40]
         path = self.custom_dir() / f"{safe}.py"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(code if code.strip() else self._generate_stub(pattern), encoding="utf-8")
+        path.write_text(code, encoding="utf-8")
         # re-validate written file
         written = path.read_text(encoding="utf-8")
         v2 = validate_skill_source(written)

@@ -1,27 +1,65 @@
-# шины и секреты — только на Drive, не в git
-channels/
+# ── Секреты и локальное окружение ───────────────────────────────
 .env
+.env.*
+!.env.example
 credentials/
 projects/
-archive/
+
+# ── Виртуальные окружения (никогда не в git) ────────────────────
+.venv/
+.venv-aider/
+venv/
+env/
+
+# ── Python-кэш и сборка ─────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ── Runtime: шина каналов, состояние задач, события ─────────────
+channels/
+events/
+.agentbus/
 incoming/
 processing/
 done/
 errors/
 deferred/
 logs/
+archive/
 gemini_archive/
 GeminiProcessed/
-.pytest_cache/
-__pycache__/
-*.pyc
-*.pyo
+
+# ── Runtime-состояние в json ────────────────────────────────────
 cloud_usage.json
-rate_limit_until.json
+discovered.json
 notion_state.json
-workers_state.json
 providers_state.json
+rate_limit_until.json
 ranker_state.json
-events/
+workers_state.json
+
+# ── Артефакты тестов и прогона ──────────────────────────────────
+.testruns/
+junit*.xml
+.coverage
+coverage.xml
+htmlcov/
+
+# ── Логи и временные файлы ──────────────────────────────────────
 *.log
+*.tmp
+*.bak
+crash.log
 push_agentbus_to_git.ps1
+
+# ── OS-мусор ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini

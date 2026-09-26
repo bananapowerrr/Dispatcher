@@ -73,7 +73,7 @@ def convert_print_to_logging(
             body = "".join(lines)
         try:
             ast.parse(body)
-            fp.write_text(body, encoding="utf-8")
+            fp.write_bytes(body.encode("utf-8"))
             try:
                 changed_files.append(str(fp.relative_to(root)))
             except ValueError:
@@ -111,7 +111,7 @@ def strip_trailing_whitespace(
             new.append(stripped + end)
         if changed:
             try:
-                fp.write_text("".join(new), encoding="utf-8")
+                fp.write_bytes("".join(new).encode("utf-8"))
                 fixed += 1
                 try:
                     files_touched.append(str(fp.relative_to(root)))
@@ -136,7 +136,7 @@ def normalize_newlines(
             continue
         text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         try:
-            fp.write_text(text, encoding="utf-8")
+            fp.write_bytes(text.encode("utf-8"))
             fixed += 1
         except OSError:
             pass
@@ -161,7 +161,7 @@ def ensure_utf8_coding(
             insert = 1
         lines.insert(insert, "# -*- coding: utf-8 -*-\n")
         try:
-            fp.write_text("".join(lines), encoding="utf-8")
+            fp.write_bytes("".join(lines).encode("utf-8"))
             added += 1
         except OSError:
             pass

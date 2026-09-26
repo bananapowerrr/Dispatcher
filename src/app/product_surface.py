@@ -239,7 +239,8 @@ def build_worker_context_message(
     """R5: report + budget assembly for worker prompt (advisory for Chat / pre-exec)."""
     try:
         from intelligence.context_report import build_context_report
-        from intelligence.context_budget import budget_from_context_report, assemble_worker_message
+        from core.context_budget import budget_from_context_report
+        from intelligence.context_budget import assemble_worker_message
 
         root = Path(project_root) if project_root else None
         rep = None

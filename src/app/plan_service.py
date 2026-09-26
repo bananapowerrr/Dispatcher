@@ -165,6 +165,16 @@ class PlanService:
         old = normalize_status(s.status)
         if is_finished(old) and new_st not in ("DONE", "ERROR") and new_st != old:
             return {"ok": False, "error": f"frozen status {old}"}
+        # DONE is terminal and owned by the runtime: only verification may set it.
+        if new_st == "DONE":
+            known_task_id = task_id or (s.meta or {}).get("task_id")
+            if not known_task_id:
+                return {
+                    "ok": False,
+                    "error": "DONE is a terminal state owned by the runtime: task_id is required",
+                    "step_id": step_id,
+                    "status": old,
+                }
         s.status = new_st
         if note is not None:
             s.note = (s.note + " | " if s.note else "") + str(note)[:300]
@@ -345,6 +355,16 @@ def make_plan_input_decision(
     )
     q = get_decision_queue(project_root)
     return q.enqueue(item)
+
+
+def list_open_plan_decisions(project_root: str | Path) -> list[dict[str, Any]]:
+    """Open (unresolved, unexpired) plan decisions as plain dicts for UI/tests."""
+    items = get_decision_queue(project_root).open_items()
+    out: list[dict[str, Any]] = []
+    for it in items:
+        to_dict = getattr(it, "to_dict", None)
+        out.append(to_dict() if callable(to_dict) else dict(it))
+    return out
 
 
 def resolve_plan_decision(

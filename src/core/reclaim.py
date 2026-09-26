@@ -255,6 +255,40 @@ def touch_lease(processing_path: Path, phase: str | None = None) -> None:
             pass
 
 
+def _attach_failure_evidence(
+    raw: dict[str, Any],
+    meta: dict[str, Any],
+    reclaim_reason: str,
+    state_folder: str,
+) -> None:
+    """Record failure_layer / recoverable / execution_evidence on a reclaimed task.
+
+    Without this the recovery layer cannot tell a stuck-task termination from a
+    worker or verification failure, and decide_from_task_row sees no layer.
+    """
+    try:
+        from core.execution_evidence import classify_failure_layer
+
+        layer, recoverable = classify_failure_layer(reclaim_reason=reclaim_reason)
+    except Exception as e:
+        _soft_log(f"classify_failure_layer:{reclaim_reason}", e)
+        layer = ("reclaim_max_attempts"
+                 if reclaim_reason == "stuck_max_attempts" else "reclaim_no_heartbeat")
+        recoverable = reclaim_reason != "stuck_max_attempts"
+    meta["failure_layer"] = layer
+    meta["recoverable"] = bool(recoverable)
+    try:
+        from core.execution_evidence import evidence_from_task_payload
+
+        meta["execution_evidence"] = evidence_from_task_payload(
+            {**raw, "metadata": meta},
+            terminal_state="ERROR" if state_folder == "errors" else "",
+            state_folder=state_folder,
+        )
+    except Exception as e:
+        _soft_log(f"evidence_from_task_payload:{reclaim_reason}", e)
+
+
 def reclaim_stuck(
     *,
     processing_dir: Path,
@@ -329,6 +363,7 @@ def reclaim_stuck(
             meta["reclaim_age_sec"] = round(age, 1)
             meta["reclaim_timeout_sec"] = round(timeout, 1)
             meta["last_heartbeat"] = ts
+            _attach_failure_evidence(raw, meta, "stuck_no_heartbeat", "incoming")
             raw["metadata"] = meta
             try:
                 path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -340,8 +375,9 @@ def reclaim_stuck(
             meta = dict(meta)
             meta["reclaim_reason"] = "stuck_max_attempts"
             meta["reclaim_age_sec"] = round(age, 1)
-            raw["metadata"] = meta
             raw["status"] = "ERROR"
+            _attach_failure_evidence(raw, meta, "stuck_max_attempts", "errors")
+            raw["metadata"] = meta
             try:
                 path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
             except OSError as e:

@@ -141,11 +141,23 @@ def format_terminal_for_chat(row: dict[str, Any] | None) -> str:
                 elif ver.get("ok") is False:
                     tests_ok = False
                     tests_detail = str(ver.get("summary") or "")[:80]
+            detail = ""
+            skill = str(nested.get("skill") or "").strip()
+            summary = str(
+                nested.get("summary") or nested.get("stdout") or nested.get("output") or ""
+            ).strip()
+            if skill and summary:
+                detail = f"skill:{skill} — {summary}"
+            elif skill:
+                detail = f"skill:{skill}"
+            elif summary:
+                detail = summary
             return format_done_summary(
                 files=files or None,
                 tests_ok=tests_ok,
                 tests_detail=tests_detail,
                 worker=worker,
+                detail=detail,
             )
         except Exception:
             try:

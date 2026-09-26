@@ -23,12 +23,12 @@ def _root() -> Path:
         return Path(__file__).resolve().parents[2]
 
 
-def _probe_http(url: str, timeout: float = 1.5) -> tuple[bool, str]:
+def _probe_http(url: str, timeout: float = 1.5, limit: int = 200_000) -> tuple[bool, str]:
     try:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read()[:2000]
-            return True, body.decode("utf-8", errors="replace")[:500]
+            body = resp.read()[: max(1, int(limit))]
+            return True, body.decode("utf-8", errors="replace")
     except Exception as exc:
         return False, str(exc)[:120]
 

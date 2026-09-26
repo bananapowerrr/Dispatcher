@@ -55,11 +55,14 @@ def format_done_summary(
     tests_ok: bool | None = None,
     tests_detail: str = "",
     worker: str = "",
+    detail: str = "",
 ) -> str:
     """Short success block for chat after DONE."""
     lines = ["✓ Готово"]
     if worker:
         lines.append(f"worker={worker}")
+    if detail:
+        lines.append(detail[:400])
     if files:
         lines.append("Изменено:")
         for f in files[:12]:

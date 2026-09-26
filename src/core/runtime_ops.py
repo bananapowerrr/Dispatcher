@@ -47,6 +47,9 @@ except Exception:  # pragma: no cover
     def is_enabled(name: str, default: bool = True) -> bool:
         return default
 
+# reroute when predicted latency exceeds this share of the worker timeout
+_LATENCY_TIMEOUT_RATIO = 0.80
+
 class RuntimeOps:
     """Mixin: provider checks, exec, verify, recover, rollback."""
 
@@ -589,11 +592,54 @@ class RuntimeOps:
                 pass
         return ok, err
 
+    def _claim_desktop_incoming(self) -> dict | None:
+        """Claim one task from desktop/incoming.
+
+        Deferred or stuck desktop (PC chat) tasks must be recoverable without
+        the phone file-bus. On a successful move the file lands in
+        desktop/processing, so it is not visible to the UI as pending anymore.
+        """
+        try:
+            incoming = self.bus.paths("desktop")["incoming"]
+        except Exception as exc:
+            self.log.write(f"desktop channel unavailable: {exc}")
+            return None
+        try:
+            paths = sorted(incoming.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        except OSError as exc:
+            self.log.write(f"desktop incoming unreadable: {exc}")
+            return None
+        for path in paths:
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                self.log.write(f"битая desktop задача {path.name}: {exc}")
+                try:
+                    self.bus.move("desktop", "incoming", "errors", path.name)
+                except Exception:
+                    pass
+                continue
+            if not isinstance(raw, dict):
+                continue
+            try:
+                if not self.bus.move("desktop", "incoming", "processing", path.name):
+                    continue
+            except Exception as exc:
+                self.log.write(f"desktop move failed {path.name}: {exc}")
+                continue
+            claimed = dict(raw)
+            claimed.setdefault("channel", "desktop")
+            return claimed
+        return None
+
     def _active_channels(self) -> list[str]:
-        """Configured CHANNELS plus on-disk isolated sub-agent channels (*__sub_*)."""
+        """Configured CHANNELS plus desktop plus on-disk isolated sub-agent channels."""
         found: list[str] = []
         seen: set[str] = set()
-        for ch in CHANNELS:
+        # desktop = primary PC chat channel: always polled, even when
+        # AGENTBUS_CHANNELS does not list it, so deferred desktop work is
+        # claimable without the phone file-bus.
+        for ch in list(CHANNELS) + ["desktop"]:
             if ch and ch not in seen:
                 found.append(ch)
                 seen.add(ch)
@@ -623,10 +669,20 @@ class RuntimeOps:
             pass
         return found
 
-    def _claim_file_task(self) -> dict | None:
-        """Claim next incoming task; prefer grouper order (project/type/files)."""
+    def _claim_file_task(
+        self, *, only_channels: tuple[str, ...] | list[str] | None = None
+    ) -> dict | None:
+        """Claim next incoming task; prefer grouper order (project/type/files).
+
+        only_channels restricts polling to the given channels (used by the
+        desktop-only path so it never picks up phone file-bus traffic).
+        """
+        channels = self._active_channels()
+        if only_channels:
+            allowed = {str(c).strip() for c in only_channels if str(c).strip()}
+            channels = [c for c in channels if c in allowed]
         candidates: list[tuple[object, dict, str]] = []
-        for channel in self._active_channels():
+        for channel in channels:
             incoming = self.bus.paths(channel)["incoming"]
             for path in sorted(incoming.glob("*.json"), key=lambda p: p.stat().st_mtime):
                 try:

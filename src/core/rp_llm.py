@@ -21,13 +21,41 @@ except Exception:  # pragma: no cover
     Task = None  # type: ignore
 
 try:
-    from core.config import DEFAULT_CHANNEL, PROJECT_ROOT, resolve_project, BUS_ROOT
+    from core.config import (
+        DEFAULT_CHANNEL, PROJECT_ROOT, resolve_project, BUS_ROOT,
+        MAX_ATTEMPTS, WORKER_TIMEOUT, VERIFY_FAIL_MAX,
+    )
 except Exception:  # pragma: no cover
     DEFAULT_CHANNEL = "gpt"
     PROJECT_ROOT = None
+    MAX_ATTEMPTS = 3
+    WORKER_TIMEOUT = 600
+    VERIFY_FAIL_MAX = 3
     def resolve_project(x):
         return x
     BUS_ROOT = Path(".")
+
+try:
+    from core.router import select_executor
+except Exception:  # pragma: no cover
+    select_executor = None  # type: ignore
+
+try:
+    from core.executor import ExecutionResult
+except Exception:  # pragma: no cover
+    ExecutionResult = None  # type: ignore
+
+try:
+    from safety.gitops import GitOps, GitRun
+except Exception:  # pragma: no cover
+    GitOps = None  # type: ignore
+    GitRun = None  # type: ignore
+
+try:
+    from core.repair import decide_failure, categorize
+except Exception:  # pragma: no cover
+    decide_failure = None  # type: ignore
+    categorize = None  # type: ignore
 
 try:
     from core.ranking import infer_task_type
@@ -39,11 +67,6 @@ try:
     from skills.test_runner import TestRunner
 except Exception:  # pragma: no cover
     TestRunner = None  # type: ignore
-
-try:
-    from safety.gitops import GitOps
-except Exception:  # pragma: no cover
-    GitOps = None  # type: ignore
 
 try:
     from intelligence.context import ContextBuilder
@@ -103,6 +126,28 @@ class RPLlmMixin:
                     pool = ordered
         except Exception:
             pass
+        # DEV-004: switch-backend / prefer-local gate for worker fallback
+        try:
+            from core.worker_fallback import allow_worker_fallback, filter_fallback_pool
+
+            meta = getattr(getattr(self, "_current_task", None), "metadata", None)
+            meta = meta if isinstance(meta, dict) else {}
+            fb = allow_worker_fallback(
+                kind=str(failure_kind or meta.get("failure_kind") or ""),
+                status=str(meta.get("worker_result", {}).get("status", "") if isinstance(meta.get("worker_result"), dict) else ""),
+                fallback_kind=str(meta.get("fallback_kind") or ""),
+                worker_result=meta.get("worker_result") if isinstance(meta.get("worker_result"), dict) else None,
+                recovery_decision=meta.get("recovery_decision") if isinstance(meta.get("recovery_decision"), dict) else None,
+            )
+            if fb.get("allowed"):
+                pool = filter_fallback_pool(
+                    pool,
+                    tried=tried,
+                    kind=str(failure_kind or ""),
+                    offline=offline,
+                ) or pool
+        except Exception:
+            pass
         return pool
 
 
@@ -135,6 +180,24 @@ class RPLlmMixin:
         *, complexity: int, task_type: str,
     ) -> None:
         """Budget/metrics/health/ranker/capacity after a failed worker attempt."""
+        # R4 worker failure contract: classify once, reuse for health/capacity
+        # and for the recovery decision (decide_from_task_row reads
+        # metadata.worker_outcome).
+        worker_outcome = None
+        try:
+            from core.worker_failure_contract import classify_execution_outcome
+
+            worker_outcome = classify_execution_outcome(result, error_text=error)
+            self._last_worker_result = worker_outcome
+            meta = getattr(task, "metadata", None)
+            meta = dict(meta) if isinstance(meta, dict) else {}
+            meta["worker_outcome"] = worker_outcome
+            if worker_outcome.get("kind"):
+                meta["failure_kind"] = str(worker_outcome["kind"])
+            meta["prefer_local"] = bool(worker_outcome.get("prefer_local"))
+            task.metadata = meta
+        except Exception:
+            pass
         try:
             from utils.budget import GLOBAL_TRACKER
             from utils.metrics import GLOBAL_METRICS
@@ -325,9 +388,17 @@ class RPLlmMixin:
                            model=worker.model,
                            payload={"complexity": complexity, "task_type": task_type,
                                     "attempt": task.attempts})
+                try:
+                    self._touch_task_lease(task, phase="exec")
+                except Exception:
+                    pass
                 result = self._exec_worker(
                     worker, str(ctx.root), worker_message, exec_timeout, abs_files,
                     task_id=task.id)
+                try:
+                    self._touch_task_lease(task, phase="post_exec")
+                except Exception:
+                    pass
                 try:
                     from core.fallback import classify_failure
                     if result is not None and not getattr(result, "ok", True):
@@ -696,47 +767,34 @@ class RPLlmMixin:
                 except Exception:
                     pass
             try:
-                self.queue.terminal(task.id, final, error=last_err, attempts=task.attempts)
+                return self.finish_task(
+                    task,
+                    final,
+                    {
+                        "error": last_err,
+                        "attempts": int(task.attempts or 0),
+                        "category": cat,
+                        "quarantine": str(qpath) if qpath else "",
+                        "quarantined": True,
+                    },
+                    error=last_err,
+                )
             except Exception as exc:
-                self.log.write(f"terminal: {exc}")
-            self.bus.move(task.channel, "processing", "errors", f"{task.id}.json")
-            self._save(
-                task,
-                "errors",
-                {
-                    "error": last_err,
-                    "attempts": task.attempts,
-                    "category": cat,
-                    "quarantine": str(qpath) if qpath else "",
-                    "quarantined": True,
-                },
-            )
-            self._emit(
-                final,
-                last_err[-300:],
-                task_id=task.id,
-                worker=self.worker_id,
-                payload={
-                    "attempts": task.attempts,
-                    "category": cat,
-                    "consecutive_verify_fails": int(
-                        (task.metadata or {}).get("consecutive_verify_fails") or 0
-                    ),
-                    "verify_budget": VERIFY_FAIL_MAX,
-                    "quarantine": str(qpath) if qpath else "",
-                },
-            )
-            self._record_lesson(task, last_err, worker=self.worker_id, category=cat)
-            return "ERROR"
+                self.log.write(f"quarantine enforcer: {exc}")
+                return "ERROR"
 
         self._rollback_task(gitops, before_snapshot, task)
         self._schedule_retry(task, last_err)
-        self.bus.move(task.channel, "processing", "deferred", f"{task.id}.json")
-        self._save(task, "deferred", {"error": last_err, "attempts": task.attempts, "category": cat})
-        self._emit("RETRY", last_err[-300:], task_id=task.id, worker=self.worker_id,
-                   payload={"attempts": task.attempts, "category": cat})
-        self._record_lesson(task, last_err, worker=self.worker_id, category=cat)
-        return "DEFERRED"
+        return self.finish_task(
+            task,
+            "DEFERRED",
+            {
+                "error": last_err,
+                "attempts": int(task.attempts or 0),
+                "category": cat,
+            },
+            error=last_err,
+        )
 
     # ------------------------------------------------------------------
     # Project index + lessons

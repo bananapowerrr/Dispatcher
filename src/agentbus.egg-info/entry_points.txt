@@ -1,3 +1,0 @@
-[console_scripts]
-agentbus = core.dispatcher_main:main
-agentbus-ui = ui.main_window:main

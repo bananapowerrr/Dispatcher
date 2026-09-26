@@ -30,9 +30,6 @@ def build_dynamic_workers(
     for p in providers:
         if not p.is_usable():
             continue
-        # ollama уже есть как aider_local — не плодим дубль
-        if p.id == "ollama":
-            continue
         if p.dynamic or not p.models:
             key = f"{p.id}:auto"
             if key in occupied or p.id in occupied:
@@ -44,9 +41,12 @@ def build_dynamic_workers(
             if key in occupied or p.id in occupied or f"{p.id}:auto" in occupied:
                 continue
             out.append(_make_worker(p, m, harness))
-            # один воркер на провайдера достаточно (preference list в registry)
-            break
     return out
+
+
+def _wm_key(provider: str, model: str = "") -> str:
+    """Occupancy key for one provider/model pair: 'provider:model'."""
+    return f"{provider}:{model or ''}"
 
 
 def _occupied_keys(workers: list[Worker]) -> set[str]:
@@ -54,10 +54,7 @@ def _occupied_keys(workers: list[Worker]) -> set[str]:
     for w in workers:
         keys.add(w.provider)
         keys.add(f"{w.provider}:auto")
-        if w.model:
-            keys.add(f"{w.provider}:{w.model}")
-        else:
-            keys.add(f"{w.provider}:")
+        keys.add(_wm_key(w.provider, w.model))
     return keys
 
 
@@ -70,7 +67,7 @@ def _make_worker(p: Provider, model: str, harness: str) -> Worker:
     caps = tuple(getattr(p, "capabilities", None) or ())
     name_model = "auto" if model == "auto" else model.replace("/", "_")
     return Worker(
-        name=f"dyn_{p.id}_{name_model}",
+        name=f"{p.id}_{name_model}",
         command=command,
         priority=max(55, int(getattr(p, "priority", 50))),
         timeout=_default_timeout(harness),
@@ -78,7 +75,7 @@ def _make_worker(p: Provider, model: str, harness: str) -> Worker:
         max_parallel=1,
         harness=harness,
         provider=p.id,
-        model="" if model == "auto" else model,
+        model=model,
         complexity=complexity,
         quality=1.0,
         capabilities=caps,

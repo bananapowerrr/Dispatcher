@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import customtkinter as ctk
 
@@ -111,6 +112,157 @@ def _bar(label: str, value: float, width: int = 20) -> str:
     filled = int(round(v * width))
     return f"{label:12} [{'█' * filled}{'░' * (width - filled)}] {v*100:5.1f}%"
 
+def format_cost_section() -> str:
+    """P1.5 — session cost board (local = 0 ₽ explicit)."""
+    data = _load_cost()
+    lines = ["", "=== СТОИМОСТЬ СЕССИИ ==="]
+    if not data:
+        lines.append("(пока нет данных — local/skills/cache обычно 0 ₽)")
+        lines.append("local Ollama/LM Studio: 0.00 USD  |  0 ₽")
+        return "\n".join(lines)
+    tin = int(data.get("session_tokens_in") or 0)
+    tout = int(data.get("session_tokens_out") or 0)
+    usd = float(data.get("session_cost_usd") or 0)
+    calls = int(data.get("calls") or 0)
+    skill = int(data.get("skill_saves") or 0)
+    cache = int(data.get("cache_saves") or 0)
+    lines.append(f"tokens in/out : {tin} / {tout}")
+    lines.append(f"LLM calls     : {calls}")
+    lines.append(f"est. USD      : {usd:.4f}")
+    lines.append(f"local share   : skills={skill}  cache={cache}  → 0 ₽ на этих задачах")
+    if usd <= 0:
+        lines.append("ИТОГО облако  : 0.00 USD  (~0 ₽) — local-first")
+    else:
+        # rough RUB for display only, no FX API
+        lines.append(f"ИТОГО облако  : {usd:.4f} USD  (ориентир ×100 ≈ {usd*100:.0f} ₽)")
+    by_w = data.get("by_worker") or {}
+    if isinstance(by_w, dict) and by_w:
+        lines.append("по воркерам:")
+        for k, v in list(by_w.items())[:12]:
+            if isinstance(v, dict):
+                lines.append(
+                    f"  {k}: cost={v.get('cost_usd', v.get('cost', 0))} "
+                    f"tok={v.get('tokens', v.get('tokens_in', 0))}"
+                )
+            else:
+                lines.append(f"  {k}: {v}")
+    recent = data.get("recent") or []
+    if recent:
+        lines.append(f"последние записи: {len(recent)}")
+    return "\n".join(lines)
+
+
+def format_metrics_board(m: dict[str, Any] | None, q: dict[str, Any] | None) -> str:
+    '''Render the metrics board as plain text (q may include desktop primary queue).'''
+    m = dict(m or {})
+    q = dict(q or {})
+    # q may include desktop primary queue
+    lines = []
+    # cost board first (P1.5)
+    try:
+        cost_txt = format_cost_section().lstrip("\n")
+        if cost_txt:
+            lines.append(cost_txt)
+            lines.append("")
+    except Exception:
+        pass
+    lines.append("=== Очередь ===")
+    lines.append(f"desktop (чат ПК): {q.get('desktop', 0)}")
+    lines.append(
+        f"file-bus in:{q['incoming']}  run:{q['processing']}  done:{q['done']}  "
+        f"err:{q['errors']}  def:{q['deferred']}"
+    )
+    lines.append("")
+    if not m:
+        lines.append("metrics_latest.json ещё нет — запусти dispatcher")
+        lines.append("(снимок пишется ~каждые 5 мин и при остановке)")
+        return "\n".join(lines)
+    try:
+        from utils.alerts import GLOBAL_ALERTS
+        fired = list(GLOBAL_ALERTS.check_from_metrics(m))
+        fired += list(GLOBAL_ALERTS.check_queue(q))
+        if fired:
+            lines.append("=== Alerts ===")
+            for a in fired[-5:]:
+                lines.append(f"! [{a.severity}] {a.alert_type}: {a.message}")
+            lines.append("")
+    except Exception:
+        pass
+    rates = m.get("hit_rates") or {}
+    counters = m.get("counters") or {}
+    lines.append("=== Hit rates ===")
+    lines.append(_bar("cache", rates.get("cache_hit_rate", 0)))
+    lines.append(_bar("skills", rates.get("skill_hit_rate", 0)))
+    lines.append(_bar("llm ok", rates.get("llm_success_rate", 0)))
+    lines.append(
+        f"cache {counters.get('cache_hit', 0)}/{int(rates.get('cache_total', 0))}  "
+        f"skill {counters.get('skill_hit', 0)}/{int(rates.get('skill_total', 0))}  "
+        f"llm {int(rates.get('llm_calls', 0))}"
+    )
+    vp = int(counters.get("verify_ladder_pass") or 0)
+    vf = int(counters.get("verify_ladder_fail") or 0)
+    if vp or vf:
+        lines.append(
+            f"verify ladder pass={vp} fail={vf} "
+            f"L1={counters.get('verify_ladder_fail_L1', 0)} "
+            f"L2={counters.get('verify_ladder_fail_L2', 0)} "
+            f"L3={counters.get('verify_ladder_fail_L3', 0)} "
+            f"diff_budget={counters.get('diff_budget_exceeded', 0)} "
+            f"cache_skip={counters.get('cache_skip_no_ladder', 0)}"
+        )
+    lines.append("")
+    lines.append("=== Tasks ===")
+    lines.append(
+        f"total={m.get('task_count', 0)}  ok={m.get('success_count', 0)}  "
+        f"err={m.get('error_count', 0)}  deferred={m.get('deferred_count', 0)}  "
+        f"deduped={m.get('deduped_count', 0)}"
+    )
+    lines.append(f"success_rate={float(m.get('success_rate') or 0)*100:.1f}%  "
+                 f"uptime={m.get('uptime_sec', 0)}s")
+    lines.append("")
+    usage = m.get("worker_usage") or {}
+    if usage:
+        lines.append("=== Workers ===")
+        total_u = sum(int(v) for v in usage.values()) or 1
+        for name, n in sorted(usage.items(), key=lambda x: -int(x[1])):
+            share = int(n) / total_u
+            lines.append(f"{_bar(str(name)[:12], share)}  n={n}")
+    dh = m.get("duration_histogram") or {}
+    if dh:
+        lines.append("")
+        lines.append("=== Duration histogram ===")
+        total_d = sum(int(v) for v in dh.values()) or 1
+        for bucket in ("0-10s", "10-30s", "30-60s", "60-120s", "120s+"):
+            n = int(dh.get(bucket, 0))
+            lines.append(_bar(bucket, n / total_d) + f"  n={n}")
+    rh = m.get("retry_histogram") or {}
+    if rh:
+        lines.append("")
+        lines.append("=== Retries ===")
+        total_r = sum(int(v) for v in rh.values()) or 1
+        for bucket in ("0", "1", "2", "3+"):
+            n = int(rh.get(bucket, 0))
+            lines.append(_bar(f"retry {bucket}", n / total_r) + f"  n={n}")
+    switches = m.get("worker_switch_count")
+    if switches is not None:
+        lines.append(f"worker_switches={switches}")
+    lat = m.get("latency_stats") or {}
+    if lat:
+        lines.append("")
+        lines.append("=== Latency (s) ===")
+        for w, st in sorted(lat.items()):
+            if not isinstance(st, dict):
+                continue
+            lines.append(
+                f"{w}: avg={st.get('avg')} min={st.get('min')} max={st.get('max')} n={st.get('n')}"
+            )
+    src = m.get("_source", "")
+    if src:
+        lines.append("")
+        lines.append(f"source: {src}")
+        lines.append(f"ts: {m.get('ts', '')}")
+    return "\n".join(lines)
+
 
 class MetricsPanel(ctk.CTkFrame):
     def __init__(self, parent, poll_ms: int = 4000):
@@ -151,163 +303,12 @@ class MetricsPanel(ctk.CTkFrame):
             apply((_load_latest_metrics(), _queue_counts()))
 
     def _render_metrics(self, m, q) -> None:
-        # q may include desktop primary queue
-        lines = []
-        # cost board first (P1.5)
-        try:
-            cost_txt = self._cost_section().lstrip("\n")
-            if cost_txt:
-                lines.append(cost_txt)
-                lines.append("")
-        except Exception:
-            pass
-        lines.append("=== Очередь ===")
-        lines.append(f"desktop (чат ПК): {q.get('desktop', 0)}")
-        lines.append(
-            f"file-bus in:{q['incoming']}  run:{q['processing']}  done:{q['done']}  "
-            f"err:{q['errors']}  def:{q['deferred']}"
-        )
-        lines.append("")
-        if not m:
-            lines.append("metrics_latest.json ещё нет — запусти dispatcher")
-            lines.append("(снимок пишется ~каждые 5 мин и при остановке)")
-            try:
-                text = "\n".join(lines)
-            except Exception:
-                text = "\n".join(lines)
-            self._set_text(text)
-            return
-        try:
-            from utils.alerts import GLOBAL_ALERTS
-            fired = list(GLOBAL_ALERTS.check_from_metrics(m))
-            fired += list(GLOBAL_ALERTS.check_queue(q))
-            if fired:
-                lines.append("=== Alerts ===")
-                for a in fired[-5:]:
-                    lines.append(f"! [{a.severity}] {a.alert_type}: {a.message}")
-                lines.append("")
-        except Exception:
-            pass
-        rates = m.get("hit_rates") or {}
-        counters = m.get("counters") or {}
-        lines.append("=== Hit rates ===")
-        lines.append(_bar("cache", rates.get("cache_hit_rate", 0)))
-        lines.append(_bar("skills", rates.get("skill_hit_rate", 0)))
-        lines.append(_bar("llm ok", rates.get("llm_success_rate", 0)))
-        lines.append(
-            f"cache {counters.get('cache_hit', 0)}/{int(rates.get('cache_total', 0))}  "
-            f"skill {counters.get('skill_hit', 0)}/{int(rates.get('skill_total', 0))}  "
-            f"llm {int(rates.get('llm_calls', 0))}"
-        )
-        vp = int(counters.get("verify_ladder_pass") or 0)
-        vf = int(counters.get("verify_ladder_fail") or 0)
-        if vp or vf:
-            lines.append(
-                f"verify ladder pass={vp} fail={vf} "
-                f"L1={counters.get('verify_ladder_fail_L1', 0)} "
-                f"L2={counters.get('verify_ladder_fail_L2', 0)} "
-                f"L3={counters.get('verify_ladder_fail_L3', 0)} "
-                f"diff_budget={counters.get('diff_budget_exceeded', 0)} "
-                f"cache_skip={counters.get('cache_skip_no_ladder', 0)}"
-            )
-        lines.append("")
-        lines.append("=== Tasks ===")
-        lines.append(
-            f"total={m.get('task_count', 0)}  ok={m.get('success_count', 0)}  "
-            f"err={m.get('error_count', 0)}  deferred={m.get('deferred_count', 0)}  "
-            f"deduped={m.get('deduped_count', 0)}"
-        )
-        lines.append(f"success_rate={float(m.get('success_rate') or 0)*100:.1f}%  "
-                     f"uptime={m.get('uptime_sec', 0)}s")
-        lines.append("")
-        usage = m.get("worker_usage") or {}
-        if usage:
-            lines.append("=== Workers ===")
-            total_u = sum(int(v) for v in usage.values()) or 1
-            for name, n in sorted(usage.items(), key=lambda x: -int(x[1])):
-                share = int(n) / total_u
-                lines.append(f"{_bar(str(name)[:12], share)}  n={n}")
-        dh = m.get("duration_histogram") or {}
-        if dh:
-            lines.append("")
-            lines.append("=== Duration histogram ===")
-            total_d = sum(int(v) for v in dh.values()) or 1
-            for bucket in ("0-10s", "10-30s", "30-60s", "60-120s", "120s+"):
-                n = int(dh.get(bucket, 0))
-                lines.append(_bar(bucket, n / total_d) + f"  n={n}")
-        rh = m.get("retry_histogram") or {}
-        if rh:
-            lines.append("")
-            lines.append("=== Retries ===")
-            total_r = sum(int(v) for v in rh.values()) or 1
-            for bucket in ("0", "1", "2", "3+"):
-                n = int(rh.get(bucket, 0))
-                lines.append(_bar(f"retry {bucket}", n / total_r) + f"  n={n}")
-        switches = m.get("worker_switch_count")
-        if switches is not None:
-            lines.append(f"worker_switches={switches}")
-        lat = m.get("latency_stats") or {}
-        if lat:
-            lines.append("")
-            lines.append("=== Latency (s) ===")
-            for w, st in sorted(lat.items()):
-                if not isinstance(st, dict):
-                    continue
-                lines.append(
-                    f"{w}: avg={st.get('avg')} min={st.get('min')} max={st.get('max')} n={st.get('n')}"
-                )
-        src = m.get("_source", "")
-        if src:
-            lines.append("")
-            lines.append(f"source: {src}")
-            lines.append(f"ts: {m.get('ts', '')}")
-        try:
-            text = "\n".join(lines)
-        except Exception:
-            text = "\n".join(lines)
-        self._set_text(text)
+        self._set_text(format_metrics_board(m, q))
 
     def _tick(self) -> None:
         self.refresh()
         self.after(self.poll_ms, self._tick)
 
-
     def _cost_section(self) -> str:
         """P1.5 — session cost board (local = 0 ₽ explicit)."""
-        data = _load_cost()
-        lines = ["", "=== СТОИМОСТЬ СЕССИИ ==="]
-        if not data:
-            lines.append("(пока нет данных — local/skills/cache обычно 0 ₽)")
-            lines.append("local Ollama/LM Studio: 0.00 USD  |  0 ₽")
-            return "\n".join(lines)
-        tin = int(data.get("session_tokens_in") or 0)
-        tout = int(data.get("session_tokens_out") or 0)
-        usd = float(data.get("session_cost_usd") or 0)
-        calls = int(data.get("calls") or 0)
-        skill = int(data.get("skill_saves") or 0)
-        cache = int(data.get("cache_saves") or 0)
-        lines.append(f"tokens in/out : {tin} / {tout}")
-        lines.append(f"LLM calls     : {calls}")
-        lines.append(f"est. USD      : {usd:.4f}")
-        lines.append(f"local share   : skills={skill}  cache={cache}  → 0 ₽ на этих задачах")
-        if usd <= 0:
-            lines.append("ИТОГО облако  : 0.00 USD  (~0 ₽) — local-first")
-        else:
-            # rough RUB for display only, no FX API
-            lines.append(f"ИТОГО облако  : {usd:.4f} USD  (ориентир ×100 ≈ {usd*100:.0f} ₽)")
-        by_w = data.get("by_worker") or {}
-        if isinstance(by_w, dict) and by_w:
-            lines.append("по воркерам:")
-            for k, v in list(by_w.items())[:12]:
-                if isinstance(v, dict):
-                    lines.append(
-                        f"  {k}: cost={v.get('cost_usd', v.get('cost', 0))} "
-                        f"tok={v.get('tokens', v.get('tokens_in', 0))}"
-                    )
-                else:
-                    lines.append(f"  {k}: {v}")
-        recent = data.get("recent") or []
-        if recent:
-            lines.append(f"последние записи: {len(recent)}")
-        return "\n".join(lines)
-
+        return format_cost_section()

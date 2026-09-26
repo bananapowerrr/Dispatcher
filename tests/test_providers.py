@@ -24,11 +24,20 @@ def state(tmp_path):
 def test_load_providers_returns_usable_gate():
     ps = load_providers()
     ids = {p.id for p in ps}
+    # финальный стек (providers/registry.py, docstring): ollama > siliconflow >
+    # openrouter > together > huggingface + локальный lmstudio
     assert "ollama" in ids          # локальный всегда в реестре
-    assert "kilo" in ids
+    assert "lmstudio" in ids
     assert "openrouter" in ids
-    assert "groq" in ids
-    assert "gemini" in ids
+    assert "siliconflow" in ids
+    assert "together" in ids
+    assert "huggingface" in ids
+    # каждый провайдер обязан иметь id/type/billing — иначе gate считает его
+    # usable по умолчанию и молча пропускает в пул
+    for p in ps:
+        assert p.id and p.type and p.billing, p.to_dict()
+    # id уникальны: иначе занятость в dynamicpool склеит разные провайдеры
+    assert len(ids) == len(ps)
 
 
 def test_free_only_guard_blocks_paid():
@@ -147,22 +156,24 @@ def test_irrelevant_text_not_rate_limit():
 
 
 # ---------- capacity manager ----------
-def test_worker_usable_provider_gate(tmp_path):
+def test_worker_usable_provider_gate(tmp_path, monkeypatch):
     """P0.4 (provider-gate): воркер runnable, только если его провайдер usable."""
-    from workers import Worker
+    from core.workers import Worker
     ps = load_providers()
     cm = FreeCapacityManager(ps, state=ProviderRegistry(state_file=tmp_path / "ps.json"))
     def wk(provider, model=""):
         return Worker(name="w", command=("{aider}", "{message}"), harness="aider",
                       provider=provider, model=model)
-    # ollama зарегистрирован и enabled -> usable
+    # ollama зарегистрирован, локальный, enabled -> usable
     assert cm.worker_usable(wk("ollama", "qwen2.5-coder:7b")) is True
-    # openrouter зарегистрирован, но disabled в providers.yaml -> НЕ usable
+    # openrouter enabled в providers.yaml -> usable
+    assert cm.worker_usable(wk("openrouter", "openrouter/free")) is True
+    # тот же провайдер, но выключен через свой env-gate -> НЕ usable
+    monkeypatch.setenv("AGENTBUS_PROVIDER_OPENROUTER_ENABLED", "0")
     assert cm.worker_usable(wk("openrouter", "openrouter/free")) is False
-    # groq зарегистрирован, disabled -> НЕ usable
-    assert cm.worker_usable(wk("groq", "openai/gpt-oss-120b")) is False
-    # незарегистрированный провайдер (напр. собственный роутер opencode) -> управляется worker.enabled
-    assert cm.worker_usable(wk("zen")) is True
+    # незарегистрированный провайдер (напр. собственный роутер opencode)
+    # -> управляется worker.enabled
+    assert cm.worker_usable(wk("opencode")) is True
 
 
 def test_deferred_quota_when_all_unavailable():
@@ -213,7 +224,7 @@ def test_http_success_updates_quota(tmp_path):
 
 # дымовой тест поставки: providers.yaml парсится без синтаксических ошибок
 def test_yaml_registry_wellformed():
-    from config import PROVIDERS_FILE
+    from core.config import PROVIDERS_FILE
     from pathlib import Path
     p = Path(PROVIDERS_FILE)
     if p.is_file():

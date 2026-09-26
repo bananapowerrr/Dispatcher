@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Iterable
 
 from core.errors import DispatcherError
@@ -61,7 +61,14 @@ def validate_path(relative: str, *, field: str = "files") -> None:
     # Normalize Windows separators so ".." is detected on all platforms
     norm = item.replace(chr(92), "/")
     p = Path(norm)
-    if p.is_absolute() or (len(norm) >= 2 and norm[1] == ":"):
+    # On Windows Path("/abs").is_absolute() is False (rooted, no drive),
+    # so also check the Windows parser and any leading separator.
+    if (
+        p.is_absolute()
+        or PureWindowsPath(norm).is_absolute()
+        or norm.startswith("/")
+        or (len(norm) >= 2 and norm[1] == ":")
+    ):
         raise SecurityError(f"абсолютный путь запрещён: {item}", field=field, value=item)
     parts = [x for x in norm.split("/") if x not in ("", ".")]
     if ".." in parts or ".." in p.parts:

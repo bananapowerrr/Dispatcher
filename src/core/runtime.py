@@ -24,7 +24,7 @@ from .config import (
     BUS_ROOT, CHANNELS, DEFAULT_CHANNEL, MAX_ATTEMPTS, RETRY_DELAY_SECONDS,
     LEASE_SECONDS, POLL_SECONDS, PROJECT_ROOT, WORKER_TIMEOUT, VERIFY_TIMEOUT,
     GIT_ENABLED, REPAIR_ENABLED, REPORT_DIR, LOG_ROOT, resolve_project, USE_DYNAMIC,
-    VERIFY_FAIL_MAX, DIRTY_GIT_POLICY,
+    VERIFY_FAIL_MAX, DIRTY_GIT_POLICY, MAX_PARALLEL_PROJECTS,
 )
 from eventbus import BUS, AgentEvent
 from eventbus.jsonl import JsonlSink
@@ -40,7 +40,16 @@ from intelligence.report import NightlyReport
 from .tasks import Task
 from .router import select_executor, task_complexity
 from .repair import decide_failure, categorize
-from .workers import Worker
+from .workers import Worker, load_workers
+from .dedupe import DedupeRegistry, task_fingerprint
+from .dynamicpool import build_dynamic_workers, emit_pool_event
+from .dispatcher_lock import DispatcherLock
+from providers import load_providers, FreeCapacityManager
+from skills.test_runner import TestRunner
+from utils.stream import StreamNormalizer
+from utils.budget import GLOBAL_BUDGET, GLOBAL_TRACKER
+from utils.metrics import GLOBAL_METRICS
+from safety.project_lock import ProjectLock, FileLockSet
 
 try:
     from core.feature_flags import is_enabled
@@ -200,6 +209,80 @@ class Runtime(RuntimeOps, RuntimeProcess):
         except Exception:
             pass
 
+    def _finalize_deduped(self, raw: dict, *, reason: str = "completed") -> None:
+        """PC-26: write terminal done JSON for a skipped duplicate.
+
+        Without this the task file stays in processing/, so the UI keeps
+        listing it as pending and the reclaim loop keeps re-queuing it.
+        """
+        payload = dict(raw or {})
+        try:
+            task = Task.from_dict(payload)
+        except Exception as exc:
+            try:
+                self.log.write(f"dedupe finalize: bad task: {exc}")
+            except Exception:
+                pass
+            return
+        task.id = str(task.id or uuid.uuid4())
+        result = {
+            "error": "",
+            "method": "dedupe",
+            "worker": "dedupe",
+            "reason": reason,
+            "summary": f"дубликат: задача уже выполнена (dedupe, {reason})",
+        }
+        # move first: bus.move copies the source over the destination, so a
+        # preceding _save would be overwritten by the raw processing file
+        try:
+            self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
+        except Exception:
+            pass
+        try:
+            self._save(task, "done", result)
+        except Exception as exc:
+            try:
+                self.log.write(f"dedupe finalize: {exc}")
+            except Exception:
+                pass
+            return
+        try:
+            self.queue.terminal(
+                task.id, "DONE", error="",
+                attempts=int(getattr(task, "attempts", 0) or 0),
+            )
+        except Exception:
+            pass
+
+    def _notify_plan_terminal(self, raw: dict, status: str) -> None:
+        """Push a terminal task status into the LivingPlan step that spawned it.
+
+        The Plan is the terminal authority, so a plan-sourced step must learn
+        the outcome; otherwise it stays READY forever and the queue keeps
+        re-emitting the same step.
+        """
+        try:
+            from intelligence.dynamic_queue import notify_plan_task_terminal
+
+            payload = dict(raw or {})
+            meta = payload.get("metadata")
+            meta = dict(meta) if isinstance(meta, dict) else {}
+            root = str(meta.get("project_root") or payload.get("project") or "")
+            if not root:
+                return
+            notify_plan_task_terminal(
+                root,
+                task_id=str(payload.get("id") or ""),
+                plan_step_id=str(meta.get("plan_step_id") or meta.get("step_id") or ""),
+                status=str(status or ""),
+                metadata=meta,
+            )
+        except Exception as exc:
+            try:
+                self.log.write(f"plan terminal: {exc}")
+            except Exception:
+                pass
+
     def process(self, raw: dict) -> str | None:
         """Обработать задачу. Возвращает DONE/ERROR/DEFERRED/DEDUPED или None."""
         raw = dict(raw or {})
@@ -239,6 +322,7 @@ class Runtime(RuntimeOps, RuntimeProcess):
                 self._emit("DEDUPED", f"дубликат уже успешно выполненной задачи пропущен · {tid}",
                            task_id=tid, worker=self.worker_id,
                            payload={"fingerprint": fp, "reason": "completed"})
+                self._finalize_deduped(raw, reason="completed")
                 return "DEDUPED"
             if fp:
                 with self._dedupe_lock:
@@ -247,6 +331,7 @@ class Runtime(RuntimeOps, RuntimeProcess):
                         self._emit("DEDUPED", f"дубликат выполняемой задачи пропущен · {tid}",
                                    task_id=tid, worker=self.worker_id,
                                    payload={"fingerprint": fp, "reason": "in_flight"})
+                        self._finalize_deduped(raw, reason="in_flight")
                         return "DEDUPED"
                     self._dedupe_inflight.add(fp)
 
@@ -325,6 +410,8 @@ class Runtime(RuntimeOps, RuntimeProcess):
             status = self._process_body(raw)
             if status == "DONE" and fp:
                 self.dedupe.mark(fp, str(raw.get("id") or ""))
+            if status in ("DONE", "ERROR", "DEFERRED", "DEDUPED", "BLOCKED"):
+                self._notify_plan_terminal(raw, status)
             return status
         finally:
             if is_sub and files_lock:

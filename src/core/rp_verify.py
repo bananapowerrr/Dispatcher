@@ -40,6 +40,7 @@ class RPVerifyMixin:
 
         try:
             self._set_phase(task, "verify")
+            self._touch_task_lease(task, phase="verify")
         except Exception as exp:
             try:
                 self.log.write(f"verify phase marker failed: {type(exp).__name__}: {exp}")

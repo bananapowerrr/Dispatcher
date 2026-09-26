@@ -34,6 +34,58 @@ def latest_run(runs: Path) -> Path | None:
     return max(dirs, key=lambda p: p.stat().st_mtime)
 
 
+def _triage(data: dict) -> list[str]:
+    """Classify the failure so the pack is actionable, not just a data dump.
+
+    Reuses the runtime classifiers so the pack, the UI and the recovery layer
+    all name the same failure layer.
+    """
+    nested = data.get("result") if isinstance(data.get("result"), dict) else {}
+    err = str(nested.get("error") or nested.get("stderr") or data.get("error") or "")
+    worker = str(nested.get("worker") or data.get("worker") or "")
+    reclaim = str(nested.get("reclaim_reason") or data.get("reclaim_reason") or "")
+    try:
+        from core.execution_evidence import classify_failure_layer
+
+        layer, recoverable = classify_failure_layer(error=err, reclaim_reason=reclaim)
+    except Exception:
+        layer, recoverable = ("unknown", True)
+
+    low = err.lower()
+    if any(k in low for k in ("verify", "verification", "pytest", "тест")):
+        verify = "VERIFY FAILED"
+    elif "timeout" in low or "timed_out" in low:
+        verify = "VERIFY NOT REACHED (timeout)"
+    elif str(data.get("status") or "").lower() in ("done", "ok", "success"):
+        verify = "VERIFY OK"
+    else:
+        verify = "VERIFY NOT REACHED"
+
+    hints = {
+        "worker_infra": "hint: проверьте локальный рантайм (ollama / aider) "
+                        "и наличие api_key у провайдера — задача упала до проверки",
+        "verification": "hint: смотрите verify/тесты; задача не помечена DONE, "
+                        "вердикт выносит рантайм, а не воркер",
+        "reclaim_max_attempts": "hint: попытки исчерпаны — нужен разбор плана, "
+                                "а не повтор запуска",
+        "reclaim_no_heartbeat": "hint: не было heartbeat — воркер завис; "
+                                "проверьте таймауты и живность рантайма",
+    }
+    lines = [
+        "## triage",
+        "",
+        f"- class: {layer}",
+        f"- FAIL LAYER: {layer} (recoverable: {'yes' if recoverable else 'no'})",
+        f"- worker: {worker or '—'}",
+        f"- {verify}",
+        f"- {hints.get(layer, 'hint: см. result.json и worker_stdout.log')}",
+    ]
+    if err:
+        lines.append(f"- error: {err[:300]}")
+    lines.append("")
+    return lines
+
+
 def pack(run_dir: Path) -> str:
     lines: list[str] = [f"# Evidence pack: `{run_dir.name}`", ""]
     summary = run_dir / "summary.md"
@@ -44,16 +96,19 @@ def pack(run_dir: Path) -> str:
         lines.append("")
     result = run_dir / "result.json"
     if result.is_file():
+        parsed: dict = {}
         lines.append("## result.json")
         lines.append("")
         lines.append("```json")
         try:
             data = json.loads(result.read_text(encoding="utf-8"))
+            parsed = data if isinstance(data, dict) else {}
             lines.append(json.dumps(data, ensure_ascii=False, indent=2)[:6000])
         except Exception:
             lines.append(result.read_text(encoding="utf-8", errors="replace")[:4000])
         lines.append("```")
         lines.append("")
+        lines.extend(_triage(parsed))
     events = run_dir / "events.jsonl"
     if events.is_file():
         lines.append("## events.jsonl (tail)")
