@@ -7,6 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+# Hide the repo root only for the imports below, then put it back: leaving it
+# out broke every later test that imports from the repo root.
+_saved_sys_path = list(sys.path)
 sys.path = [p for p in sys.path if Path(p).resolve() not in {ROOT.resolve()}]
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

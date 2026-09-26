@@ -7,6 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+# Hide the repo root only for the imports below. Doing this permanently broke
+# every later test that needs a root-level import (e.g. scripts.benchmark_harness).
+_saved_sys_path = list(sys.path)
 sys.path = [p for p in sys.path if Path(p).resolve() not in {ROOT.resolve()}]
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -16,6 +19,8 @@ from core.local_queue import (
     get_local_queue,
     reset_local_queue,
 )
+
+sys.path = _saved_sys_path
 
 
 def test_queues_isolated_by_root(tmp_path: Path):
