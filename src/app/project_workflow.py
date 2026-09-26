@@ -53,6 +53,10 @@ class ProjectWorkflow:
                 out["blockers"].append("open_decisions")
         except Exception as exp:
             out["decisions_error"] = str(exp)[:200]
+        try:
+            out["reconcile"] = self._reconcile_plan(root)
+        except Exception as exp:
+            out["reconcile_error"] = str(exp)[:200]
         banner = ""
         try:
             banner = ps.architecture_banner() or ""
@@ -62,6 +66,52 @@ class ProjectWorkflow:
         except Exception:
             pass
         return out
+
+    def _reconcile_plan(self, root) -> dict[str, Any]:
+        """Понизить осиротевшие шаги плана.
+
+        Шаг в IN_PROGRESS без живой задачи (или с задачей, которой уже нет)
+        остаётся в этом состоянии навсегда: очередь его не переиздаст, а
+        пользователь не видит, что работа встала. Возвращаем такие шаги в
+        PENDING, чтобы плата снова могла их отдать.
+        """
+        from app.plan_service import PlanService
+        from core.local_queue import get_local_queue
+        from intelligence.living_plan import is_finished
+
+        ps = PlanService(str(root))
+        plan = ps.load()
+        live: set[str] = set()
+        try:
+            q = get_local_queue(root)
+            for raw in list(getattr(q, "_q", []) or []):
+                tid = str(raw.get("id") or "")
+                if tid:
+                    live.add(tid)
+        except Exception:
+            pass
+
+        demoted: list[str] = []
+        for step in plan.steps:
+            if str(step.status).upper() != "IN_PROGRESS":
+                continue
+            if is_finished(step.status):
+                continue
+            meta = step.meta if isinstance(step.meta, dict) else {}
+            task_id = str(meta.get("task_id") or "")
+            if task_id and task_id in live:
+                continue
+            step.status = "PENDING"
+            meta["reconciled_from"] = "IN_PROGRESS"
+            meta["reconciled_reason"] = "no_live_task" if not task_id else "task_not_live"
+            step.meta = meta
+            note = "reconcile: задачи нет, возврат в PENDING"
+            step.note = (step.note + " | " if step.note else "") + note
+            demoted.append(step.id)
+
+        if demoted:
+            ps.save(plan)
+        return {"demoted_to_pending": demoted, "checked": len(plan.steps)}
 
     def advise(self, *, limit: int = 5) -> dict[str, Any]:
         from app.agent_service import AgentService

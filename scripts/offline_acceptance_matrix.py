@@ -129,12 +129,89 @@ def main() -> int:
     except Exception as e:
         row("reconcile_orphan", False, str(e))
 
-    # 8 zen provider
+    # 8 провайдеры: каждый объявленный в yaml обязан загрузиться
+    # (раньше здесь проверялся несуществующий "zen", из-за чего матрица
+    #  никогда не проходила)
     try:
-        text = (ROOT / "config" / "providers.yaml").read_text(encoding="utf-8")
-        row("zen_provider", "zen:" in text, "")
+        from providers.registry import load_providers
+
+        declared = [
+            line.split("id:")[1].strip()
+            for line in (ROOT / "config" / "providers.yaml").read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith("- id:")
+        ]
+        loaded = {p.id for p in load_providers()}
+        missing = [i for i in declared if i not in loaded]
+        row("providers_all_load", not missing,
+            f"{len(loaded)}/{len(declared)}" + (f" missing={missing}" if missing else ""))
     except Exception as e:
-        row("zen_provider", False, str(e))
+        row("providers_all_load", False, str(e))
+
+    # 10 day13 — контракт настроек: есть и редактируемые, и read-only вкладки
+    try:
+        from app.settings_contract import (
+            EDITABLE_TABS, READ_ONLY_TABS, is_editable_tab, is_read_only_tab,
+        )
+        ok13 = bool(EDITABLE_TABS) and bool(READ_ONLY_TABS)
+        ok13 = ok13 and is_editable_tab(sorted(EDITABLE_TABS)[0])
+        ok13 = ok13 and is_read_only_tab(sorted(READ_ONLY_TABS)[0])
+        overlap = set(EDITABLE_TABS) & set(READ_ONLY_TABS)
+        row("day13_settings_contract", ok13 and not overlap,
+            f"editable={len(EDITABLE_TABS)} readonly={len(READ_ONLY_TABS)}"
+            + (f" overlap={sorted(overlap)}" if overlap else ""))
+    except Exception as e:
+        row("day13_settings_contract", False, str(e))
+
+    # 11 day13.1 — read-only вкладки обязаны быть помечены в панели
+    try:
+        from app.settings_contract import READ_ONLY_TABS
+
+        src = (ROOT / "ui" / "settings_panel.py").read_text(encoding="utf-8")
+        missing_tabs = [t for t in READ_ONLY_TABS if t not in src]
+        row("day13_1_settings_ro_enforced", not missing_tabs,
+            f"tabs={len(READ_ONLY_TABS)}" + (f" missing={missing_tabs}" if missing_tabs else ""))
+    except Exception as e:
+        row("day13_1_settings_ro_enforced", False, str(e))
+
+    # 12 day14 — мост восстановления в чат
+    try:
+        from ui.chat_recovery_bridge import format_recovery_for_chat, format_error_row_for_chat
+
+        s1 = format_recovery_for_chat(task_error="ошибка воркера", worker="aider_local")
+        s2 = format_recovery_for_chat(task_error="проверить тесты", worker="aider_local",
+                                      attempts=1, max_attempts=3)
+        row("day14_recovery_chat",
+            bool(str(s1).strip()) and bool(str(s2).strip()),
+            f"keys={sorted(s1)[:3] if isinstance(s1, dict) else '-'}")
+    except Exception as e:
+        row("day14_recovery_chat", False, str(e))
+
+    # 13 day15 — отчёт о контексте и структурированный вывод
+    try:
+        from intelligence.context_report import build_context_report
+        from utils.structured_output import parse_json
+
+        rep = build_context_report(project_root=ROOT, message="проверь контекст")
+        ok15 = rep is not None and bool(getattr(rep, "files", None) is not None
+                                       or getattr(rep, "total_files", 0) >= 0)
+        try:
+            parse_json('{"a": 1}')
+        except Exception:
+            ok15 = False
+        row("day15_context_report", ok15, type(rep).__name__)
+    except Exception as e:
+        row("day15_context_report", False, str(e))
+
+    # 14 day16 — поверхность маршрутизации задачи к воркеру
+    try:
+        from core.worker_route_surface import route_for_task, format_route_for_chat
+
+        route = route_for_task({"message": "почини тест", "files": ["a.py"]})
+        text = format_route_for_chat(route)
+        row("day16_worker_route_surface", route is not None and bool(str(text).strip()),
+            type(route).__name__)
+    except Exception as e:
+        row("day16_worker_route_surface", False, str(e))
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     total = len(RESULTS)

@@ -112,7 +112,13 @@ class ConsoleSink:
                 return
             self._last_think_print = now
 
-        label = _LABEL.get(e.type, e.type.lower())
+        # Сырой тип события оставляем в строке: по нему лог ищется грепом,
+        # русская подпись идёт рядом для чтения глазами.
+        label = e.type
+        human = _LABEL.get(e.type)
+        if human:
+            label = f"{e.type} {human}"
+        label = label[:20]
         who = e.worker or e.executor or "—"
         msg = _short(e.message, 100)
         tid = (e.task_id or "")[:8]
