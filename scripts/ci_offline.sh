@@ -50,7 +50,17 @@ else
 fi
 echo
 
-if [ "$fail" -eq 0 ]; then
+  echo "== 4b. live001 preflight (day13-16 surfaces) =="
+  if python scripts/live001_preflight.py; then
+    echo "  live001_preflight OK"
+  else
+    echo "  live001_preflight FAIL"
+    fail=1
+  fi
+  echo
+
+  if [ "$fail" -eq 0 ]; then
+
   echo "=========================================="
   echo " FREEZE: GREEN — proceed to LIVE on PC"
   echo " See docs/LIVE_ACCEPTANCE.md"
