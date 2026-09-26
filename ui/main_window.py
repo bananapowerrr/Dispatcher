@@ -1443,6 +1443,38 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
 
+    def _focus_terminal(self) -> None:
+        """F8: перевести фокус в панель терминала."""
+        panel = getattr(self, "terminal_panel", None)
+        if panel is None:
+            return
+        try:
+            box = getattr(panel, "box", None) or getattr(panel, "text", None)
+            if box is not None and hasattr(box, "focus_set"):
+                box.focus_set()
+        except Exception:
+            pass
+
+    def _focus_pane(self, which: str) -> None:
+        """Alt+1/Alt+2: фокус в сайдбар (projects) или в чат."""
+        target = None
+        if which == "projects":
+            target = getattr(self, "projects", None)
+        elif which == "chat":
+            target = getattr(self, "chat", None)
+        if target is None:
+            return
+        try:
+            for attr in ("entry", "text", "box", "_entry", "_text"):
+                widget = getattr(target, attr, None)
+                if widget is not None and hasattr(widget, "focus_set"):
+                    widget.focus_set()
+                    return
+            if hasattr(target, "focus_set"):
+                target.focus_set()
+        except Exception:
+            pass
+
     def _refresh_scm(self) -> None:
         try:
             if getattr(self, "changes_panel", None):
