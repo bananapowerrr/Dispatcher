@@ -34,12 +34,12 @@ def test_sync_emits_eligible(tmp_path, monkeypatch):
             emitted_ids.append(str(task["id"]))
             return task["id"]
 
-    class BoomTS:
+    class OkTS:
         @staticmethod
         def submit_payload(*a, **k):
-            return (None, "fail")
+            return ("ui-" + str(a[0].get("id", "x")), "")
 
-    monkeypatch.setitem(sys.modules, "core.task_service", BoomTS())
+    monkeypatch.setitem(sys.modules, "core.task_service", OkTS())
     import core.local_queue as lq
     monkeypatch.setattr(lq, "get_local_queue", lambda root=None: FakeQ())
 

@@ -93,6 +93,43 @@ def _list_project_files(root: Path, *, limit: int = 4000) -> list[str]:
     return out
 
 
+# Русские словоформы -> английский технический эквивалент. Селектор смотрит
+# в пути файлов, а не в содержимое, поэтому запрос «Исправь авторизацию
+# login» без такого словаря не находил src/auth.py вообще.
+_RU_SYNONYMS: dict[str, str] = {
+    "авторизац": "auth", "авториза": "auth", "аутентиф": "auth",
+    "логин": "login", "парол": "pass", "пароль": "pass",
+    "тест": "test", "ошибк": "error", "баг": "bug", "дефект": "bug",
+    "документ": "doc", "документац": "doc", "настройк": "config",
+    "конфиг": "config", "моделе": "model", "миграц": "migrat",
+    "кэш": "cache", "кеш": "cache", "очеред": "queue", "задач": "task",
+    "файл": "file", "функц": "func", "класс": "class", "импорт": "import",
+    "сообщен": "messag", "пользовател": "user", "событи": "event",
+    "лог": "log", "журнал": "log", "время": "time", "таймер": "time",
+    "памят": "mem", "поиск": "search", "провер": "verif",
+    "сборо": "build", "сборк": "build", "запрос": "request",
+    "ответ": "response", "данн": "data", "планировщик": "schedul",
+    "очередь": "queue", "воркер": "worker", "рабоч": "worker",
+}
+
+# Окончания отбрасываются, чтобы «авторизацию»/«авторизации»/«авторизация»
+# давали одну основу. Список от длинных к коротким.
+_RU_SUFFIXES: tuple[str, ...] = (
+    "иями", "ями", "ами", "ыми", "ими", "ого", "его", "ему", "ому",
+    "ыё", "ая", "яя", "ое", "ее", "ий", "ый", "ов", "ев", "ия", "ие",
+    "ам", "ям", "ах", "ях", "ей", "ой", "ке", "ки", "ка", "ть",
+)
+_RU_MIN_STEM = 4
+
+
+def _ru_stem(token: str) -> str:
+    """Грубая основа русского слова: снимаем типичное окончание."""
+    for suf in _RU_SUFFIXES:
+        if token.endswith(suf) and len(token) - len(suf) >= _RU_MIN_STEM:
+            return token[: -len(suf)]
+    return token
+
+
 def _tokens_from_message(message: str) -> list[str]:
     raw = re.findall(r"[A-Za-z_][\w./-]{2,}|[а-яА-ЯёЁ]{3,}", message or "")
     toks: list[str] = []
@@ -101,6 +138,15 @@ def _tokens_from_message(message: str) -> list[str]:
         if low in _STOP or len(low) < 3:
             continue
         toks.append(low)
+        if low.isascii():
+            continue
+        stem = _ru_stem(low)
+        if stem != low and stem not in _STOP and len(stem) >= _RU_MIN_STEM:
+            toks.append(stem)
+        for ru, en in _RU_SYNONYMS.items():
+            if stem.startswith(ru) or low.startswith(ru):
+                toks.append(en)
+                break
     return toks
 
 
