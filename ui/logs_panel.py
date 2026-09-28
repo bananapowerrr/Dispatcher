@@ -65,10 +65,10 @@ class LogsPanel(ctk.CTkFrame):
     def _append(self, line: str) -> None:
         self.box.configure(state="normal")
         try:
-        self.box.tag_config("ok", foreground=SUCCESS)
-        self.box.tag_config("err", foreground=DANGER)
-        self.box.tag_config("warn", foreground=WARN)
-        self.box.tag_config("dim", foreground=TEXT_DIM)
+            self.box.tag_config("ok", foreground=SUCCESS)
+            self.box.tag_config("err", foreground=DANGER)
+            self.box.tag_config("warn", foreground=WARN)
+            self.box.tag_config("dim", foreground=TEXT_DIM)
         except Exception:
             pass
         low = (line or "").lower()

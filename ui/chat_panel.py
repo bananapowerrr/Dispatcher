@@ -14,6 +14,21 @@ from ui.paths import agentbus_root, ensure_sys_path
 
 from ui.i18n_ui import t as _t
 
+# Токены темы на уровне модуля: раньше они импортировались внутри
+# отдельных методов, и токен, нужный другому методу, давал NameError.
+from ui.theme import (
+    ACCENT,
+    DANGER,
+    INFO,
+    KIND_COLORS,
+    SUCCESS,
+    TEXT,
+    TEXT_DIM,
+    apply_frame,
+    configure_textbox,
+    kind_badge,
+)
+
 
 class ChatPanel(ctk.CTkFrame):
 
@@ -38,7 +53,7 @@ class ChatPanel(ctk.CTkFrame):
     ):
         super().__init__(parent)
         try:
-            from ui.theme import apply_frame, configure_textbox, BG, TEXT_DIM, ACCENT, BORDER
+            from ui.theme import BG, BORDER
             apply_frame(self, role="panel")
             self._theme_ok = True
         except Exception:
@@ -58,11 +73,7 @@ class ChatPanel(ctk.CTkFrame):
         self._ensure_session()
 
         self.history = ctk.CTkTextbox(self, state="disabled", wrap="word")
-        try:
-            from ui.theme import configure_textbox
-            configure_textbox(self.history, role="history")
-        except Exception:
-            pass
+        configure_textbox(self.history, role="history")
         self.history.pack(fill="both", expand=True, padx=12, pady=(12, 4))
         # Live phase / status under transcript
         try:
@@ -155,7 +166,6 @@ class ChatPanel(ctk.CTkFrame):
         # ImportError из ui.theme. Функции apply_frame/configure_textbox теперь
         # реализованы, а тема — единый источник цвета, поэтому подставлять
         # палитру в обход неё нельзя.
-        from ui.theme import ACCENT, TEXT_DIM, apply_frame
         apply_frame(bottom, role="elevated")
         bottom.pack(fill="x", padx=12, pady=(4, 12))
 
@@ -170,11 +180,7 @@ class ChatPanel(ctk.CTkFrame):
 
         self._mention_popup = None
         self.input = ctk.CTkTextbox(bottom, height=100)
-        try:
-            from ui.theme import configure_textbox
-            configure_textbox(self.input, role="composer")
-        except Exception:
-            pass
+        configure_textbox(self.input, role="composer")
         self.input.pack(side="left", fill="both", expand=True, padx=(10, 8), pady=8)
 
         btn_col = ctk.CTkFrame(bottom, fg_color="transparent")
@@ -370,12 +376,14 @@ class ChatPanel(ctk.CTkFrame):
         self.history.configure(state="normal")
 
         try:
-            from ui.theme import KIND_COLORS, TEXT_DIM, USER_BUBBLE
-            self.history.tag_config("user", foreground="#9cdcfe")
-            self.history.tag_config("agent", foreground="#cccccc")
+            from ui.theme import (
+                ACCENT, DANGER, INFO, KIND_COLORS, SUCCESS, TEXT, TEXT_DIM,
+            )
+            self.history.tag_config("user", foreground=INFO)
+            self.history.tag_config("agent", foreground=TEXT)
             self.history.tag_config("system", foreground=TEXT_DIM)
-            self.history.tag_config("error", foreground="#f14c4c")
-            self.history.tag_config("done", foreground="#4ec9b0")
+            self.history.tag_config("error", foreground=DANGER)
+            self.history.tag_config("done", foreground=SUCCESS)
             for k, col in KIND_COLORS.items():
                 self.history.tag_config(f"kind_{k}", foreground=col)
         except Exception:
@@ -1075,9 +1083,9 @@ class ChatPanel(ctk.CTkFrame):
                     pass
             fr = ctk.CTkFrame(self, fg_color=("gray90", "gray20"))
             ctk.CTkLabel(fr, text=f"Diff {task_id[:10]}…").pack(side="left", padx=6)
-            ctk.CTkButton(fr, text="Apply", width=70, fg_color="#2d6a4f",
+            ctk.CTkButton(fr, text="Apply", width=70, fg_color=SUCCESS,
                           command=lambda: self._diff_action("apply", task_id)).pack(side="left", padx=2)
-            ctk.CTkButton(fr, text="Reject", width=70, fg_color="#6c757d",
+            ctk.CTkButton(fr, text="Reject", width=70, fg_color=DANGER,
                           command=lambda: self._diff_action("reject", task_id)).pack(side="left", padx=2)
             ctk.CTkButton(fr, text="Undo", width=70,
                           command=lambda: self._diff_action("undo", task_id)).pack(side="left", padx=2)
@@ -1100,7 +1108,7 @@ class ChatPanel(ctk.CTkFrame):
             fr = ctk.CTkFrame(self, fg_color=("gray90", "gray20"))
             ctk.CTkLabel(fr, text="Next").pack(side="left", padx=6)
             ctk.CTkButton(
-                fr, text="Continue", width=90, fg_color="#1d3557",
+                    fr, text="Continue", width=90, fg_color=ACCENT,
                 command=lambda: self._continue_action("continue"),
             ).pack(side="left", padx=2)
             ctk.CTkButton(

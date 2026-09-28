@@ -14,6 +14,8 @@ try:
 except ImportError:  # pragma: no cover
     ctk = None  # type: ignore
 
+from ui.theme import ACCENT, WARN_SOFT
+
 
 class _TabState:
     __slots__ = ("path", "original", "dirty", "buffer")

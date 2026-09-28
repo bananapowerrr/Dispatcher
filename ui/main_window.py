@@ -36,6 +36,10 @@ from ui.editor_panel import EditorPanel
 from ui.explorer_panel import ExplorerPanel
 
 from ui.i18n_ui import t as _t
+# Токены темы на верхнем уровне: ниже они используются в __init__ и других
+# методах. Локальный импорт внутри одного метода (см. ниже) не покрывает
+# остальные — из-за этого был NameError на строке footer_cost.
+from ui.theme import ACCENT, DANGER, INFO, ON_STATUS, SUCCESS, TEXT_DIM, WARN
 from ui.theme import apply_appearance
 
 
@@ -180,17 +184,13 @@ class MainWindow(ctk.CTk):
         # Bottom status bar
         footer = ctk.CTkFrame(self, height=28, corner_radius=0)
         footer.grid(row=1, column=0, columnspan=4, sticky="ew")
-        try:
-            from ui.theme import apply_frame, TEXT_DIM
-            apply_frame(footer, role="sidebar")
-        except Exception:
-            TEXT_DIM = "gray"
+        apply_frame(footer, role="sidebar")
         self.footer_status = ctk.CTkLabel(
             footer,
             text=_t("footer_idle", default="диспетчер: —  ·  очередь: —"),
             anchor="w",
             font=ctk.CTkFont(size=11),
-            text_color=TEXT_DIM if "TEXT_DIM" in dir() else "gray",
+            text_color=TEXT_DIM,
         )
         self.footer_status.pack(side="left", padx=12, pady=2)
         self.footer_hint = ctk.CTkLabel(
@@ -206,7 +206,7 @@ class MainWindow(ctk.CTk):
             text="local: 0 ₽",
             anchor="e",
             font=ctk.CTkFont(size=11),
-            text_color="#4ec9b0",
+            text_color=SUCCESS,
         )
         self.footer_cost.pack(side="right", padx=8, pady=2)
 
@@ -1443,10 +1443,9 @@ class MainWindow(ctk.CTk):
                     text=f"диспетчер: {st}  ·  очередь: {qn}  ·  проект: {(self.projects.selected_project() if callable(getattr(self.projects, 'selected_project', None)) else getattr(self.projects, 'selected_project', None)) or '—'}"
                 )
             if hasattr(self, "disp_led"):
-                try:
-                    from ui.theme import SUCCESS, DANGER
-                except Exception:
-                    SUCCESS, DANGER = ("#4ec9b0", "#f14c4c")
+                # Раньше здесь стоял локальный фолбэк
+                # SUCCESS, DANGER = ("#4ec9b0", "#f14c4c") на случай
+                # ImportError — он маскировал бы неработающий theme engine.
                 self.disp_led.configure(text_color=SUCCESS if running else DANGER)
                 if hasattr(self, "disp_led_text"):
                     self.disp_led_text.configure(

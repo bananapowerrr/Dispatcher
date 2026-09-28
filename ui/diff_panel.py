@@ -9,6 +9,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from ui.paths import agentbus_root, ensure_sys_path
+from ui.theme import DANGER, SUCCESS
 
 
 class DiffPanel(ctk.CTkFrame):
