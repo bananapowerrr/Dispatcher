@@ -194,7 +194,14 @@ class SettingsPanel(ctk.CTkFrame):
                 data = self._load_yaml(ui_cfg) or {}
             except Exception:
                 data = {}
-        ctk.CTkLabel(parent, text="Размер контекста (токены) — сохраняется в config/ui.yaml").pack(
+        try:
+            from ui.main_window import _load_ui_cfg as _load_all_ui
+            merged = _load_all_ui()
+            if isinstance(merged, dict):
+                data.update(merged)
+        except Exception:
+            pass
+        ctk.CTkLabel(parent, text="Размер контекста (токены) — сохраняется в .agentbus/ui.yaml").pack(
             anchor="w", padx=20, pady=10
         )
         ctx_var = ctk.DoubleVar(value=float(data.get("context_tokens", 8192)))
@@ -214,18 +221,19 @@ class SettingsPanel(ctk.CTkFrame):
         )
 
         def save_ui():
-
-            path = self.root / "config" / "ui.yaml"
-            payload = {
-                "context_tokens": int(ctx_var.get()),
-                "max_files": int(files_var.get()),
-                "auto_start_dispatcher": bool(auto_var.get()),
-                "toast_notifications": bool(toast_var.get()),
-                "theme": data.get("theme", "dark"),
-            }
+            # Раньше здесь был path.write_text(safe_dump(payload)) — полная
+            # перезапись файла: сохранение контекста стирало тему, layout,
+            # язык и все прочие настройки. Теперь мержим через _save_ui_cfg.
             try:
-                path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
-                self._set_status(f"Сохранено: {path}", ok=True)
+                from ui.main_window import _save_ui_cfg
+                _save_ui_cfg({
+                    "context_tokens": int(ctx_var.get()),
+                    "max_files": int(files_var.get()),
+                    "auto_start_dispatcher": bool(auto_var.get()),
+                    "toast_notifications": bool(toast_var.get()),
+                    "theme": data.get("theme", "dark"),
+                })
+                self._set_status("Сохранено: .agentbus/ui.yaml", ok=True)
             except Exception as exc:
                 self._set_status(str(exc), ok=False)
 

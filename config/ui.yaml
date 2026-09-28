@@ -1,7 +1,11 @@
 # NVCode / AgentBus UI defaults
 active_preset: local_only
 theme: system
-autostart_dispatcher: false
+# NB: ключ называется auto_start_dispatcher (код читает именно его).
+# Раньше здесь был autostart_dispatcher — его не читал никто, галочка в
+# Настройках его не видела, и автозапуск dispatcher не работал из шаблона.
+# Локальные значения UI переопределяются в .agentbus/ui.yaml (вне git).
+auto_start_dispatcher: false
 language: ru
 workspace_mode: agent
 

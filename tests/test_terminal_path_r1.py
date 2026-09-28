@@ -53,10 +53,14 @@ def test_llm_error_deferred_use_finish_task():
 
 
 def test_finish_task_body_order_in_source():
-    """finish_task: save → move → queue → emit order in source."""
+    """finish_task: move → save → queue → emit order in source.
+
+    move must precede _save: FileBus.move is copy2-based, so saving first
+    lets the stale processing snapshot overwrite the terminal payload.
+    """
     src = (Path(__file__).resolve().parent.parent / "src" / "core" / "runtime_ops.py").read_text(encoding="utf-8")
     body = src.split("def finish_task")[1].split("def _verify_commands")[0]
-    assert body.find("self._save") < body.find("self.bus.move")
+    assert body.find("self.bus.move") < body.find("self._save")
     assert "queue.terminal" in body or "queue.finish" in body
     assert "enforce_done_contract" in body
 

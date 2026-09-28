@@ -39,23 +39,48 @@ from ui.i18n_ui import t as _t
 from ui.theme import apply_appearance
 
 
-def _load_ui_cfg() -> dict:
-    path = agentbus_root() / "config" / "ui.yaml"
-    if not path.is_file():
-        return {}
+def _ui_defaults_path():
+    """Отслеживаемый git шаблон с настройками по умолчанию (READ-ONLY)."""
+    return agentbus_root() / "config" / "ui.yaml"
+
+
+def _ui_local_path():
+    """Локальные переопределения UI — вне git (.agentbus/ в .gitignore)."""
+    return agentbus_root() / ".agentbus" / "ui.yaml"
+
+
+def _read_yaml_map(path) -> dict:
     try:
+        if not path.is_file():
+            return {}
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
+def _load_ui_cfg() -> dict:
+    """Дефолты из репозитория + локальные переопределения пользователя."""
+    data = _read_yaml_map(_ui_defaults_path())
+    data.update(_read_yaml_map(_ui_local_path()))
+    return data
+
+
 def _save_ui_cfg(updates: dict) -> None:
-    path = agentbus_root() / "config" / "ui.yaml"
+    """Пишем ТОЛЬКО в локальный файл.
+
+    Раньше писали прямо в отслеживаемый config/ui.yaml, из-за чего:
+      * yaml.safe_dump выжигал все комментарии шаблона;
+      * в общий конфиг попадали машинные пути (default_project) и личные настройки;
+      * файл постоянно отличался от git и уезжал в Drive.
+    Теперь config/ui.yaml — только шаблон-дефолт, его не трогаем.
+    """
+    path = _ui_local_path()
     data = _load_ui_cfg()
-    data.update(updates)
+    data.update(updates or {})
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=True),
+                    encoding="utf-8")
 
 
 class MainWindow(ctk.CTk):
@@ -356,6 +381,7 @@ class MainWindow(ctk.CTk):
             )
             self.sentinel_panel.pack(fill="both", expand=True)
         diff_tab = tabs.add(_t("tab_diff", default="Diff"))
+        self._tab_diff_name = _t("tab_diff", default="Diff")
         self.diff_panel = DiffPanel(
             diff_tab,
             get_project_root=lambda: (
@@ -418,6 +444,44 @@ class MainWindow(ctk.CTk):
             self.changes_panel.pack(fill="both", expand=True)
         except Exception:
             self.changes_panel = None
+
+        # Project Center (FC-43) — создавался как модуль, но не был инстанцирован:
+        # все getattr(self, "project_center") ниже были вечно мёртвой веткой.
+        try:
+            pc_name = _t("tab_project_center", default="Проект")
+            pc_tab = tabs.add(pc_name)
+            self._tab_project_center = pc_name
+            self.project_center = ProjectCenterPanel(
+                pc_tab,
+                get_project=lambda: (
+                    self.projects.selected_project()
+                    if callable(getattr(self.projects, "selected_project", None))
+                    else getattr(self.projects, "selected_project", "") or ""
+                ),
+                on_action=self._on_project_center_action,
+            )
+            self.project_center.pack(fill="both", expand=True)
+        except Exception:
+            self.project_center = None
+
+        # Task Detail (FC-42) — та же история: show_task() звали 8 раз, панели не было.
+        try:
+            td_name = _t("tab_task_detail", default="Задача")
+            td_tab = tabs.add(td_name)
+            self._tab_task_detail = td_name
+            self.task_detail_panel = TaskDetailPanel(
+                td_tab,
+                get_project=lambda: (
+                    self.projects.selected_project()
+                    if callable(getattr(self.projects, "selected_project", None))
+                    else getattr(self.projects, "selected_project", "") or ""
+                ),
+                on_open_diff=self._open_task_diff,
+                on_open_file=self._open_in_editor if hasattr(self, "_open_in_editor") else None,
+            )
+            self.task_detail_panel.pack(fill="both", expand=True)
+        except Exception:
+            self.task_detail_panel = None
 
         try:
             import os
@@ -1545,6 +1609,23 @@ class MainWindow(ctk.CTk):
         except Exception:
             pass
 
+    def _open_task_diff(self, task_id: str) -> None:
+        """Открыть diff конкретной задачи (кнопка «Diff» в панели задачи)."""
+        try:
+            if not task_id:
+                return
+            try:
+                name = getattr(self, "_tab_diff_name", None)
+                if name and getattr(self, "_right_tabs", None) is not None:
+                    self._right_tabs.set(name)
+            except Exception:
+                pass
+            dp = getattr(self, "diff_panel", None)
+            if dp is not None and hasattr(dp, "show_for_task"):
+                dp.show_for_task(task_id)
+        except Exception:
+            pass
+
     def _open_in_editor(self, rel_path: str, line: int | None = None) -> None:
         try:
             ed = getattr(self, "editor", None) or getattr(self, "editor_panel", None)
@@ -2083,7 +2164,9 @@ class MainWindow(ctk.CTk):
     def _run_project_app(self) -> None:
         try:
             from app.app_runner import start_app, run_status
-            root = getattr(self, "project_root", None) or ""
+            # self.project_root не существует -> getattr всегда None.
+            # Канонический источник — _current_project_root().
+            root = self._current_project_root()
             if not root:
                 try:
                     root = self.projects.selected_project() if callable(getattr(self.projects, "selected_project", None)) else getattr(self.projects, "selected_project", "")
@@ -2192,7 +2275,7 @@ class MainWindow(ctk.CTk):
             AgentPopover(
                 self,
                 on_change=_refresh,
-                project_root=lambda: getattr(self, "project_root", None) or "",
+                project_root=lambda: self._current_project_root(),
             ).open()
         except Exception as exp:
             try:

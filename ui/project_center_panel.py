@@ -274,6 +274,43 @@ class ProjectCenterPanel(ctk.CTkFrame if ctk else object):  # type: ignore
 
 
 
+    def _advice_to_plan(self) -> None:
+        """Совет адвайзера -> черновик LivingPlan (persist=True, как у _accept_finding)."""
+        root = self._root()
+        if not root:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", "Выберите проект")
+            return
+        try:
+            self._sys_path()
+            from app.project_workflow import ProjectWorkflow
+            r = ProjectWorkflow(root).build_plan_from_advice(persist=True)
+            if r.get("error"):
+                self._body.delete("1.0", "end")
+                self._body.insert("1.0", f"Совет → план: {r.get('error')}")
+                self._status.configure(text="advice failed")
+                return
+            steps = r.get("steps") or []
+            lines = [f"Совет → план: {len(steps)} шаг(ов)", ""]
+            for i, s in enumerate(steps[:8]):
+                if isinstance(s, dict):
+                    lines.append(f"  {i + 1}. [{s.get('status') or 'PENDING'}] "
+                                 f"{s.get('action') or s.get('title') or s.get('id')}")
+                else:
+                    lines.append(f"  {i + 1}. {s}")
+            if r.get("saved"):
+                lines += ["", f"Сохранено: {r.get('path')}"]
+            else:
+                lines += ["", "(не сохранено — только предпросмотр)"]
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", "\n".join(lines))
+            self._status.configure(text=f"план +{len(steps)}")
+            self._fire("plan_from_advice")
+        except Exception as exp:
+            self._body.delete("1.0", "end")
+            self._body.insert("1.0", f"Совет → план: {exp}")
+            self._status.configure(text="advice failed")
+
     def _accept_finding(self, index: int) -> None:
         """Audit finding → LivingPlan step (user accept)."""
         root = self._root()

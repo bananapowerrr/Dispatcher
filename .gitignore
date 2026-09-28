@@ -73,5 +73,11 @@ __sync_selftest__.txt
 .DS_Store
 desktop.ini
 Thumbs.db
-Thumbs.db
 Desktop.ini
+
+# ── Вложенные git-worktree агентов (Kilo) ───────────────────────
+# Внутри репозитория лежит полная копия проекта в .kilo/worktrees/.
+# Раньше она была защищена только локальным .git/info/exclude, которого
+# нет в свежем клоне — 710 файлов могли уехать в индекс и в Drive.
+.kilo/
+.kilocode/

@@ -239,7 +239,9 @@ def build_commands(app: Any) -> list[Command]:
     def slash_status() -> None:
         try:
             from utils.slash_commands import handle_slash
-            msg = handle_slash("/status", {"project": getattr(app, "project", "") or ""})
+            # getattr(app, "project") всегда пусто — такого атрибута нет
+            root = app._current_project_root() if hasattr(app, "_current_project_root") else ""
+            msg = handle_slash("/status", {"project": root})
             app.chat.append("System", msg or "")
         except Exception as exc:
             app.chat.append("System", f"status: {exc}")
@@ -339,7 +341,8 @@ def build_commands(app: Any) -> list[Command]:
                 app.chat.show_suggestions()
             else:
                 from app.agent_service import AgentService
-                root = getattr(app, "project_root", None) or ""
+                # getattr(app, "project_root") всегда None — такого атрибута нет
+                root = app._current_project_root() if hasattr(app, "_current_project_root") else ""
                 text = AgentService(root).suggestions().get("text") or ""
                 app.chat.append("System", text or "(no suggestions)")
         except Exception as exc:

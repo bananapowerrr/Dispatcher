@@ -13,6 +13,8 @@ tab_skills: Skills
 tab_pev: PEV Plan
 tab_sentinel: Sentinel
 tab_diff: Diff
+tab_project_center: Project
+tab_task_detail: Task
 template_label: 'Template:'
 send: Send
 copy: Copy

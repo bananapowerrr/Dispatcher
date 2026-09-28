@@ -447,21 +447,37 @@ class RuntimeOps:
         except Exception:
             pass
 
-        try:
-            self._save(task, folder, res)
-        except Exception as exc:
-            try:
-                self.log.write(f"finish_task save: {exc}")
-            except Exception:
-                pass
-
-        # bus move processing → terminal folder
+        # bus move processing → terminal folder FIRST.
+        # FileBus.move is copy2-based, so moving after _save would overwrite the
+        # terminal payload with the stale processing snapshot (status=CLAIMED +
+        # phase placeholder), losing error/evidence/verification.
         try:
             fname = f"{task.id}.json"
             self.bus.move(task.channel, from_folder, folder, fname)
         except Exception as exc:
             try:
                 self.log.write(f"finish_task move: {exc}")
+            except Exception:
+                pass
+
+        # lease sidecar must not survive a terminal transition
+        try:
+            if from_folder:
+                lease = (
+                    self.bus.paths(task.channel)[from_folder]
+                    / f"{task.id}.lease.json"
+                )
+                if lease.is_file():
+                    lease.unlink()
+        except Exception:
+            pass
+
+        # _save LAST so the terminal payload is the one that persists
+        try:
+            self._save(task, folder, res)
+        except Exception as exc:
+            try:
+                self.log.write(f"finish_task save: {exc}")
             except Exception:
                 pass
 

@@ -13,6 +13,8 @@ tab_skills: Навыки
 tab_pev: PEV План
 tab_sentinel: Санитар
 tab_diff: Diff
+tab_project_center: Проект
+tab_task_detail: Задача
 template_label: 'Шаблон:'
 send: Отправить
 copy: Копировать

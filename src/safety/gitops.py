@@ -509,10 +509,6 @@ class GitOps:
 
     # ---------- (устаревшие опасные методы удалены: no git add -A, no full stash) ----------
 
-    def snapshot_run(self, run: GitRun) -> None:
-        """Мета-информация прогона сохраняется вызывающим (БД/журнал)."""
-        pass
-
 
 def _prune_empty_dirs(root: Path, start: Path, depth: int = 4) -> None:
     cur = start
