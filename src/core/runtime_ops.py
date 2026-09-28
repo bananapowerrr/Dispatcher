@@ -7,6 +7,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any
@@ -535,7 +536,34 @@ class RuntimeOps:
                 pass
 
         try:
-            self.log.write(f"finish_task {getattr(task, 'id', '')} → {state}")
+            tid = getattr(task, "id", "")
+            self.log.write(f"finish_task {tid} → {state}")
+            # Причина обязана быть видна в логе. Раньше писалось только
+            # "→ ERROR", и по логу нельзя было понять, что случилось:
+            # файл задачи в errors/ содержал лишь заглушку phase=prepare.
+            if state == "ERROR":
+                reason = str(res.get("error") or error or "").strip()
+                self.log.write(
+                    f"  error[{tid}]: {reason or '(пусто — причина не передана)'}"
+                )
+                if not reason:
+                    # совсем без причины: фиксируем контекст терминала
+                    self.log.write(
+                        f"  context[{tid}]: phase={res.get('phase')} "
+                        f"worker={res.get('worker')!r} "
+                        f"exit={res.get('exit_code')!r} "
+                        f"verified={res.get('verified')!r}"
+                    )
+                else:
+                    # полный traceback, если исключение ещё живое в контексте
+                    exc = sys.exc_info()[1]
+                    if exc is not None:
+                        self.log.write(
+                            "  traceback:\n"
+                            + "".join(
+                                traceback.format_exception(type(exc), exc, exc.__traceback__)
+                            ).rstrip()
+                        )
         except Exception:
             pass
         return state

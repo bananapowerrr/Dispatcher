@@ -8,6 +8,7 @@ from __future__ import annotations
 from core.stage_guard import safe_stage
 
 from pathlib import Path
+import traceback
 import uuid
 from typing import Any
 
@@ -262,6 +263,27 @@ class RPLifecycleMixin:
             pass
         return None
 
+    def _log_task_error(self, task: Any, exc: BaseException, *, stage: str = "") -> None:
+        """Причина падения задачи в лог: текст + стадия + полный traceback.
+
+        Добавлено 2026-09-29: в лог уходило только "finish_task X → ERROR",
+        а в channels/*/errors/ — файл без поля error. Диагностировать
+        падение по логу было невозможно.
+        """
+        tid = str(getattr(task, "id", "") or "?")
+        where = f"[{stage}] " if stage else ""
+        try:
+            self.log.write(
+                f"task error {where}{tid}: {type(exc).__name__}: {exc}"
+            )
+            self.log.write(
+                "  " + "".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                ).rstrip().replace("\n", "\n  ")
+            )
+        except Exception:
+            pass
+
     def _process_body(self, raw: dict) -> str | None:
         """Thin orchestrator: pre-enrich → conversation → decompose → cache/skills → LLM."""
         try:
@@ -310,17 +332,28 @@ class RPLifecycleMixin:
             try:
                 proj = resolve_project(task.project)
             except (ValueError, FileNotFoundError) as exc:
+                # Текст ошибки + полный traceback: в errors/ попадал только
+                # статус без причины, и по логу задачи нельзя было понять,
+                # что не так (в т.ч. отсутствие PROJECT_* в .env).
+                self._log_task_error(task, exc, stage="resolve_project")
                 return self.finish_task(
                     task, "ERROR",
-                    {"error": str(exc), "attempts": task.attempts},
+                    {"error": str(exc), "attempts": task.attempts,
+                     "traceback": traceback.format_exc()},
                     error=str(exc),
                 )
         if proj is None:
             err = f"Проект не найден: {task.project or '(empty)'}"
+            hint = (
+                " Добавьте PROJECT_<NAME>=<абсолютный путь> в .env "
+                "(например PROJECT_DEMO=D:/Workspace/AgentBus)."
+            )
+            self._log_task_error(task, ValueError(err + hint), stage="project_root")
             return self.finish_task(
                 task, "ERROR",
-                {"error": err, "attempts": task.attempts},
-                error=err,
+                {"error": err + hint, "attempts": task.attempts,
+                 "traceback": ""},
+                error=err + hint,
             )
 
         try:
