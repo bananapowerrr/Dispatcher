@@ -225,6 +225,30 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
             self._path_label.configure(text="")
             self._notify_active()
 
+    # ---------- горячие клавиши, объявленные в __init__ ----------
+    # Раньше bind_all ссылался на эти два метода, которых в классе НИКОГДА
+    # не было (проверено git log --all -S): панель падала с AttributeError
+    # при создании, и EditorPanel в MainWindow молча становился None.
+
+    def _on_ctrl_w(self, _event=None) -> str:
+        """Ctrl+W — закрыть текущую вкладку."""
+        self.close_current()
+        return "break"
+
+    def _on_ctrl_tab(self, _event=None, reverse: bool = False) -> str:
+        """Ctrl+Tab / Ctrl+Shift+Tab — следующая/предыдущая вкладка."""
+        order = list(self._order)
+        if not order:
+            return "break"
+        try:
+            idx = order.index(self._current)
+        except ValueError:
+            idx = 0
+        else:
+            idx = idx - 1 if reverse else idx + 1
+        self._switch(order[idx % len(order)])
+        return "break"
+
     def active_path(self) -> str:
         return self._current
 

@@ -376,9 +376,6 @@ class ChatPanel(ctk.CTkFrame):
         self.history.configure(state="normal")
 
         try:
-            from ui.theme import (
-                ACCENT, DANGER, INFO, KIND_COLORS, SUCCESS, TEXT, TEXT_DIM,
-            )
             self.history.tag_config("user", foreground=INFO)
             self.history.tag_config("agent", foreground=TEXT)
             self.history.tag_config("system", foreground=TEXT_DIM)
@@ -400,7 +397,6 @@ class ChatPanel(ctk.CTkFrame):
             except Exception:
                 k = "other"
         try:
-            from ui.theme import kind_badge
             label = kind_badge(k)
             if label:
                 badge = f"[{label}] "

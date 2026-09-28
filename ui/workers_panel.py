@@ -122,7 +122,7 @@ class WorkersPanel(ctk.CTkFrame):
             ("CIRCUIT", "отключён"),
             ("DEGRADED", "слабо"),
         ):
-            color = STATUS_COLOR[key]
+            color = STATUS_COLOR(key)
             badge = ctk.CTkLabel(
                 leg, text=f" {label} ", fg_color=color, corner_radius=4,
                 text_color=on_status_color(), font=ctk.CTkFont(size=10, weight="bold"),
@@ -200,7 +200,7 @@ class WorkersPanel(ctk.CTkFrame):
         self._row_frames.append(fr)
 
         st = str(r.get("status") or "UNKNOWN")
-        color = STATUS_COLOR.get(st, STATUS_COLOR["UNKNOWN"])
+        color = STATUS_COLOR(st)
         badge = ctk.CTkLabel(
             fr, text=f" {STATUS_LABEL_RU.get(st, st)} ",
             fg_color=color, text_color=on_status_color(), corner_radius=4,
