@@ -194,6 +194,8 @@ def _refresh_globals() -> None:
     global BG, BG_SIDEBAR, BG_PANEL, BG_ELEVATED, BORDER
     global TEXT, TEXT_DIM, ACCENT, ACCENT_SOFT, ACCENT_TEXT
     global SUCCESS, WARN, DANGER, INFO, DISABLED, USER_BUBBLE
+    global DEFERRED, DEGRADED, ON_STATUS
+    global WARN_SOFT, DANGER_SOFT, SUCCESS_SOFT, INFO_SOFT
     global BG_INPUT, FG_INPUT, SELECTION
     p = active_palette()
     BG = p.bg
@@ -211,6 +213,9 @@ def _refresh_globals() -> None:
     DANGER = p.danger
     INFO = p.info
     DISABLED = p.disabled
+    DEFERRED = p.deferred
+    DEGRADED = p.degraded
+    ON_STATUS = p.on_status
     SELECTION = p.selection
     USER_BUBBLE = p.user_bubble
     BG_INPUT = p.bg_elevated
@@ -244,6 +249,9 @@ DANGER = DARK.danger
 INFO = DARK.info
 DISABLED = DARK.disabled
 USER_BUBBLE = DARK.user_bubble
+DEFERRED = DARK.deferred
+DEGRADED = DARK.degraded
+ON_STATUS = DARK.on_status
 BG_INPUT = DARK.bg_elevated
 FG_INPUT = DARK.text
 SELECTION = DARK.selection
@@ -517,3 +525,62 @@ def kind_badge(kind: str) -> str:
             "loop": "LOOP",
         }
         return mapping.get(k, k.upper())
+
+
+# --------------------------------------------------------------------------
+# Статусы
+# --------------------------------------------------------------------------
+# Раньше workers_panel, history_panel и queue_panel каждый держали свой
+# словарь {статус: "#hex"}. Три независимые палитры на одну сущность: цвета
+# расходились между панелями и жили светлой темой в тёмном UI.
+# Теперь статус -> семантический токен, цвет берётся из активной темы.
+
+#: нормализованный статус -> имя токена палитры
+STATUS_TOKENS: dict[str, str] = {
+    "ok": "success", "available": "success", "healthy": "success", "done": "success",
+    "busy": "info", "queued": "info", "pending": "info", "incoming": "info",
+    "cooldown": "warn", "processing": "warn", "running": "warn",
+    "rate_limit": "warn",
+    "circuit": "danger", "error": "danger", "errors": "danger", "billing": "danger",
+    "degraded": "degraded",
+    "deferred": "deferred",
+    "unavailable": "disabled", "unknown": "disabled",
+    "fail": "danger", "rejected": "danger", "discard": "danger",
+}
+
+
+def _norm_status(status: str | None) -> str:
+    return str(status or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def status_token(status: str | None) -> str:
+    """Имя токена палитры для статуса ('' — если статус неизвестен)."""
+    return STATUS_TOKENS.get(_norm_status(status), "")
+
+
+def status_color(status: str | None, *, fallback: str = "") -> str:
+    """Цвет статуса из активной темы. fallback — если статус неизвестен."""
+    tok = status_token(status)
+    if not tok:
+        return fallback or active_palette().text_dim
+    return getattr(active_palette(), tok)
+
+
+def status_soft(status: str | None, *, fallback: str = "") -> str:
+    """Приглушённый фон для карточки статуса."""
+    tok = status_token(status)
+    p = active_palette()
+    if not tok:
+        return fallback or p.bg_elevated
+    soft = {
+        "success": p.success_soft, "warn": p.warn_soft,
+        "danger": p.danger_soft, "info": p.info_soft,
+    }.get(tok)
+    if soft:
+        return soft
+    return p.bg_elevated
+
+
+def on_status_color() -> str:
+    """Текст поверх сплошного статусного цвета."""
+    return active_palette().on_status

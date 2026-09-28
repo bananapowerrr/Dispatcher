@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 from ui.paths import agentbus_root, ensure_sys_path
 from ui.i18n_ui import t as _t
+from ui.theme import DANGER, ON_STATUS, SUCCESS
 
 
 class SentinelPanel(ctk.CTkFrame):
@@ -133,11 +134,11 @@ class SentinelPanel(ctk.CTkFrame):
         target = data.get("target", "")
         ok = bool(data.get("syntax_ok", False))
         badge = "OK" if ok else "SYNTAX"
-        color = "#27ae60" if ok else "#c0392b"
+        color = SUCCESS if ok else DANGER
         head = ctk.CTkFrame(fr, fg_color="transparent")
         head.pack(fill="x", padx=6, pady=4)
         ctk.CTkLabel(
-            head, text=f" {badge} ", fg_color=color, text_color="#fff",
+            head, text=f" {badge} ", fg_color=color, text_color=ON_STATUS,
             corner_radius=4, font=ctk.CTkFont(size=10, weight="bold"),
         ).pack(side="left", padx=2)
         ctk.CTkLabel(
@@ -147,12 +148,12 @@ class SentinelPanel(ctk.CTkFrame):
         btns = ctk.CTkFrame(fr, fg_color="transparent")
         btns.pack(fill="x", padx=6, pady=4)
         ctk.CTkButton(
-            btns, text="Merge", width=80, fg_color="#1e8449",
+            btns, text="Merge", width=80, fg_color=SUCCESS,
             command=lambda s=shadow: self._merge(s),
             state="normal" if ok else "disabled",
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            btns, text="Discard", width=80, fg_color="#922b21",
+            btns, text="Discard", width=80, fg_color=DANGER,
             command=lambda s=shadow: self._discard(s),
         ).pack(side="left", padx=3)
         notes = data.get("notes") or ""

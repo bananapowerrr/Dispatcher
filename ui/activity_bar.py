@@ -9,6 +9,8 @@ try:
 except ImportError:  # pragma: no cover
     ctk = None  # type: ignore
 
+from ui.theme import ACCENT
+
 # id → (icon, tooltip/label)
 DEFAULT_ITEMS = (
     ("explorer", "📁", "Explorer"),
@@ -55,7 +57,7 @@ class ActivityBar(ctk.CTkFrame if ctk else object):  # type: ignore
         self._active = view_id
         for vid, btn in self._buttons.items():
             try:
-                btn.configure(fg_color=("#3a7ebf" if vid == view_id else "transparent"))
+                btn.configure(fg_color=(ACCENT if vid == view_id else "transparent"))
             except Exception:
                 pass
         if self._on_select:

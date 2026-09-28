@@ -24,18 +24,19 @@ STATUS_LABEL_RU = {
     "AVAILABLE": "OK",
 }
 
-STATUS_COLOR = {
-    "HEALTHY": "#27ae60",
-    "BUSY": "#2980b9",
-    "COOLDOWN": "#f39c12",
-    "RATE_LIMIT": "#e67e22",
-    "CIRCUIT": "#c0392b",
-    "DEGRADED": "#8e44ad",
-    "BILLING": "#922b21",
-    "UNAVAILABLE": "#7f8c8d",
-    "UNKNOWN": "#95a5a6",
-    "AVAILABLE": "#27ae60",
-}
+# Раньше здесь был свой словарь на 10 hex. Теперь статус -> токен палитры
+# ui.theme: словарей на одну сущность больше не осталось, цвета следуют за
+# темой. См. ui.theme.STATUS_TOKENS.
+from ui.theme import (  # noqa: E402
+    DANGER,
+    on_status_color,
+    status_color as _status_color,
+)
+
+
+def STATUS_COLOR(status: str) -> str:
+    """Цвет статуса воркера из активной темы."""
+    return _status_color(status, fallback="gray")
 
 
 def _workers_state_path() -> Path | None:
@@ -124,7 +125,7 @@ class WorkersPanel(ctk.CTkFrame):
             color = STATUS_COLOR[key]
             badge = ctk.CTkLabel(
                 leg, text=f" {label} ", fg_color=color, corner_radius=4,
-                text_color="#ffffff", font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=on_status_color(), font=ctk.CTkFont(size=10, weight="bold"),
             )
             badge.pack(side="left", padx=3)
 
@@ -202,7 +203,7 @@ class WorkersPanel(ctk.CTkFrame):
         color = STATUS_COLOR.get(st, STATUS_COLOR["UNKNOWN"])
         badge = ctk.CTkLabel(
             fr, text=f" {STATUS_LABEL_RU.get(st, st)} ",
-            fg_color=color, text_color="#ffffff", corner_radius=4,
+            fg_color=color, text_color=on_status_color(), corner_radius=4,
             font=ctk.CTkFont(size=11, weight="bold"), width=100,
         )
         badge.pack(side="left", padx=6, pady=6)
@@ -245,7 +246,7 @@ class WorkersPanel(ctk.CTkFrame):
             if err and not last.get("ok"):
                 ctk.CTkLabel(
                     mid, text=f"ошибка: {err[:80]}", anchor="w",
-                    text_color="#f14c4c", font=ctk.CTkFont(size=10),
+                    text_color=DANGER, font=ctk.CTkFont(size=10),
                 ).pack(fill="x")
 
         extra = []

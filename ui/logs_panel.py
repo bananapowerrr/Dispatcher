@@ -11,6 +11,7 @@ import customtkinter as ctk
 
 from ui.paths import agentbus_root
 from ui.i18n_ui import t as _t
+from ui.theme import DANGER, SUCCESS, TEXT_DIM, WARN
 
 
 class LogsPanel(ctk.CTkFrame):
@@ -64,10 +65,10 @@ class LogsPanel(ctk.CTkFrame):
     def _append(self, line: str) -> None:
         self.box.configure(state="normal")
         try:
-            self.box.tag_config("ok", foreground="#4ec9b0")
-            self.box.tag_config("err", foreground="#f14c4c")
-            self.box.tag_config("warn", foreground="#cca700")
-            self.box.tag_config("dim", foreground="#858585")
+        self.box.tag_config("ok", foreground=SUCCESS)
+        self.box.tag_config("err", foreground=DANGER)
+        self.box.tag_config("warn", foreground=WARN)
+        self.box.tag_config("dim", foreground=TEXT_DIM)
         except Exception:
             pass
         low = (line or "").lower()

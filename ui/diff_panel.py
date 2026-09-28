@@ -39,8 +39,8 @@ class DiffPanel(ctk.CTkFrame):
 
         btn = ctk.CTkFrame(self, fg_color="transparent")
         btn.pack(fill="x", padx=8, pady=6)
-        ctk.CTkButton(btn, text="Apply", command=self.apply, fg_color="#2d6a4f", width=100).pack(side="left", padx=4)
-        ctk.CTkButton(btn, text="Reject", command=self.reject, fg_color="#6c757d", width=100).pack(side="left", padx=4)
+        ctk.CTkButton(btn, text="Apply", command=self.apply, fg_color=SUCCESS, width=100).pack(side="left", padx=4)
+        ctk.CTkButton(btn, text="Reject", command=self.reject, fg_color=DANGER, width=100).pack(side="left", padx=4)
         ctk.CTkButton(btn, text="Refresh", command=self.refresh_from_store, width=90).pack(side="right", padx=4)
 
     def show_diff_text(self, task_id: str, diff_text: str) -> None:

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ui.paths import agentbus_root
+from ui.theme import status_color
 
 
 def _t(key: str, default: str = "") -> str:
@@ -188,18 +189,9 @@ def _build_queue_panel_class():
 
         def _render_row(self, row: dict) -> None:
             state = str(row.get("_state") or "").lower()
-            colors = {
-                "queued": "#90caf9",
-                "pending": "#90caf9",
-                "incoming": "#90caf9",
-                "processing": "#ffe0b2",
-                "running": "#ffe0b2",
-                "deferred": "#ce93d8",
-                "done": "#a5d6a7",
-                "errors": "#ef9a9a",
-                "error": "#ef9a9a",
-            }
-            fg = colors.get(state, "gray70")
+            # Раньше здесь был локальный словарь на 9 hex. Теперь статус
+            # резолвится в токен активной темы через ui.theme.
+            fg = status_color(state, fallback="gray70")
             frame = ctk.CTkFrame(self.scroll)
             frame.pack(fill="x", pady=2)
             full_tid = str(row.get("id") or "")

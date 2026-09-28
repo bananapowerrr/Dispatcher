@@ -6,6 +6,7 @@ import customtkinter as ctk
 
 from ui.paths import agentbus_root, ensure_sys_path
 from ui.i18n_ui import t as _t
+from ui.theme import ACCENT, DANGER, SUCCESS
 
 
 class SkillsPanel(ctk.CTkFrame):
@@ -182,7 +183,7 @@ class SkillsPanel(ctk.CTkFrame):
             ).pack(fill="x", padx=8, pady=(0, 4))
         err = str(tr.get("error") or "").strip()
         if err and not ok:
-            ctk.CTkLabel(fr, text=err[:120], text_color="#f14c4c", anchor="w").pack(
+                ctk.CTkLabel(fr, text=err[:120], text_color=DANGER, anchor="w").pack(
                 fill="x", padx=8, pady=(0, 4)
             )
 
@@ -206,15 +207,15 @@ class SkillsPanel(ctk.CTkFrame):
         btns = ctk.CTkFrame(fr, fg_color="transparent")
         btns.pack(fill="x", padx=8, pady=4)
         ctk.CTkButton(
-            btns, text="Accept", width=80, fg_color="#27ae60",
+            btns, text="Accept", width=80, fg_color=SUCCESS,
             command=lambda p=pattern: self._accept(p, materialize=False),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            btns, text="Accept+Plugin", width=110, fg_color="#1e8449",
+            btns, text="Accept+Plugin", width=110, fg_color=ACCENT,
             command=lambda p=pattern: self._accept(p, materialize=True),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            btns, text="Reject", width=80, fg_color="#c0392b",
+            btns, text="Reject", width=80, fg_color=DANGER,
             command=lambda p=pattern: self._reject(p),
         ).pack(side="left", padx=3)
 

@@ -284,7 +284,7 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 text=name,
                 width=max(60, min(140, 10 * len(name))),
                 height=28,
-                fg_color=("#3a7ebf" if path == self._current else "transparent"),
+                fg_color=(ACCENT if path == self._current else "transparent"),
                 command=lambda p=path: self._switch(p),
             )
             btn.pack(side="left", padx=2)
@@ -380,7 +380,7 @@ class EditorPanel(ctk.CTkFrame if ctk else object):  # type: ignore
                 return
             end = f"{idx}+{len(needle)}c"
             self._text.tag_add("find_hit", idx, end)
-            self._text.tag_config("find_hit", background="#5a5a20")
+            self._text.tag_config("find_hit", background=WARN_SOFT)
             self._text.see(idx)
             self._find_pos = end
             self._status.configure(text=f"найдено @ {idx}")

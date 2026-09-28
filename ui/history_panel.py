@@ -10,6 +10,7 @@ import customtkinter as ctk
 
 from ui.paths import agentbus_root
 from ui.i18n_ui import t as _t
+from ui.theme import DANGER, SUCCESS, status_color, status_soft
 
 
 def _mtime(p: Path) -> float:
@@ -93,17 +94,22 @@ def _fmt_ts(ts: float) -> str:
 
 
 def _state_style(state: str) -> tuple[str, str]:
+    """Подпись + цвет состояния.
+
+    Раньше здесь было пять возвратов с захардкоженным hex, и ещё один
+    словарь из 8 пар ниже. Теперь цвет берётся из активной темы.
+    """
     s = (state or "").lower()
     if s in ("done", "success"):
-        return ("✓ done", "#4ec9b0")
+        return ("✓ done", status_color("done", fallback="gray"))
     if s in ("errors", "error", "failed"):
-        return ("✕ error", "#f14c4c")
+        return ("✕ error", status_color("error", fallback="gray"))
     if s in ("processing", "running", "claimed"):
-        return ("● run", "#cca700")
+        return ("● run", status_color("processing", fallback="gray"))
     if s in ("deferred",):
-        return ("⏳ deferred", "#ce93d8")
+        return ("⏳ deferred", status_color("deferred", fallback="gray"))
     if s in ("queued", "pending", "incoming"):
-        return ("○ queue", "#90caf9")
+        return ("○ queue", status_color("queued", fallback="gray"))
     return (s or "—", "gray")
 
 
@@ -252,17 +258,10 @@ class HistoryPanel(ctk.CTkFrame):
             pass
 
         state = str(row.get("_state") or "")
-        colors = {
-            "done": ("#1b5e20", "#a5d6a7"),
-            "errors": ("#b71c1c", "#ef9a9a"),
-            "error": ("#b71c1c", "#ef9a9a"),
-            "processing": ("#e65100", "#ffe0b2"),
-            "incoming": ("#1565c0", "#90caf9"),
-            "queued": ("#1565c0", "#90caf9"),
-            "pending": ("#1565c0", "#90caf9"),
-            "deferred": ("#4a148c", "#ce93d8"),
-        }
-        fg = colors.get(state, ("gray30", "gray70"))
+        # Ещё один локальный словарь (fg, soft) на 8 пар. Теперь оба цвета
+        # берутся из темы: status_color + status_soft.
+        fg = (status_color(state, fallback="gray30"),
+              status_soft(state, fallback="gray70"))
         frame = ctk.CTkFrame(self.scroll)
         frame.pack(fill="x", pady=3)
         tid_full = str(row.get("id") or Path(str(row.get("_path", ""))).stem)
@@ -330,7 +329,7 @@ class HistoryPanel(ctk.CTkFrame):
             ).pack(fill="x", padx=8)
         if card.get("retry"):
             ctk.CTkLabel(
-                frame, text=card["retry"], text_color="#ce93d8",
+                    frame, text=card["retry"], text_color=status_color("deferred", fallback="gray"),
                 anchor="w", font=ctk.CTkFont(size=11),
             ).pack(fill="x", padx=8)
         if card.get("trace"):
@@ -343,7 +342,7 @@ class HistoryPanel(ctk.CTkFrame):
             ok_v = "PASS" in verify_line and "FAIL" not in verify_line
             ctk.CTkLabel(
                 frame, text=verify_line, anchor="w",
-                text_color=("#4ec9b0" if ok_v else "#f14c4c" if "FAIL" in verify_line else "gray"),
+                    text_color=(SUCCESS if ok_v else DANGER if "FAIL" in verify_line else "gray"),
             ).pack(fill="x", padx=8)
         if card.get("files"):
             ctk.CTkLabel(frame, text=card["files"], text_color="gray", anchor="w").pack(
@@ -352,7 +351,7 @@ class HistoryPanel(ctk.CTkFrame):
         if card.get("error") and state in ("errors", "error"):
             ctk.CTkLabel(
                 frame, text=f"Ошибка: {card['error']}", anchor="w",
-                text_color="#f14c4c",
+                    text_color=DANGER,
             ).pack(fill="x", padx=8)
         elif state in ("done", "errors", "deferred") and not verify_line and not card.get("meta"):
             try:
@@ -363,7 +362,7 @@ class HistoryPanel(ctk.CTkFrame):
             if out and out not in (prompt, "готово"):
                 ctk.CTkLabel(
                     frame, text=out, anchor="w", justify="left",
-                    text_color=("#4ec9b0" if state == "done" else "#f14c4c" if state.startswith("err") else "gray"),
+                    text_color=(SUCCESS if state == "done" else DANGER if state.startswith("err") else "gray"),
                 ).pack(fill="x", padx=8, pady=(0, 2))
 
         btns = ctk.CTkFrame(frame, fg_color="transparent")
