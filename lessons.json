@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "lessons": [
+    {
+      "timestamp": 1790637169.2183058,
+      "task_type": "general",
+      "error_pattern": "Scanning repo:   0%|          | 0/718 [00:00<?, ?it/s]",
+      "worker": "aider_local",
+      "category": "LOOP_ERROR",
+      "avoidance": "Повтори аккуратно: минимальный diff, сохрани тесты зелёными.",
+      "message_preview": "CODEBASE RAG:\n\n--- tests/test_context_budget_structured.py:19 (score=17.2445) ---\ndef test_estimate_tokens_positive():\n    assert estimate_tokens(\"hello world\") > 0\n\n\n\n--- tests/test_progress_route_me",
+      "count": 1
+    },
+    {
+      "timestamp": 1790637185.492565,
+      "task_type": "general",
+      "error_pattern": "AttributeError",
+      "worker": "opencode",
+      "category": "CODE_ERROR",
+      "avoidance": "Убедись, что объект имеет нужный атрибут/метод; проверь None.",
+      "message_preview": "CODEBASE RAG:\n\n--- tests/test_context_budget_structured.py:19 (score=17.2445) ---\ndef test_estimate_tokens_positive():\n    assert estimate_tokens(\"hello world\") > 0\n\n\n\n--- tests/test_progress_route_me",
+      "count": 1
+    }
+  ]
+}
