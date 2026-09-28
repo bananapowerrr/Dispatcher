@@ -458,9 +458,36 @@ class RPCacheSkillsMixin:
         }
 
     def _finalize_skill_result(self, task: Task, skill_payload: dict, proj) -> str:
-        """Завершить задачу, решённую skill'ом (DONE)."""
+        """Завершить задачу, решённую skill'ом (DONE).
+
+        Guard от 2026-09-29. Реальный путь завершения (этот метод, а не
+        копия в rp_skills_stage): задача «add file hello.py» уходила в
+        навык по слову в тексте, навык успешно отрабатывал, не создав файл,
+        и метод завершал её DONE БЕЗ верификации. Задача исчезала как
+        успешная, файл не появлялся.
+
+        Правило: DONE только если skill реально изменил файлы
+        (files_changed / skill_result.files). Иначе — пустой статус,
+        и вызывающий продолжает нормальный worker/LLM-путь.
+        """
         skill_name = skill_payload.get("skill", "unknown")
         detail = skill_payload.get("result")
+
+        changed = list(skill_payload.get("files_changed") or [])
+        if not changed:
+            sr = skill_payload.get("skill_result")
+            if isinstance(sr, dict):
+                changed = list(sr.get("files") or [])
+        if not changed:
+            try:
+                self.log.write(
+                    f"skill {skill_name}: файлов не изменено — задача не решена, "
+                    f"передаю в worker/LLM (task={getattr(task, 'id', '?')})"
+                )
+            except Exception:
+                pass
+            return ""
+
         summary = ""
         try:
             import json
