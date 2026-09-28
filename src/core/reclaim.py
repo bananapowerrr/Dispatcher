@@ -315,6 +315,27 @@ def reclaim_stuck(
     incoming_dir.mkdir(parents=True, exist_ok=True)
     errors_dir.mkdir(parents=True, exist_ok=True)
 
+    # Осиротевшие lease: task-JSON уже ушёл (в errors/terminal), а sidecar
+    # остался. Раньше цикл ниже их пропускал (continue по .lease.json), и
+    # такой файл висел в processing/ бесконечно — он же блокировал повторный
+    # claim задачи и путал status_board.
+    for lease_path in list(processing_dir.glob("*.lease.json")):
+        task_path = lease_path.with_name(lease_path.name[: -len(".lease.json")] + ".json")
+        if task_path.is_file():
+            continue  # у lease есть хозяин — разберётся основной проход
+        try:
+            lease_path.unlink()
+        except OSError as e:
+            _soft_log(f"orphan_lease_unlink:{lease_path.name}", e)
+            continue
+        results.append({
+            "id": lease_path.name[: -len(".lease.json")],
+            "action": "LEASE_REMOVED",
+            "reason": "orphan_lease_no_task_file",
+            "from": "processing",
+            "to": "",
+        })
+
     for path in list(processing_dir.glob("*.json")):
         if path.name.endswith(".lease.json"):
             continue

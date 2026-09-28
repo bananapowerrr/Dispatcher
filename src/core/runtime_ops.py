@@ -383,6 +383,23 @@ class RuntimeOps:
             folder = "errors"
             res.setdefault("error", f"invalid_terminal:{terminal_state}")
 
+        # GLOBAL_METRICS on every terminal transition.
+        # Раньше счётчики обновляли только rp_* (кэш/LLM/skills), а сам
+        # finish_task — нет: из-за этого в лог уходило вечное
+        # "metrics tasks=0 ok=0 err=0", хотя задачи падали с ERROR.
+        try:
+            from utils.metrics import GLOBAL_METRICS
+            GLOBAL_METRICS.record_task(
+                task,
+                str(res.get("worker") or getattr(task, "worker", "") or ""),
+                state == "DONE",
+                float((res.get("latency_sec") or 0.0) or 0.0),
+                status=state,
+                error_type=str(res.get("error") or error or "")[:80] if state == "ERROR" else "",
+            )
+        except Exception:
+            pass
+
         # attempts on result for evidence
         try:
             res.setdefault("attempts", int(getattr(task, "attempts", 0) or 0))
