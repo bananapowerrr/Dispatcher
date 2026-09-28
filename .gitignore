@@ -59,6 +59,11 @@ htmlcov/
 crash.log
 push_agentbus_to_git.ps1
 
+# ── Служебное от синхронизации Drive ↔ GitHub ─────────────────────
+# Тестовый файл Apps Script selftest(). Раньше утекал в репозиторий
+# и коммитился локальным автопушем.
+__sync_selftest__.txt
+
 # ── OS-мусор ────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
