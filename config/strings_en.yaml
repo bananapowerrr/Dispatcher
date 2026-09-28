@@ -1,6 +1,8 @@
 app_title: AgentBus — local AI coding agent
 dispatcher_start: ▶ Start dispatcher
-dispatcher_stop: ■ Stop
+dispatcher_stop: ■ Stop (dispatcher)
+app_run: ▶ Run (app)
+app_stop: ■ Stop (app)
 settings: ⚙ Settings
 project_label: 'Project: {name}'
 dispatcher_active: 'dispatcher: active'

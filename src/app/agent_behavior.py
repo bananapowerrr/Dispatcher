@@ -94,15 +94,10 @@ def _ui_yaml_path(root: Path | None = None) -> Path:
 
 
 def load_agent_behavior(root: Path | None = None) -> AgentBehavior:
-    path = _ui_yaml_path(root)
-    data: dict[str, Any] = {}
-    if path.is_file():
-        try:
-            raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            if isinstance(raw, dict):
-                data = raw.get("agent") or {}
-        except Exception:
-            data = {}
+    # defaults + локальные переопределения (единый источник app.ui_config)
+    from app.ui_config import load_ui_cfg
+    raw = load_ui_cfg(root)
+    data = raw.get("agent") or {}
     if not isinstance(data, dict):
         data = {}
     b = AgentBehavior(
@@ -116,22 +111,10 @@ def load_agent_behavior(root: Path | None = None) -> AgentBehavior:
 
 
 def save_agent_behavior(behavior: AgentBehavior, root: Path | None = None) -> Path:
-    path = _ui_yaml_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    cfg: dict[str, Any] = {}
-    if path.is_file():
-        try:
-            cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except Exception:
-            cfg = {}
-    if not isinstance(cfg, dict):
-        cfg = {}
-    cfg["agent"] = behavior.normalize().to_dict()
-    path.write_text(
-        yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
-    return path
+    # Раньше писали прямо в отслеживаемый config/ui.yaml полным safe_dump —
+    # это выжигало комментарии шаблона. Теперь merge в .agentbus/ui.yaml.
+    from app.ui_config import update_ui_cfg
+    return update_ui_cfg({"agent": behavior.normalize().to_dict()}, root)
 
 
 def behavior_summary(b: AgentBehavior | None = None) -> str:

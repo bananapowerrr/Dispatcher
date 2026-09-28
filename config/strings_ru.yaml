@@ -1,6 +1,8 @@
 app_title: AgentBus Диспетчер
 dispatcher_start: ▶ Dispatcher
-dispatcher_stop: ■ Stop
+dispatcher_stop: ■ Stop (диспетчер)
+app_run: ▶ Run (приложение)
+app_stop: ■ Stop (приложение)
 settings: ⚙ Настройки
 project_label: 'Проект: {name}'
 dispatcher_active: 'dispatcher: active'

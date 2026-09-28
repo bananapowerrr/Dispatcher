@@ -41,29 +41,25 @@ from ui.theme import apply_appearance
 
 def _ui_defaults_path():
     """Отслеживаемый git шаблон с настройками по умолчанию (READ-ONLY)."""
-    return agentbus_root() / "config" / "ui.yaml"
+    from app.ui_config import ui_defaults_path
+    return ui_defaults_path()
 
 
 def _ui_local_path():
     """Локальные переопределения UI — вне git (.agentbus/ в .gitignore)."""
-    return agentbus_root() / ".agentbus" / "ui.yaml"
+    from app.ui_config import ui_local_path
+    return ui_local_path()
 
 
 def _read_yaml_map(path) -> dict:
-    try:
-        if not path.is_file():
-            return {}
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    from app.ui_config import read_yaml_map
+    return read_yaml_map(path)
 
 
 def _load_ui_cfg() -> dict:
     """Дефолты из репозитория + локальные переопределения пользователя."""
-    data = _read_yaml_map(_ui_defaults_path())
-    data.update(_read_yaml_map(_ui_local_path()))
-    return data
+    from app.ui_config import load_ui_cfg
+    return load_ui_cfg()
 
 
 def _save_ui_cfg(updates: dict) -> None:
@@ -74,13 +70,10 @@ def _save_ui_cfg(updates: dict) -> None:
       * в общий конфиг попадали машинные пути (default_project) и личные настройки;
       * файл постоянно отличался от git и уезжал в Drive.
     Теперь config/ui.yaml — только шаблон-дефолт, его не трогаем.
+    Реализация вынесена в app.ui_config, чтобы был один писатель на репозиторий.
     """
-    path = _ui_local_path()
-    data = _load_ui_cfg()
-    data.update(updates or {})
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=True),
-                    encoding="utf-8")
+    from app.ui_config import update_ui_cfg
+    update_ui_cfg(updates)
 
 
 class MainWindow(ctk.CTk):
@@ -227,12 +220,15 @@ class MainWindow(ctk.CTk):
 
         ctl = ctk.CTkFrame(left, fg_color="transparent")
         ctl.pack(fill="x", padx=8, pady=4)
-        ctk.CTkButton(ctl, text=_t("dispatcher_start", default="▶ Запустить диспетчер"), command=self._start_dispatcher, height=28).pack(fill="x", pady=2)
+        # Подписи различаем явно: раньше «■ Stop» (стоп приложения) и
+        # «■ Stop» (стоп диспетчера) выглядели одинаково, и кнопку остановки
+        # диспетчера невозможно было опознать в панели.
+        ctk.CTkButton(ctl, text=_t("dispatcher_start", default="▶ Dispatcher"), command=self._start_dispatcher, height=28).pack(fill="x", pady=2)
         ctk.CTkButton(ctl, text=_t("btn_diagnose", default="Диагностика"), command=self._run_diagnose, height=28, fg_color="gray30").pack(fill="x", pady=2)
         ctk.CTkButton(ctl, text=_t("btn_help", default="Справка"), command=self._show_help, height=28, fg_color="gray30").pack(fill="x", pady=2)
-        ctk.CTkButton(ctl, text="▶ Run", command=self._run_project_app, height=28, fg_color="gray30").pack(fill="x", pady=2)
-        ctk.CTkButton(ctl, text="■ Stop", command=self._stop_project_app, height=28, fg_color="gray40").pack(fill="x", pady=2)
-        ctk.CTkButton(ctl, text=_t("dispatcher_stop", default="■ Остановить"), command=self._stop_dispatcher, height=28, fg_color="gray40").pack(
+        ctk.CTkButton(ctl, text=_t("app_run", default="▶ Run (приложение)"), command=self._run_project_app, height=28, fg_color="gray30").pack(fill="x", pady=2)
+        ctk.CTkButton(ctl, text=_t("app_stop", default="■ Stop (приложение)"), command=self._stop_project_app, height=28, fg_color="gray30").pack(fill="x", pady=2)
+        ctk.CTkButton(ctl, text=_t("dispatcher_stop", default="■ Stop (диспетчер)"), command=self._stop_dispatcher, height=28, fg_color="gray40").pack(
             fill="x", pady=2
         )
 

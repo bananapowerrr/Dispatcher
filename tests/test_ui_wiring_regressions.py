@@ -123,15 +123,44 @@ def test_advice_to_plan_implemented() -> None:
     assert "build_plan_from_advice" in src
 
 
+def test_dispatcher_and_app_buttons_are_distinguishable() -> None:
+    """Кнопки «стоп приложения» и «стоп диспетчера» не должны совпадать.
+
+    Найдено на аудите 2026-09-29: обе подписи были «■ Stop», поэтому
+    кнопку остановки диспетчера было невозможно опознать в панели.
+    """
+    import yaml
+    ru = yaml.safe_load((ROOT / "config" / "strings_ru.yaml").read_text(encoding="utf-8"))
+    en = yaml.safe_load((ROOT / "config" / "strings_en.yaml").read_text(encoding="utf-8"))
+    for name, d in (("ru", ru), ("en", en)):
+        assert d.get("dispatcher_stop"), f"{name}: нет ключа dispatcher_stop"
+        assert d.get("app_stop"), f"{name}: нет ключа app_stop"
+        assert d["dispatcher_stop"] != d["app_stop"], (
+            f"{name}: кнопки стоп приложения и стоп диспетчера подписаны одинаково"
+        )
+    src = _src()
+    assert 'text="■ Stop"' not in src, (
+        "в main_window осталась захардкоженная «■ Stop» без указания, что именно"
+        " она останавливает"
+    )
+
+
 def test_ui_cfg_is_readonly_default() -> None:
+    """Шаблон config/ui.yaml — только чтение; пишет единый writer app.ui_config."""
     assert "def _ui_local_path()" in _src()
     assert ".agentbus" in _src()
-    # writer обязан указывать на локальный путь, а не на отслеживаемый конфиг
-    m = re.search(r"def _save_ui_cfg.*?path = ([^\n]+)", _src(), re.S)
-    assert m, "не найден путь записи в _save_ui_cfg"
-    assert "_ui_local_path()" in m.group(1), (
-        f"_save_ui_cfg пишет в {m.group(1).strip()} — это ломает шаблон в git"
+    # Реализация вынесена в app.ui_config — main_window делегирует.
+    assert "update_ui_cfg" in _src(), (
+        "_save_ui_cfg должен звать единый писатель app.ui_config.update_ui_cfg"
     )
+    m = re.search(r"def _save_ui_cfg.*?update_ui_cfg\(([^)]*)\)", _src(), re.S)
+    assert m, "не найден вызов update_ui_cfg в _save_ui_cfg"
+    # и сам writer не должен писать в отслеживаемый шаблон
+    w = (ROOT / "src" / "app" / "ui_config.py").read_text(encoding="utf-8")
+    assert 'write_text' in w
+    wm = re.search(r"path\.write_text\(", w)
+    assert wm
+    assert "ui_local_path" in w and "DEFAULTS_REL" in w
 
 
 def test_settings_panel_merges_instead_of_overwriting() -> None:

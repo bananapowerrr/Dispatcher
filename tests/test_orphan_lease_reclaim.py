@@ -11,6 +11,7 @@ errors/). Цикл в reclaim_stuck делал `continue` по .lease.json, по
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from core.reclaim import reclaim_stuck, write_lease
@@ -58,18 +59,32 @@ def test_lease_with_task_is_kept(tmp_path: Path) -> None:
 def test_orphan_cleanup_does_not_break_requeue(tmp_path: Path) -> None:
     """Сирота чистится, а реально зависшая задача всё равно requeue-ится."""
     proc, inc, err = _dirs(tmp_path)
-    # сирота
+    # сирота: lease без task-JSON
     write_lease(proc / "ghost.json", task_id="ghost")
-    # зависшая задача с явным старым heartbeat
+    # зависшая задача: старый heartbeat и в JSON, и в mtime
+    old = 1.0
     task = proc / "stuck.json"
     task.write_text(json.dumps({
         "id": "stuck", "attempts": 0, "status": "PROCESSING",
-        "metadata": {"last_heartbeat": 1.0},
+        "metadata": {"last_heartbeat": old},
     }), encoding="utf-8")
-    write_lease(task, task_id="stuck")
+    lease = proc / "stuck.lease.json"
+    lease.write_text(json.dumps({
+        "task_id": "stuck", "attempts": 0, "last_heartbeat": old,
+        "stuck_timeout_sec": 60.0, "phase": "process",
+    }), encoding="utf-8")
+    os.utime(task, (old, old))
+    os.utime(lease, (old, old))
 
-    results = reclaim_stuck(processing_dir=proc, incoming_dir=inc, errors_dir=err)
+    results = reclaim_stuck(processing_dir=proc, incoming_dir=inc, errors_dir=err,
+                            base_sec=60, max_sec=60, now=old + 3600)
 
-    assert not (proc / "ghost.lease.json").is_file()
-    assert any(r.get("action") == "REQUEUE" and r.get("id") == "stuck"
-               for r in results), f"stuck не requeue-нут: {results}"
+    assert not (proc / "ghost.lease.json").is_file(), "сирота не убрана"
+    requeued = [r for r in results
+                if r.get("action") == "REQUEUE"
+                and str(r.get("file") or r.get("id") or "") == "stuck.json"]
+    assert requeued, f"stuck не requeue-нут: {results}"
+    # requeue переносит задачу в incoming; lease уходит вместе с ней,
+    # поэтому processing/ должен остаться без хвостов.
+    assert (inc / "stuck.json").is_file(), "задача не переехала в incoming"
+    assert not list(proc.glob("*.lease.json")), "в processing остался lease"

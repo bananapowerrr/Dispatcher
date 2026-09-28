@@ -7,42 +7,28 @@ from typing import Any
 
 
 def _ui_path(root: Path | None = None) -> Path:
-    if root is None:
-        try:
-            from core.config import BASE_DIR
-            root = Path(BASE_DIR)
-        except Exception:
-            root = Path.cwd()
-    return Path(root) / "config" / "ui.yaml"
+    # Чтение идёт через ui_config: defaults + локальные переопределения.
+    from app.ui_config import ui_defaults_path
+    return ui_defaults_path(root)
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        import yaml
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+def _load_cfg(root: Path | None = None) -> dict[str, Any]:
+    from app.ui_config import load_ui_cfg
+    return load_ui_cfg(root)
 
 
-def _save_yaml(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        import yaml
-        path.write_text(
-            yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
-        )
-    except Exception:
-        # minimal fallback
-        import json
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+def _save_yaml(path: Path, data: dict[str, Any], root: Path | None = None) -> None:
+    # Раньше писали прямо в config/ui.yaml полным safe_dump: это выжигало
+    # комментарии шаблона и затирало чужие ключи. Теперь — merge в
+    # .agentbus/ui.yaml через единый писатель.
+    # root обязателен: иначе запись уйдёт в реальный проект, а не в переданный.
+    from app.ui_config import update_ui_cfg
+    target_root = root if root is not None else path.parent.parent
+    update_ui_cfg(data, target_root)
 
 
 def get_layout(root: Path | None = None) -> dict[str, Any]:
-    data = _load_yaml(_ui_path(root))
+    data = _load_cfg(root)
     layout = data.get("layout") if isinstance(data.get("layout"), dict) else {}
     mode = str(data.get("workspace_mode") or layout.get("mode") or "agent")
     return {
@@ -66,7 +52,7 @@ def save_layout(
     root: Path | None = None,
 ) -> dict[str, Any]:
     path = _ui_path(root)
-    data = _load_yaml(path)
+    data = _load_cfg(root)
     layout = data.get("layout") if isinstance(data.get("layout"), dict) else {}
     if mode is not None:
         data["workspace_mode"] = mode
@@ -82,7 +68,7 @@ def save_layout(
     if preset is not None:
         layout["preset"] = str(preset)
     data["layout"] = layout
-    _save_yaml(path, data)
+    _save_yaml(path, data, root)
     return get_layout(root)
 
 

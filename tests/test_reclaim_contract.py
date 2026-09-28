@@ -125,7 +125,19 @@ def test_lease_sidecar_is_not_treated_as_task(tmp_path):
         now=10_000,
     )
 
-    assert results == []
+    # Раньше здесь было assert results == []. Теперь осиротевший lease
+    # (task-JSON отсутствует) удаляется как housekeeping и попадает в
+    # результаты как LEASE_REMOVED. Ключевой контракт прежний:
+    # lease НЕ переносится как задача — у элемента нет moved/REQUEUE/ERROR.
+    for item in results:
+        assert item.get("action") == "LEASE_REMOVED", (
+            f"lease не должен переноситься как задача: {item}"
+        )
+        assert "moved" not in item, "у housekeeping-события не должно быть moved"
+        assert item.get("action") not in {"REQUEUE", "ERROR"}
+    # ничего не должно быть перемещено в incoming/errors
+    assert not any(incoming.glob("*.json"))
+    assert not any(errors.glob("*.json"))
 
 
 def test_recent_lease_heartbeat_prevents_reclaim(tmp_path):
