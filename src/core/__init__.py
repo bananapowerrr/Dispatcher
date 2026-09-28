@@ -1,19 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Application API — façade between UI and core/intelligence.
+"""Core: runtime, FSM, intake, workers.
 
-UI must not import dynamic_queue / living_plan / decision_queue directly.
-Use ProjectService, FilesService, TasksService, AgentService, ChangesService.
+Базовый слой. Не импортирует app/ui: иначе core -> app -> core, и любой
+`import core.<что-то>` поднимал бы весь сервисный слой. Раньше здесь был
+побайтовой копией app/__init__.py с реэкспортом ProjectService и прочих,
+чем никто не пользовался. Сервисы для UI берутся из app.
 """
-from app.project_service import ProjectService
-from app.files_service import FilesService
-from app.tasks_service import TasksService
-from app.agent_service import AgentService
-from app.changes_service import ChangesService
-
-__all__ = [
-    "ProjectService",
-    "FilesService",
-    "TasksService",
-    "AgentService",
-    "ChangesService",
-]
