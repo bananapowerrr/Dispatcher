@@ -237,67 +237,68 @@ def test_yaml_registry_wellformed():
 
 # ---------- dynamic pool probe (без сети, через фейковый adapter) ----------
 def test_probe_dynamic_fake_adapters(tmp_path):
-    ps = load_providers()
-    kilo = next((p for p in ps if p.id == "kilo"), None)
-    if kilo is None:
-        pytest.skip("kilo не в реестре")
-    # явно включаем kilo для теста (не трогает глобальный env)
-    kilo.enabled = True
-    cm = FreeCapacityManager([kilo], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    # синтетический dynamic-провайдер вместо поиска в реестре: реальные ключи
+    # живут в env, поэтому тест обязан контролировать свою фикстуру сам
+    p = Provider({"id": "dyn_ok", "type": "openai_compatible", "billing": "free",
+                  "enabled": True, "dynamic": True})
+    cm = FreeCapacityManager([p], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
 
     class FakeAdapter:
         def probe(self, timeout=5.0):
             return (True, "ok")
-    cm.adapters["kilo"] = FakeAdapter()
+    cm.adapters["dyn_ok"] = FakeAdapter()
 
     pool = cm.probe_dynamic()
-    row = next(r for r in pool if r["id"] == "kilo")
+    row = next(r for r in pool if r["id"] == "dyn_ok")
     assert row["ok"] is True and row["reason"] == "ok"
 
 
 def test_probe_dynamic_skips_unusable(tmp_path):
-    ps = load_providers()
-    kilo = next((p for p in ps if p.id == "kilo"), None)
-    if kilo is None:
-        pytest.skip("kilo не в реестре")
-    kilo.enabled = False           # по умолчанию выключен -> не пробируется
-    cm = FreeCapacityManager([kilo], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    p = Provider({"id": "dyn_off", "type": "openai_compatible", "billing": "free",
+                  "enabled": False, "dynamic": True})
+    cm = FreeCapacityManager([p], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
     pool = cm.probe_dynamic()
-    row = next(r for r in pool if r["id"] == "kilo")
+    row = next(r for r in pool if r["id"] == "dyn_off")
+    assert row["ok"] is False and row["reason"] == "not_usable"
+
+
+def test_probe_dynamic_skips_cloud_without_key(tmp_path, monkeypatch):
+    # ключ берётся из env; отсутствие -> провайдер не usable и в пул не попадает
+    monkeypatch.delenv("PROBE_TEST_MISSING_KEY", raising=False)
+    p = Provider({"id": "dyn_nokey", "type": "openai_compatible", "billing": "free",
+                  "enabled": True, "dynamic": True,
+                  "api_key_env": "PROBE_TEST_MISSING_KEY"})
+    cm = FreeCapacityManager([p], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    pool = cm.probe_dynamic()
+    row = next(r for r in pool if r["id"] == "dyn_nokey")
     assert row["ok"] is False and row["reason"] == "not_usable"
 
 
 def test_probe_dynamic_fake_adapter_down(tmp_path):
-    ps = load_providers()
-    groq = next((p for p in ps if p.id == "groq"), None)
-    if groq is None:
-        pytest.skip("groq не в реестре")
-    groq.enabled = True
-    cm = FreeCapacityManager([groq], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    p = Provider({"id": "dyn_down", "type": "openai_compatible", "billing": "free",
+                  "enabled": True, "dynamic": True})
+    cm = FreeCapacityManager([p], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
 
     class DownAdapter:
         def probe(self, timeout=5.0):
             return (False, "UNAVAILABLE_NETWORK")
-    cm.adapters["groq"] = DownAdapter()
+    cm.adapters["dyn_down"] = DownAdapter()
 
     pool = cm.probe_dynamic()
-    row = next(r for r in pool if r["id"] == "groq")
+    row = next(r for r in pool if r["id"] == "dyn_down")
     assert row["ok"] is False and row["reason"] == "UNAVAILABLE_NETWORK"
 
 
 def test_probe_dynamic_swallows_adapter_exception(tmp_path):
-    ps = load_providers()
-    gemini = next((p for p in ps if p.id == "gemini"), None)
-    if gemini is None:
-        pytest.skip("gemini не в реестре")
-    gemini.enabled = True
-    cm = FreeCapacityManager([gemini], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
+    p = Provider({"id": "dyn_boom", "type": "openai_compatible", "billing": "free",
+                  "enabled": True, "dynamic": True})
+    cm = FreeCapacityManager([p], state=ProviderRegistry(state_file=tmp_path / "ps.json"))
 
     class BoomAdapter:
         def probe(self, timeout=5.0):
             raise RuntimeError("boom")
-    cm.adapters["gemini"] = BoomAdapter()
+    cm.adapters["dyn_boom"] = BoomAdapter()
 
     pool = cm.probe_dynamic()   # не должно бросать
-    row = next(r for r in pool if r["id"] == "gemini")
+    row = next(r for r in pool if r["id"] == "dyn_boom")
     assert row["ok"] is False and "boom" in row["reason"]
