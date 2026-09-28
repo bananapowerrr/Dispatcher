@@ -96,7 +96,10 @@ def test_after_resolve_clears():
     item = q.enqueue_conflict(conf)
     plan = LivingPlan(steps=[LivingStep(id="s1", action="x", status="PENDING")])
     q.resolve(item.id, "A", plan=plan)
-    w = after_decision_resolved(q, plan)
+    # now обязателен: без него результат зависит от времени суток. Ночь
+    # (02:00) выбрана специально — иначе правило «сложные шаги только ночью»
+    # возвращает defer_to_night, и тест проверял бы не то, что задумано.
+    w = after_decision_resolved(q, plan, now=datetime(2026, 6, 15, 2, 0, 0))
     assert w.reason == REASON_NONE or w.can_emit
 
 

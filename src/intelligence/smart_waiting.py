@@ -262,11 +262,18 @@ def after_decision_resolved(
     plan: LivingPlan | None = None,
     *,
     project: str = "",
+    now: datetime | None = None,
 ) -> WaitState:
-    """Re-evaluate after human resolved a decision (resume hook)."""
+    """Re-evaluate after human resolved a decision (resume hook).
+
+    ``now`` lets callers pin the clock. Without it the check depends on the
+    wall clock, so the same call returns a night deferral at 21:00 and clears
+    normally at noon.
+    """
     return evaluate_wait(
         plan=plan,
         decisions=decisions,
         project=project,
+        now=now,
         check_night=True,
     )
