@@ -151,11 +151,12 @@ class ChatPanel(ctk.CTkFrame):
 
         # Composer: multi-line input + primary action
         bottom = ctk.CTkFrame(self, corner_radius=8)
-        try:
-            from ui.theme import apply_frame, ACCENT, TEXT_DIM, configure_textbox
-            apply_frame(bottom, role="elevated")
-        except Exception:
-            ACCENT, TEXT_DIM = ("#0078d4", "#858585")
+        # Раньше здесь стоял хардкод-фолбэк ("#0078d4", "#858585") на случай
+        # ImportError из ui.theme. Функции apply_frame/configure_textbox теперь
+        # реализованы, а тема — единый источник цвета, поэтому подставлять
+        # палитру в обход неё нельзя.
+        from ui.theme import ACCENT, TEXT_DIM, apply_frame
+        apply_frame(bottom, role="elevated")
         bottom.pack(fill="x", padx=12, pady=(4, 12))
 
         hint = ctk.CTkLabel(

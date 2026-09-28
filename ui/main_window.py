@@ -95,8 +95,11 @@ class MainWindow(ctk.CTk):
         mode = str(cfg.get("theme", "dark") or "dark")
         if mode not in ("dark", "light", "system"):
             mode = "dark"
-        ctk.set_appearance_mode(mode)
-        ctk.set_default_color_theme("blue")
+        # 'system' CustomTkinter не понимает — резолвим через theme engine.
+        # Раньше здесь стояло ctk.set_appearance_mode(mode), и при mode=system
+        # (а он есть в списке значений OptionMenu) тема не применялась.
+        from ui.theme import set_mode
+        self._theme_resolved = set_mode(mode)
         self._theme = mode
         self._toast = bool(cfg.get("toast_notifications", True))
 
@@ -123,6 +126,7 @@ class MainWindow(ctk.CTk):
         left = ctk.CTkFrame(self, width=240, corner_radius=0)
         left.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
         left.grid_propagate(False)
+        self._left_frame = left
         try:
             apply_frame(left, role="sidebar")
         except Exception:
@@ -158,6 +162,7 @@ class MainWindow(ctk.CTk):
 
         center = ctk.CTkFrame(self, corner_radius=0)
         center.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
+        self._center_frame = center
         try:
             apply_frame(center, role="shell")
         except Exception:
@@ -1069,12 +1074,64 @@ class MainWindow(ctk.CTk):
             pass
 
     def _set_theme(self, mode: str) -> None:
-        ctk.set_appearance_mode(mode)
+        """Переключить тему и переоформить уже построенные панели.
+
+        Раньше здесь был только ctk.set_appearance_mode(mode): виджеты
+        CustomTkinter перекрашивались, а semantic tokens в ui.theme — нет.
+        Из-за этого переключатель в UI давал half-тему. Теперь set_mode()
+        обновляет палитру, а _retheme_widgets() прогоняет apply_frame по
+        уже созданным панелям — переключение работает без перезапуска.
+        """
+        from ui.theme import set_mode
+        resolved = set_mode(mode)
         self._theme = mode
+        self._theme_resolved = resolved
+        try:
+            self._retheme_widgets()
+        except Exception:
+            pass
         try:
             _save_ui_cfg({"theme": mode})
         except Exception:
             pass
+        try:
+            self._update_footer()
+        except Exception:
+            pass
+
+    def _retheme_widgets(self) -> None:
+        """Переоформить панели, уже получившие цвета от theme."""
+        from ui.theme import apply_frame, configure_textbox
+        for attr, role in (("_left_frame", "sidebar"), ("_center_frame", "shell"),
+                           ("_right_frame", "panel")):
+            w = getattr(self, attr, None)
+            if w is not None:
+                try:
+                    apply_frame(w, role=role)
+                except Exception:
+                    pass
+        for name in (
+            "projects", "explorer", "chat", "terminal_panel", "logs", "metrics",
+            "history", "queue_panel", "workers_panel", "phone_bus_panel",
+            "extensions_panel", "skills_panel", "recipes_panel", "pev_panel",
+            "sentinel_panel", "diff_panel", "plan_panel", "problems_panel",
+            "search_panel", "changes_panel", "project_center", "task_detail_panel",
+        ):
+            w = getattr(self, name, None)
+            if w is None:
+                continue
+            try:
+                apply_frame(w, role="panel")
+            except Exception:
+                pass
+            for attr, role in (("_history", "history"), ("history", "history"),
+                               ("_text", "history"), ("_body", "history")):
+                box = getattr(w, attr, None)
+                if box is not None:
+                    try:
+                        configure_textbox(box, role=role)
+                    except Exception:
+                        pass
 
     def _toggle_theme(self) -> None:
         nxt = "light" if self._theme == "dark" else "dark"
