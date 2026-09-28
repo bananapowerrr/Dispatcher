@@ -166,7 +166,14 @@ class RPCacheSkillsMixin:
             return None
 
     def _apply_cached_solution(self, task: Task, entry: dict, proj) -> str:
-        """Replay cached DONE: optional file restore + finalize."""
+        """Replay cached DONE: optional file restore + finalize.
+
+        Guard от 2026-09-29: кэш переигрывал запись, сделанную ложным
+        skill-DONE (навык отработал, но файлы не изменились). Кэш считал
+        это успешным решением и выдавал DONE снова и снова, хотя файла
+        не существует. Теперь проверяем, что восстановление реально
+        что-то применило, иначе отдаём задачу нормальному пути.
+        """
         sol = entry.get("solution") or {}
         method = sol.get("method") or "cache"
         worker = sol.get("worker") or "cache"
@@ -174,6 +181,28 @@ class RPCacheSkillsMixin:
         from intelligence.solution_cache import GLOBAL_CACHE
         if entry.get("file_snapshots"):
             apply_info = GLOBAL_CACHE.apply_snapshots(entry, str(proj))
+
+        # Кэш применил изменения -> можно завершать.
+        applied = 0
+        if isinstance(apply_info, dict):
+            for key in ("applied", "restored", "written", "files"):
+                v = apply_info.get(key)
+                if isinstance(v, int):
+                    applied = v
+                    break
+                if isinstance(v, (list, tuple)) and v:
+                    applied = len(v)
+                    break
+        if not applied:
+            try:
+                self.log.write(
+                    f"cache miss {method}: восстановление ничего не применило "
+                    f"({apply_info!r}) — задача не решена, иду в worker/LLM "
+                    f"(task={getattr(task, 'id', '?')})"
+                )
+            except Exception:
+                pass
+            return ""
 
         summary = sol.get("summary") or sol.get("stdout") or f"cache:{method}"
         try:
