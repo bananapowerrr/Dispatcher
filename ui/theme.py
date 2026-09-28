@@ -44,6 +44,8 @@ class Palette:
         "text", "text_dim", "accent", "accent_soft", "accent_text",
         "success", "warn", "danger", "info", "disabled",
         "user_bubble", "user_bubble_text", "selection",
+        "deferred", "degraded", "on_status",
+        "success_soft", "warn_soft", "danger_soft", "info_soft",
     )
 
     def __init__(self, name: str, **kw: Any) -> None:
@@ -78,6 +80,14 @@ DARK = Palette(
     user_bubble="#1f2937",
     user_bubble_text="#e8eaed",
     selection="#2a3f5f",
+    deferred="#c084fc",
+    degraded="#fb923c",
+    # Текст, стоящий НА сплошном статусном фоне (бейджи воркеров).
+    on_status="#ffffff",
+    success_soft="#123a2a",
+    warn_soft="#3a3018",
+    danger_soft="#3d1c22",
+    info_soft="#123043",
 )
 
 LIGHT = Palette(
@@ -102,6 +112,13 @@ LIGHT = Palette(
     user_bubble="#dbe6ff",
     user_bubble_text="#12203a",
     selection="#c7dcff",
+    deferred="#7c3aed",
+    degraded="#c2410c",
+    on_status="#ffffff",
+    success_soft="#dcf5e9",
+    warn_soft="#fbeed4",
+    danger_soft="#fbe0e3",
+    info_soft="#dceefb",
 )
 
 # --------------------------------------------------------------------------
