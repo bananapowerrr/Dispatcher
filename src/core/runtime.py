@@ -410,6 +410,16 @@ class Runtime(RuntimeOps, RuntimeProcess):
             status = self._process_body(raw)
             if status == "DONE" and fp:
                 self.dedupe.mark(fp, str(raw.get("id") or ""))
+            elif fp and status in ("ERROR", "DEFERRED", "BLOCKED"):
+                # Метка ставится только на DONE. Но если задача не решена,
+                # её fingerprint не должен навсегда блокировать повтор:
+                # метка могла остаться от прошлого ложного DONE
+                # (например skill-путь завершал задачу, ничего не сделав).
+                # Иначе «fix the same thing again» вечно уходил в DEDUPED.
+                try:
+                    self.dedupe.forget(fp)
+                except Exception:
+                    pass
             if status in ("DONE", "ERROR", "DEFERRED", "DEDUPED", "BLOCKED"):
                 self._notify_plan_terminal(raw, status)
             return status
