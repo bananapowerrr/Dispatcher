@@ -1,7 +1,3 @@
-# AgentBus feature flags
-# Managed by admin_ui / feature_flags.save_flags
-# Env override: AGENTBUS_FEATURE_<NAME>=0|1
-
 features:
   conversation: true
   session_memory: true
@@ -24,6 +20,6 @@ features:
   lesson_learner: true
   attachments: true
   verify_policy: true
-  phone_filebus: false
-  remote_filebus: false
+  phone_filebus: true
+  remote_filebus: true
   load_custom_skills: false
