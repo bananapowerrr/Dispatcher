@@ -578,6 +578,90 @@ class RuntimeOps:
                 return False, f"Команда не прошла: {command}\n{check.output[-10000:]}"
         return True, ""
 
+    def _verification_engine_gate(self, task, ctx=None, *, execution_ok: bool = True,
+                                  short_circuit: str | None = None) -> tuple[bool, str]:
+        """DONE Gate via VerificationEngine.
+
+        Восстановлено 2026-09-29 из f0444b2:src/core/runtime_ops.py.
+        Метод потерялся при переносе кода в runtime.py, но его вызов
+        остался в rp_verify.py:91. Из-за этого ЛЮБАЯ задача падала с
+            AttributeError: 'Runtime' object has no attribute
+            '_verification_engine_gate'
+        то есть DONE был недостижим: задача уходила в DEFERRED с
+        verification_gate_exception.
+
+        Fail-closed по контракту: проверка не пройдена -> не DONE.
+
+        Default: лёгкий режим — pytest не перезапускается (это уже сделал
+        escalating). AGENTBUS_VERIFY_ENGINE_FULL=1 включает полный прогон.
+        """
+        import os
+        try:
+            from core.verification_engine import (
+                CheckResult,
+                VerificationEngine,
+                VerificationReport,
+                gate_done,
+            )
+        except Exception:
+            return bool(execution_ok), "" if execution_ok else "verification_engine_unavailable"
+
+        if short_circuit:
+            ok, reason = gate_done(True, None, short_circuit=short_circuit)
+            return ok, reason
+
+        full = (os.getenv("AGENTBUS_VERIFY_ENGINE_FULL") or "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        root = getattr(ctx or getattr(self, "context", None), "root", None)
+
+        if full:
+            raw: dict = {}
+            try:
+                raw = task.to_dict() if hasattr(task, "to_dict") else {
+                    "id": getattr(task, "id", ""),
+                    "message": getattr(task, "message", ""),
+                    "files": list(getattr(task, "files", None) or []),
+                    "verify": list(getattr(task, "verify", None) or []),
+                    "metadata": dict(getattr(task, "metadata", None) or {}),
+                }
+            except Exception:
+                raw = {"id": getattr(task, "id", ""), "message": "x"}
+            try:
+                from core.verify_policy import apply_verify_policy
+                raw = apply_verify_policy(raw)
+            except Exception:
+                pass
+            try:
+                report = VerificationEngine(project_root=root).run(raw, project_root=root)
+            except Exception as exc:
+                return False, f"verification_engine_error: {type(exc).__name__}: {exc}"
+        else:
+            # Доверяем escalating, но всё равно требуем execution_ok и отчёт
+            report = VerificationReport(
+                passed=bool(execution_ok),
+                checks=[CheckResult("escalating", bool(execution_ok),
+                                    detail="from_verify_escalating")],
+                reason="escalating_ok" if execution_ok else "escalating_failed",
+            )
+
+        try:
+            meta = dict(getattr(task, "metadata", None) or {})
+            meta["verification_report"] = report.to_dict()
+            task.metadata = meta
+        except Exception:
+            pass
+        try:
+            self._last_verification_report = report
+        except Exception:
+            pass
+
+        passed = bool(getattr(report, "passed", False))
+        reason = str(getattr(report, "reason", "") or "")
+        if not passed:
+            return False, reason or "verification_engine_failed"
+        return True, ""
+
     def _verify_escalating(self, task: Task, ctx=None, tests=None,
                            worker_name: str = "") -> tuple[bool, str]:
         context = ctx or self.context

@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "entries": {
+    "7b53f6e12011e223ac315491f92522f3b1a41d6147469946052864ecde10efb3": {
+      "timestamp": 1790637370.470293,
+      "project": "DEMO",
+      "message": "CODEBASE RAG:\n\n--- tests/test_context_budget_structured.py:19 (score=17.2445) ---\ndef test_estimate_tokens_positive():\n    assert estimate_tokens(\"hello world\") > 0\n\n\n\n--- tests/test_progress_route_meta.py:15 (score=14.3733) ---\ndef test_doctor_route_snippet():\n    from app.product_surface import doctor_route_snippet\n\n    s = doctor_route_snippet(\"create file\")\n    assert len(s) > 5\n\n--- tests/test_files_search_options.py:9 (score=12.6365) ---\ndef test_search_case_and_glob(tmp_path: Path):\n    (tmp_path / \"a.py\").write_text(\"Hello World\\nhello world\\n\", encoding=\"utf-8\")\n    (tmp_path / \"b.txt\").write_text(\"Hello World\\n\", encoding=\"utf-8\")\n    fs = FilesService(str(tmp_path))\n\n    all_hits = fs.search(\"Hello\")\n    assert len(all_hits) >= 2\n\n    case = fs.search(\"Hello\", case_sensitive=True)\n    assert case\n    assert all(\"Hello\" in h[\"\n\n--- tests/test_compat_fc20.py:34 (score=12.6023) ---\ndef test_legacy_msg_field():\n    tr = build_task_result({\"id\": \"3\", \"msg\": \"hello world\", \"status\": \"PENDING\"})\n    # message used for cards\n    card = history_card_lines({\"id\": \"3\", \"msg\": \"hello world\", \"status\": \"PENDING\"})\n    assert \"hello\" in card.get(\"prompt\", \"\") or tr.status == \"PENDING\"\n\n\n\ncreate file hello.py containing print(\"hello world\")",
+      "files": [],
+      "verify": [
+        "python -c \"import ast; ast.parse(open('hello.py').read())\""
+      ],
+      "git_head": "ee572ec3e713aa09668bf39cb35b060abd0256a0",
+      "git_dirty": true,
+      "content_fp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "post_content_fp": "",
+      "solution": {
+        "method": "llm",
+        "worker": "opencode",
+        "skill": "",
+        "stdout": "[THINKING] Нужно создать файл hello.py и добавить в него строку print(\"hello world\"). Составляю план.\n[PLAN] 1. Создать файл hello.py. 2. Добавить строку print(\"hello world\"). 3. Прогнать тесты.",
+        "commit": "",
+        "summary": "[THINKING] Нужно создать файл hello.py и добавить в него строку print(\"hello world\"). Составляю план.\n[PLAN] 1. Создать файл hello.py. 2. Добавить строку print(\"hello world\"). 3. Прогнать тесты.",
+        "result": null
+      },
+      "file_snapshots": {}
+    },
+    "ef70a6932afed3d167de9810b55c2bb0ad634a7bdaa79853935888ae494f0641": {
+      "timestamp": 1790637432.518247,
+      "project": "DEMO",
+      "message": "CODEBASE RAG:\n\n--- tests/test_progress_route_meta.py:15 (score=14.3733) ---\ndef test_doctor_route_snippet():\n    from app.product_surface import doctor_route_snippet\n\n    s = doctor_route_snippet(\"create file\")\n    assert len(s) > 5\n\n--- tests/test_terminal_format.py:15 (score=11.6053) ---\ndef test_format_default_source():\n    line = format_term_line(\"\", \"hello\", ts=\"01:02:03\")\n    assert \"system\" in line\n\n--- tests/test_error_ux_fc12.py:13 (score=10.0563) ---\ndef test_strip_traceback_keeps_exception_line():\n    tb = '''Traceback (most recent call last):\n  File \"runtime.py\", line 10, in run\n    raise TimeoutError(\"worker timed out after 300s\")\nTimeoutError: worker timed out after 300s\n'''\n    out = strip_traceback(tb)\n    assert \"TimeoutError\" in out\n    assert \"File \\\"\" not in out\n\n\n\n--- tests/test_executor_hardening.py:63 (score=9.6981) ---\ndef test_huge_stdout_no_deadlock(tmp_path: Path):\n    \"\"\"Pipe buffer must be drained; otherwise write() blocks forever.\"\"\"\n    ex = Executor()\n    # ~2MB of lines\n    code = \"print('x' * 200 + '\\\\n')\\n\" * 1  # single statement printing many lines via loop\n    code = (\n        \"for i in range(5000):\\n\"\n        \"    print('LINE', i, 'x' * 80)\\n\"\n    )\n    r = ex.run_command([sys.executable, \"-c\", co\n\ncreate file hello.py with a single line: print(1)",
+      "files": [
+        "hello.py"
+      ],
+      "verify": [
+        "python -c \"import ast; ast.parse(open('hello.py').read())\""
+      ],
+      "git_head": "ee572ec3e713aa09668bf39cb35b060abd0256a0",
+      "git_dirty": true,
+      "content_fp": "9892d3db72e12499af67f46146e8aa743adc441290348c8309157e4967a10cc1",
+      "post_content_fp": "",
+      "solution": {
+        "method": "skill",
+        "worker": "skill",
+        "skill": "count_lines",
+        "stdout": "{'ok': True, 'total_lines': 0, 'code_lines': 0, 'blank_lines': 0, 'comment_lines': 0, 'files': 0, 'top': []}",
+        "commit": "",
+        "summary": "{'ok': True, 'total_lines': 0, 'code_lines': 0, 'blank_lines': 0, 'comment_lines': 0, 'files': 0, 'top': []}",
+        "result": {
+          "ok": true,
+          "total_lines": 0,
+          "code_lines": 0,
+          "blank_lines": 0,
+          "comment_lines": 0,
+          "files": 0,
+          "top": []
+        }
+      },
+      "file_snapshots": {}
+    },
+    "3cf6ec5853e39f4f2ca693fc10a02ff8a4be7a369d1255bcacafe50496643b49": {
+      "timestamp": 1790637738.5288591,
+      "project": "DEMO",
+      "message": "CODEBASE RAG:\n\n--- tests/test_update_001e.py:7 (score=10.8538) ---\ndef _zip_with_file(zip_path: Path, name: str, content: bytes) -> str:\n    with zipfile.ZipFile(zip_path, \"w\") as zf:\n        zf.writestr(name, content)\n    h = hashlib.sha256(zip_path.read_bytes()).hexdigest()\n    return h\n\n\n\n--- tests/test_e2e_scenarios.py:159 (score=9.6072) ---\ndef test_grouper_orders_related() -> None:\n    from skills.task_grouper import TaskGrouper\n\n    tasks = [\n        {\"id\": \"1\", \"project\": \"a\", \"message\": \"fix login\", \"files\": [\"auth.py\"]},\n        {\"id\": \"2\", \"project\": \"a\", \"message\": \"fix logout\", \"files\": [\"auth.py\", \"session.py\"]},\n        {\"id\": \"3\", \"project\": \"b\", \"message\": \"add tests\", \"files\": [\"test_x.py\"]},\n    ]\n    ordered = TaskGrou\n\n--- tests/test_agent_smart.py:48 (score=9.4874) ---\ndef test_task_grouper() -> None:\n    tasks = [\n        {\"id\": \"1\", \"project\": \"a\", \"message\": \"fix login\", \"files\": [\"auth.py\"]},\n        {\"id\": \"2\", \"project\": \"a\", \"message\": \"fix logout\", \"files\": [\"auth.py\", \"session.py\"]},\n        {\"id\": \"3\", \"project\": \"b\", \"message\": \"add tests\", \"files\": [\"test_x.py\"]},\n        {\"id\": \"4\", \"project\": \"a\", \"message\": \"format code\", \"files\": [\"util.py\"]},\n  \n\n--- tests/test_compat_fc20.py:46 (score=9.2591) ---\ndef test_legacy_files_changed_dict():\n    tr = build_task_result({\n        \"id\": \"5\",\n        \"status\": \"DONE\",\n        \"result\": {\"ok\": True, \"files_changed\": {\"a.py\": \"content\", \"b.py\": \"x\"}},\n    })\n    assert \"a.py\" in tr.changes.files\n    assert \"b.py\" in tr.changes.files\n\n\n\nadd file hello.py with content: print(1)",
+      "files": [
+        "hello.py"
+      ],
+      "verify": [
+        "python -c \"import ast; ast.parse(open('hello.py').read())\""
+      ],
+      "git_head": "ee572ec3e713aa09668bf39cb35b060abd0256a0",
+      "git_dirty": true,
+      "content_fp": "9892d3db72e12499af67f46146e8aa743adc441290348c8309157e4967a10cc1",
+      "post_content_fp": "",
+      "solution": {
+        "method": "skill",
+        "worker": "skill",
+        "skill": "format_code",
+        "stdout": "{'formatted': True, 'steps': ['isort:missing', 'black:missing'], 'path': 'D:\\\\Workspace\\\\AgentBus'}",
+        "commit": "",
+        "summary": "{'formatted': True, 'steps': ['isort:missing', 'black:missing'], 'path': 'D:\\\\Workspace\\\\AgentBus'}",
+        "result": {
+          "formatted": true,
+          "steps": [
+            "isort:missing",
+            "black:missing"
+          ],
+          "path": "D:\\Workspace\\AgentBus"
+        }
+      },
+      "file_snapshots": {}
+    }
+  }
+}

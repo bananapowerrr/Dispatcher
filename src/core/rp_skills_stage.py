@@ -20,6 +20,13 @@ try:
 except Exception:  # pragma: no cover
     Task = None  # type: ignore
 
+#: Навыки, которые только ЧИТАЮТ проект и ничего не меняют.
+#: Их успешный прогон не означает решённую задачу, поэтому DONE им запрещён.
+READ_ONLY_SKILLS = frozenset({
+    "count_lines", "find_todos", "search_symbol", "list_deps",
+    "git_snapshot", "analyze_complexity", "list_files",
+})
+
 try:
     from core.config import DEFAULT_CHANNEL, PROJECT_ROOT, resolve_project, BUS_ROOT
 except Exception:  # pragma: no cover
@@ -207,9 +214,44 @@ class RPSkillsStageMixin:
         return out
 
     def _finalize_skill_result(self, task: Task, skill_payload: dict, proj) -> str:
-        """Завершить задачу, решённую skill'ом (DONE)."""
+        """Завершить задачу, решённую skill'ом (DONE).
+
+        Guard от 2026-09-29: сюда попадала задача «create file hello.py»,
+        которую matcher отдал навыку count_lines (из-за «print(1)» в тексте).
+        Навык успешно «посчитал строки», ничего не изменив, и метод
+        завершал задачу как DONE БЕЗ верификации — файл не создавался,
+        задача исчезала из поля зрения как успешная.
+
+        Теперь read-only навык (count_lines/find_todos/search_symbol/...)
+        не может дать DONE: возвращаем пустой результат, и вызывающий
+        продолжает через нормальный LLM/worker-путь.
+        """
         skill_name = skill_payload.get("skill", "unknown")
         detail = skill_payload.get("result")
+
+        # Навык обязан что-то менять, иначе задача не решена.
+        changed = list(skill_payload.get("files_changed") or [])
+        if not changed:
+            sr = skill_payload.get("skill_result")
+            if isinstance(sr, dict):
+                changed = list(sr.get("files") or [])
+        if not changed:
+            try:
+                from core.read_only_skills import is_read_only_skill
+                read_only = is_read_only_skill(skill_name)
+            except Exception:
+                read_only = skill_name in READ_ONLY_SKILLS
+            if read_only:
+                # Это нормальный исход, не ошибка: просто идём дальше.
+                try:
+                    self.log.write(
+                        f"skill {skill_name}: read-only, задача не решена — "
+                        f"передаю в worker/LLM (task={task.id})"
+                    )
+                except Exception:
+                    pass
+                return ""
+
         summary = ""
         try:
             import json
