@@ -85,7 +85,7 @@ criteria in [PRE_UI_BLOCKERS.md](PRE_UI_BLOCKERS.md).
 
 | ID | Focus | Status |
 |----|-------|--------|
-| PREUI-001 | F1 atomic claim + F2 terminal contract | next |
+| PREUI-001 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
 | PREUI-002 | F3 cache/skill path through `finish_task` | next |
 | PREUI-003 | F4 post-failure meta decomposition | done |
 | PREUI-004 | E2E proof of PREUI-001..003 | partial |

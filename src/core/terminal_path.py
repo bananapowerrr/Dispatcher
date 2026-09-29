@@ -83,6 +83,17 @@ def build_terminal_result(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = dict(extra or {})
+    # Терминальный контракт: эти два ключа обязаны быть в каждом
+    # терминальном JSON (DONE/DEFERRED/ERROR). Раньше функция была
+    # пасс-сру и DEFERRED-пути в rp_llm их не передавали, поэтому в
+    # записях их просто не было. Нормализуем здесь, в единственной точке,
+    # через которую проходит любой finish_task, — не в вызывающих кодах.
+    if not isinstance(out.get("verified"), bool):
+        out["verified"] = bool(out.get("verified") or False)
+    changed = out.get("changed_files")
+    out["changed_files"] = (
+        list(changed) if isinstance(changed, (list, tuple)) else []
+    )
     if worker and "worker" not in out:
         out["worker"] = worker
     if error and "error" not in out:

@@ -9,7 +9,7 @@ and verified.
 
 | ID | Focus | Status |
 |----|-------|--------|
-| PREUI-001 | F1 atomic claim + F2 terminal contract | next |
+| PREUI-001 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
 | PREUI-002 | F3 cache/skill path through `finish_task` | next |
 | PREUI-003 | F4 post-failure meta decomposition | done |
 | PREUI-004 | E2E proof of PREUI-001..003 | partial |
@@ -18,47 +18,69 @@ and verified.
 
 ## PREUI-001 — atomic claim (F1) and terminal contract (F2)
 
-### F1: `bus.move` is not atomic
+**Done, with one documented desktop caveat.** 11 tests in
+`tests/test_preui_atomic_claim_and_contract.py`.
 
-`src/core/bus.py:92` moves a claimed task with `shutil.copy2(src, dst)`
-followed by `src.unlink()`. Two dispatcher instances can both pass the copy
-before either unlinks, so the same task is processed twice.
+### F1: `bus.move` is not atomic — fixed
 
-Fix: move with `Path.replace()` (atomic within one filesystem) and treat
-`FileNotFoundError` as "another instance already claimed it" — return `False`
-and let the caller stop. Keep the desktop `write()`-only soft-ok branch, but
-re-evaluate it against the new semantics: after a real `replace` there is no
-copy, so a missing source must mean a lost race, not a partial artifact.
+`src/core/bus.py:92` moved a claimed task with `shutil.copy2(src, dst)`
+followed by `src.unlink()`. Two dispatcher instances could both pass the copy
+before either unlinked, so the same task was processed twice.
 
-Acceptance:
-- `move` contains no `copy2`/`copy`+`unlink` pair.
-- Concurrent claim yields exactly one `True`.
-- Existing bus tests stay green.
+Now `move` uses `Path.replace()` (atomic rename within one filesystem) and
+treats `FileNotFoundError` as "another instance already claimed it". The
+swallowed `PermissionError`/sharing-violation branches are gone on purpose:
+they belong to `_retry`, and with an atomic rename a failed rename means the
+transition did **not** happen — returning `True` there is exactly the
+double-processing bug being fixed.
 
-### F2: terminal JSON does not guarantee `verified` / `changed_files`
+Verified: concurrent claim on a normal channel yields exactly one `True` and
+seven `False`.
 
-`build_terminal_result` (`src/core/terminal_path.py:79`) is a passthrough:
+#### Caveat: the desktop soft-ok still loses races
+
+`move` keeps a legacy branch: for `channel == "desktop"`, a missing source
+with an existing destination is treated as success. It is required —
+`src/core/runtime.py:289` seeds desktop tasks straight into `processing`, so
+the claim `incoming→processing` legitimately finds no source.
+
+But that branch is indistinguishable from a lost race: in both cases the
+source is gone and the destination exists. So on the **desktop** channel a
+task can still be claimed and executed twice even with the atomic rename.
+Atomic `replace` removes the race on all other channels; for desktop it
+changes nothing.
+
+This is tracked as a strict `xfail`
+(`test_desktop_concurrent_claim_is_single`): the debt is codified, so the day
+atomic claiming reaches desktop the test fails loudly instead of the gap
+disappearing silently. Real fix is a claim via `O_CREAT|O_EXCL`, which belongs
+to the multi-instance Phase 2 work. Single-instance operation is unaffected —
+it is only a problem with two dispatchers sharing one bus root.
+
+### F2: terminal JSON does not guarantee `verified` / `changed_files` — fixed
+
+`build_terminal_result` (`src/core/terminal_path.py:79`) was a passthrough:
 `out = dict(extra or {})` with no normalization. `setdefault("verified", ...)`
-appears **0 times** in `src/core/`. The DEFERRED path at
+appeared **0 times** in `src/core/`. The DEFERRED path at
 `src/core/rp_llm.py:705` passes `changed_files: []` but no `verified` at all,
-so terminal records for DEFERRED/ERROR lack the key.
+so terminal records for DEFERRED/ERROR lacked the key.
 
-Fix in `build_terminal_result`, not at call sites — it is the single choke point
-that every `finish_task` goes through:
+Fixed in `build_terminal_result` — the single choke point every `finish_task`
+passes through — rather than at call sites:
 
 ```python
-out.setdefault("verified", bool(out.get("verified", False)))
-cf = out.get("changed_files")
-out["changed_files"] = list(cf) if isinstance(cf, (list, tuple)) else []
+if not isinstance(out.get("verified"), bool):
+    out["verified"] = bool(out.get("verified") or False)
+changed = out.get("changed_files")
+out["changed_files"] = list(changed) if isinstance(changed, (list, tuple)) else []
 ```
 
-Audit every DEFERRED/ERROR caller afterwards for fields the contract requires,
-but do not duplicate defaults at the call sites.
+The `isinstance` check matters: a plain `setdefault` leaves an explicit
+`None` in place, and the acceptance criterion is no `None` in these keys.
 
-Acceptance:
-- Every terminal JSON (DONE/DEFERRED/ERROR) has `verified: bool` and
-  `changed_files: list`.
-- No `null` in those two keys in any record under `channels/*/`.
+Verified: defaults applied, `None` normalized, real values preserved,
+`changed_files` given a bare string is rejected to `[]`, and the DEFERRED
+payload from `rp_llm` serializes with both keys present.
 
 ## PREUI-002 — cache/skill must go through `finish_task` (F3)
 
@@ -126,8 +148,9 @@ Still to prove:
 
 Accepted as warnings, not blockers:
 
-- **W1 spill race** — proper DB (SQLite) queue later; atomic `replace` in
-  PREUI-001 removes most of the exposure for now.
+- **W1 spill race** — proper DB (SQLite) queue later. Note: atomic `replace`
+  (PREUI-001) closes the race on all channels except desktop, whose
+  `write`-artifact soft-ok remains; that needs an `O_CREAT|O_EXCL` claim.
 - **W2 LoopGuard false positives** — later allow-list noisy lines (progress
   bars, `=== test session starts ===`). Note: the 7B hit a real n-gram loop in
   live runs, so the guard is earning its keep; only the false-positive side
