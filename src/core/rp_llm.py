@@ -570,8 +570,28 @@ class RPLlmMixin:
                     task_baseline = _task_baseline(str(ctx.root), task)
                 except Exception:
                     task_baseline = {}
+                # Воркеру передаём ТОЛЬКО целевые файлы задачи.
+                # Раньше сюда уходил abs_files на весь проект, и aider
+                # пытался прочитать файлы в cp1251: aider/io.py:475 на
+                # UnicodeError печатает "Use --encoding to set the unicode
+                # encoding." и возвращается молча. Таких файлов было
+                # несколько, n-gram-guard видел 4 одинаковые строки подряд
+                # и объявлял LOOP_ERROR — модель при этом не зацикливалась
+                # (u-utf8-041524). --encoding тут не помогает: флаг задаёт
+                # кодек, но не errors.
+                worker_files = [
+                    f for f in (abs_files or [])
+                    if (self.context.root / Path(str(f)).name).name in
+                    [str(t).replace("\\", "/").split("/")[-1] for t in (task.files or [])]
+                ] or [str(f) for f in (task.files or []) if (self.context.root / str(f)).is_file()]
+                try:
+                    self.log.write(
+                        f"worker_files: task={task.id} passing {len(worker_files)} "
+                        f"file(s) to {worker.name}: {worker_files}")
+                except Exception:
+                    pass
                 result = self._exec_worker(
-                    worker, str(ctx.root), worker_message, exec_timeout, abs_files,
+                    worker, str(ctx.root), worker_message, exec_timeout, worker_files,
                     task_id=task.id)
                 try:
                     self._touch_task_lease(task, phase="post_exec")

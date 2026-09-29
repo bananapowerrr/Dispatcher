@@ -303,6 +303,14 @@ class Executor:
                     timeout: int, files: list[str] | None = None) -> ExecutionResult:
         files = files or []
         args = self._args(worker, message, files, model=self._run_model(provider, worker))
+        # Финальный argv перед subprocess: единственное место, где видно,
+        # дошёл ли --encoding utf-8 до aider на самом деле.
+        try:
+            import logging as _lg
+            _lg.getLogger("agentbus.executor").info(
+                "EXECUTOR: final argv (%s) = %s", worker.name, " ".join(map(str, args)))
+        except Exception:
+            pass
         return self._run_with_env(args, project, timeout, self._foreign_env(provider, worker))
 
     def _classify(self, text: str) -> tuple[bool, bool]:
