@@ -1,0 +1,10 @@
+TOOL: git_diff(path=test_fix_1.py)
+```
+diff --git a/test_fix_1.py b/test_fix_1.py
+new file mode 100644
+index 0000000..e4b90fb
+--- /dev/null
++++ b/test_fix_1.py
+@@ -0,0 +1 @@
++def hello():
++    return 'world'
