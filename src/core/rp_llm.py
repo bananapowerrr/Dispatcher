@@ -365,6 +365,44 @@ class RPLlmMixin:
             return worker
 
 
+    def _verify_success(self, task, ctx, changed):
+        """Выполняет verify-команды задачи на success-пути.
+
+        Раньше этот путь вообще не проверял результат: при exit 0 задача
+        сразу получала DONE, а _save() вычислял verified=False, что
+        неотличимо от «проверка провалилась».
+
+        Если verify-команд нет, проверяем синтаксис изменённых .py файлов
+        через py_compile. Если проверить нечего — возвращаем True с
+        явной пометкой, а не молчаливый False.
+        """
+        import sys
+        from core.verify import run_command
+        from core.runtime_ops import VERIFY_TIMEOUT
+
+        root = str(getattr(ctx, "root", None) or self.context.root)
+        commands = list(getattr(task, "verify", None) or [])
+
+        if not commands:
+            py_files = [p for p in (changed or [])
+                        if p.endswith(".py") and (self.context.root / p).is_file()]
+            if not py_files:
+                return True, "no_verify_commands: проверяемых файлов нет"
+            # Без кавычек: core.verify._argv() не снимает кавычки, поэтому
+            # `py_compile "f.py"` передал бы имя файла вместе с кавычками
+            # (Errno 22), а `python -c "..."` выполнился бы как строковый
+            # литерал и всегда вернул бы 0.
+            commands = [f"{sys.executable} -m py_compile {p}" for p in py_files]
+            detail_prefix = "default_py_compile"
+        else:
+            detail_prefix = "task_verify"
+
+        for command in commands:
+            check = run_command(command, root, VERIFY_TIMEOUT)
+            if not check.ok:
+                return False, f"{detail_prefix}: {command}\n{check.output[-4000:]}"
+        return True, f"{detail_prefix}: {len(commands)} команда(ы) пройдены"
+
     def _stage_llm_pipeline(
         self, raw: dict, task, proj, ctx, tests, gitops, cbuilder, task_type: str
     ) -> str | None:
@@ -557,6 +595,29 @@ class RPLlmMixin:
                                           complexity=complexity, task_type=task_type)
                     except Exception:
                         pass
+                    # Проблема 1: harness вернул exit 0, но verify-команды
+                    # из задачи на success-пути НЕ выполнялись. Из-за этого
+                    # _save() вычислял verified=False, хотя файл мог быть
+                    # вполне рабочим: отсутствие проверки выдавалось за
+                    # провал проверки. Теперь проверяем явно.
+                    verify_ok, verify_detail = self._verify_success(task, ctx, changed)
+                    if not verify_ok:
+                        reason = "verification failed"
+                        try:
+                            self.log.write(
+                                f"{worker.name}: {reason} task={task.id}\n{verify_detail}"
+                            )
+                        except Exception:
+                            pass
+                        return self.finish_task(
+                            task, "ERROR",
+                            {"error": reason, "worker": worker.name,
+                             "attempts": task.attempts,
+                             "changed_files": changed,
+                             "verified": False,
+                             "verification": {"ok": False, "detail": verify_detail}},
+                            error=reason,
+                        )
                     try:
                         self.queue.finish(task.id, self.worker_id, "DONE",
                                           result.stdout or commit_sha or "", "")
@@ -567,10 +628,14 @@ class RPLlmMixin:
                     run = GitRun(task_id=task.id, before_sha=before_sha,
                                  after_sha=commit_sha or before_sha,
                                  committed=bool(commit_sha), commit_sha=commit_sha,
-                                 tests_passed=True, executor=worker.name,
+                                 tests_passed=bool(verify_ok), executor=worker.name,
                                  duration=result.latency)
                     self._save(task, "done", {"worker": worker.name, "git": run.to_dict(),
-                                              "stdout": (result.stdout or "")[-4000:]})
+                                              "stdout": (result.stdout or "")[-4000:],
+                                              "verified": bool(verify_ok),
+                                              "changed_files": changed,
+                                              "verification": {"ok": bool(verify_ok),
+                                                               "detail": verify_detail}})
                     self.report.record("DONE", worker.name, task.attempts)
                     try:
                         self._explain_and_learn("worker", task, worker=worker.name, success=True,

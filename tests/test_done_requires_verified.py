@@ -97,6 +97,70 @@ def test_explicit_verified_helper() -> None:
     assert _explicit_verified(R(stdout="[PLAN] 1. Создать файл")) is False
 
 
+def test_verify_runs_on_success(tmp_path) -> None:
+    """verify-команды задачи должны выполняться на success-пути.
+
+    Регрессия f-aiders-033722: aider вернул exit 0 и создал рабочий файл,
+    но verify не выполнялся, поэтому _save() писал verified=False — что
+    неотличимо от «проверка провалилась».
+    """
+    import sys
+    sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
+    from core.rp_llm import RPLlmMixin
+
+    class _Stub(RPLlmMixin):
+        def __init__(self, root):
+            self.context = type("C", (), {"root": root})()
+
+    class _Task:
+        id = "t1"
+        verify = []
+
+    stub = _Stub(tmp_path)
+    (tmp_path / "ok.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+
+    # дефолтная проверка для .py без явных verify-команд
+    ok, detail = stub._verify_success(_Task(), None, ["ok.py"])
+    assert ok is True, detail
+    assert "default_py_compile" in detail, detail
+
+    # битый синтаксис обязан провалить проверку
+    (tmp_path / "bad.py").write_text("def add(a, b)\n    return\n", encoding="utf-8")
+    ok_bad, detail_bad = stub._verify_success(_Task(), None, ["bad.py"])
+    assert ok_bad is False, "битый синтаксис не должен проходить верификацию"
+    assert "default_py_compile" in detail_bad
+
+    # проверять нечего -> True с явной пометкой, а не молчаливый False
+    ok_none, detail_none = stub._verify_success(_Task(), None, ["missing.py"])
+    assert ok_none is True
+    assert "no_verify_commands" in detail_none
+
+
+def test_verify_success_uses_task_commands(tmp_path) -> None:
+    """Явные verify-команды задачи имеют приоритет над дефолтом."""
+    import sys
+    sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
+    from core.rp_llm import RPLlmMixin
+
+    class _Stub(RPLlmMixin):
+        def __init__(self, root):
+            self.context = type("C", (), {"root": root})()
+
+    stub = _Stub(tmp_path)
+    (tmp_path / "ok.py").write_text("x = 1\n", encoding="utf-8")
+
+    class _TaskFail:
+        id = "t2"
+        # Без кавычек: core.verify._argv() не снимает кавычки, и
+        # `python -c "import sys; sys.exit(3)"` выполняется как строковый
+        # литерал -> exit 0. Это отдельный баг _argv, не проверяем его здесь.
+        verify = [f'{sys.executable} verify_should_fail.py']
+
+    ok, detail = stub._verify_success(_TaskFail(), None, ["ok.py"])
+    assert ok is False, "падающая команда задачи обязана давать ERROR"
+    assert "task_verify" in detail, detail
+
+
 def test_changed_paths_detects_real_change(tmp_path) -> None:
     """Проверка идёт по git status, а не по словам модели."""
     import subprocess
