@@ -384,6 +384,19 @@ class Executor:
                     _soft_log("pipe_close", close_err)
 
         try:
+            # Диагностика вызова воркера: без фактического argv невозможно
+            # отличить «aider сам ведёт себя так» от «рантайм вызывает его
+            # не так» (c-long-040046). Пишем до Popen, где args уже итоговые.
+            _argv_log = " ".join(str(a) for a in args)
+            _log_obj = getattr(self, "log", None)
+            if _log_obj is not None:
+                try:
+                    _log_obj.info(
+                        f"EXEC argv: {_argv_log}",
+                        event="worker_argv", worker=getattr(worker, "name", "?"),
+                    )
+                except Exception as _argv_err:
+                    _soft_log("argv_log", _argv_err)
             popen_kwargs = dict(
                 args=args, cwd=project, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="replace", env=env, shell=False,
