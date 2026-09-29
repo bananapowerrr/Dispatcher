@@ -18,16 +18,20 @@
   quality: 1.0
   enabled: true
 
-- name: opencode
-  harness: opencode
-  provider: zen
-  model: ""
-  command: "{opencode} {message}"
-  priority: 20
-  timeout: 600
-  complexity: 5
-  quality: 1.2
-  enabled: true
+  - name: opencode
+    harness: opencode
+    provider: zen
+    model: ""
+    command: "{opencode} {message}"
+    priority: 20
+    timeout: 600
+    complexity: 5
+    quality: 1.2
+    # Воркер только планирует: файлы не пишет. Роутер не должен отдавать
+    # ему задачи на запись — иначе задача уходит в DEFERRED по построению
+    # после того, как все остальные воркеры выпали (c-long-040046).
+    capabilities: [plan]
+    enabled: true
 
 - name: aider_siliconflow
   harness: aider
