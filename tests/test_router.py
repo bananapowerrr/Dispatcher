@@ -88,8 +88,11 @@ def test_required_cap_filters_workers(health):
         health.register(n)
     t = _w("t", provider="groq", model="qq", caps=["tools"])
     b = _w("b", provider="groq", model="v", caps=["coding"])
-    assert select_executor([t, b], health, {"message": "hi"}, required_cap="tools") is t
-    assert select_executor([t, b], health, {"message": "hi"}, required_cap="coding") is b
+    # allow_paid=True: тест про фильтр capabilities, а не про платный шлюз
+    assert select_executor([t, b], health, {"message": "hi"}, required_cap="tools",
+                           allow_paid=True) is t
+    assert select_executor([t, b], health, {"message": "hi"}, required_cap="coding",
+                           allow_paid=True) is b
 
 
 def test_required_cap_treats_empty_caps_as_capable(health):
@@ -120,7 +123,9 @@ def test_rationed_only_still_selectable_as_fallback(health):
     w = _w("only", provider="groq", model="qq", complexity=3)
     cap = _FakeCap(set(), factors={"groq:qq": 0.0})
     # единственный воркер, хоть и rationed (мягкая квота не блокирует) -> выбираем
-    assert select_executor([w], health, {"message": "hi"}, capacity=cap) is w
+    # allow_paid=True: тест про квоты, а не про платный шлюз (groq не локальный)
+    assert select_executor([w], health, {"message": "hi"}, capacity=cap,
+                           allow_paid=True) is w
 
 
 def test_soft_quota_factor_zero_default_available(health):

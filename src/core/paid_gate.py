@@ -21,8 +21,13 @@ from typing import Any
 
 # Локальные рантаймы: платить не за что.
 LOCAL_PROVIDER_IDS = frozenset({
-    "ollama", "lmstudio", "lm_studio", "localhost", "local", "none",
+    "ollama", "lmstudio", "lm_studio", "localhost", "local", "none", "",
 })
+
+# Локальные CLI-харнессы, которые запускают бинарь на этой машине и не бьют
+# в биллинговый API. Их провайдер — заглушка (opencode -> "zen"), в
+# providers.yaml он не зарегистрирован.
+LOCAL_CLI_HARNESSES = frozenset({"opencode"})
 
 FREE_BILLING = frozenset({"local", "free", "offline", "self_hosted"})
 PAID_BILLING = frozenset({"paid", "metered", "subscription"})
@@ -55,13 +60,12 @@ def reset_cache() -> None:
     _KNOWN_PROVIDER_IDS = None
 
 
-def is_paid_provider(provider_id: str, billing: str = "") -> bool:
+def is_paid_provider(provider_id: str, billing: str = "", harness: str = "") -> bool:
     """True, если провайдер может стоить денег.
 
-    Порядок важен: явная метка важнее списка локальных, а провайдер из
-    реестра важнее консервативного дефолта. Иначе локальные CLI-плагины вроде
-    opencode (provider: zen, которого в providers.yaml нет) ошибочно
-    считались бы платными и выпадали из планирования вместе с облаками.
+    Порядок важен: явная метка важнее списка локальных. Всё, что не опознано
+    как локальное, считается платным — иначе переименованный или опечатанный
+    облачный провайдер тихо обошёл бы гейт.
     """
     bid = str(billing or "").strip().lower()
     if bid in PAID_BILLING:
@@ -72,8 +76,14 @@ def is_paid_provider(provider_id: str, billing: str = "") -> bool:
     if pid in LOCAL_PROVIDER_IDS:
         return False
     known = known_provider_ids()
-    if known is not None and pid and pid not in known:
-        # Провайдер не наш: платить ему нечем (локальный CLI, заглушка).
+    if (
+        known is not None
+        and pid
+        and pid not in known
+        and str(harness or "").strip().lower() in LOCAL_CLI_HARNESSES
+    ):
+        # Локальный CLI с провайдером-заглушкой (opencode -> "zen"):
+        # платить ему нечем, гейт не должен выкидывать его из планирования.
         return False
     # Неизвестный/удалённый провайдер: считаем платным, чтобы не тратить.
     return True
@@ -91,8 +101,11 @@ def is_paid_worker(worker: Any, provider_billing: str = "") -> bool:
             return True
         if wb in FREE_BILLING:
             return False
-    provider_id = str(getattr(worker, "provider", "") or "")
-    return is_paid_provider(provider_id, provider_billing)
+    return is_paid_provider(
+        str(getattr(worker, "provider", "") or ""),
+        provider_billing,
+        str(getattr(worker, "harness", "") or ""),
+    )
 
 
 def describe_worker(worker: Any, provider_billing: str = "") -> str:

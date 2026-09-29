@@ -1042,6 +1042,23 @@ class RPLlmMixin:
                 return "ERROR"
 
         self._rollback_task(gitops, before_snapshot, task)
+        gate_reason = self._paid_gate_deferred_reason()
+        if gate_reason:
+            # Повтор здесь бессмысленен: локальных исполнителей нет, а облака
+            # закрыты политикой. Платить за прогон 7B ради того же DEFERRED
+            # нельзя — возвращаем задачу в deferred без backoff.
+            return self.finish_task(
+                task,
+                "DEFERRED",
+                {
+                    "error": gate_reason,
+                    "attempts": int(task.attempts or 0),
+                    "category": cat,
+                    "decomposition_required": True,
+                    "paid_workers_blocked": True,
+                },
+                error=gate_reason,
+            )
         self._schedule_retry(task, last_err)
         return self.finish_task(
             task,
@@ -1052,6 +1069,44 @@ class RPLlmMixin:
                 "category": cat,
             },
             error=last_err,
+        )
+
+    def _paid_gate_deferred_reason(self) -> str:
+        """Причина DEFERRED, если локальных исполнителей не осталось.
+
+        Архитектура задумана как «1.5B мета (декомпозиция) → 7B исполнитель».
+        Когда 7B недоступен, следующий по замыслу шаг — локальная декомпозиция,
+        а не прыжок в платное облако (AGENTBUS_ALLOW_PAID=0). Здесь мы честно
+        сообщаем об этом и не запускаем бессмысленный повтор.
+
+        Пустая строка = блокировка не при чём, действует обычный retry.
+        """
+        try:
+            from core.router import LAST_SKIPS
+        except Exception:
+            return ""
+        try:
+            skips = dict(LAST_SKIPS or {})
+        except Exception:
+            return ""
+        if not skips:
+            return ""
+        blocked = sorted(n for n, r in skips.items() if "paid_disallowed" in str(r))
+        if not blocked:
+            return ""
+        # Платные были отброшены, но если хоть один локальный кандидат был
+        # отобран по другой причине — это не ситуация «нет локальных».
+        for name, reason in skips.items():
+            if name in blocked:
+                continue
+            if str(reason) in ("disabled", "plan_only_no_file_write"):
+                continue
+            return ""
+        return (
+            "Требуется локальная декомпозиция: свободных локальных исполнителей нет "
+            f"(7B недоступен), платные облака заблокированы AGENTBUS_ALLOW_PAID=0 "
+            f"[{', '.join(blocked)}]. Ожидаемый путь — мета-модель 1.5B "
+            "(skills/task_decomposer.py) для разбиения на атомарные подзадачи."
         )
 
     # ------------------------------------------------------------------
