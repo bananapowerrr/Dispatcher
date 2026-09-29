@@ -408,23 +408,6 @@ class Executor:
                     _soft_log("pipe_close", close_err)
 
         try:
-            # Диагностика вызова воркера: без фактического argv невозможно
-            # отличить «aider сам ведёт себя так» от «рантайм вызывает его
-            # не так» (c-long-040046). Пишем до Popen, где args уже итоговые.
-            # В _run_with_env нет переменной `worker` и нет self.log, поэтому
-            # пишем напрямую в тот же лог, что и остальной рантайм.
-            try:
-                from datetime import datetime as _dt
-                from pathlib import Path as _P
-                from core.config import LOG_ROOT as _LR
-                _dbg = _P(_LR) / "dispatcher.log"
-                with _dbg.open("a", encoding="utf-8") as _fh:
-                    _fh.write(
-                        f"[{_dt.now():%Y-%m-%d %H:%M:%S}] INFO  "
-                        f"EXEC argv: {' '.join(str(a) for a in args)}\n"
-                    )
-            except Exception as _argv_err:
-                _soft_log("argv_log", _argv_err)
             popen_kwargs = dict(
                 args=args, cwd=project, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="replace", env=env, shell=False,

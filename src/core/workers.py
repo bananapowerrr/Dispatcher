@@ -145,6 +145,16 @@ def _as_bool(v: Any, default: bool = True) -> bool:
     return str(v).strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _as_str_tuple(v: Any) -> tuple[str, ...]:
+    if not v:
+        return ()
+    if isinstance(v, str):
+        return tuple(x.strip() for x in v.split(",") if x.strip())
+    if isinstance(v, (list, tuple, set)):
+        return tuple(str(x).strip() for x in v if str(x).strip())
+    return ()
+
+
 def _default_tier(item: dict) -> int:
     try:
         c = int(item.get("complexity") or 3)
@@ -213,6 +223,7 @@ def _from_yaml(path: Path) -> list[Worker]:
             complexity=_as_int(item.get("complexity"), 3),
             tier=_as_int(item.get("tier"), _default_tier(item)),
             quality=_as_float(item.get("quality"), 1.0),
+            capabilities=_as_str_tuple(item.get("capabilities")),
             api_base=str(item.get("api_base", "") or "").strip(),
             api_key_env=str(item.get("api_key_env", "") or "").strip(),
             role=str(item.get("role", "") or "").strip(),

@@ -224,6 +224,14 @@ def _local_first_bonus(worker, raw: dict[str, Any] | None) -> float:
     return 0.0
 
 
+def _is_plan_only(w) -> bool:
+    """Воркер умеет только планировать и не пишет файлы (capabilities: [plan])."""
+    caps = getattr(w, "capabilities", ()) or ()
+    if isinstance(caps, str):
+        return "plan" in caps
+    return "plan" in tuple(caps)
+
+
 def select_executor(workers, health, raw: dict[str, Any] | None,
                     requested: str = "", ranker=None, capacity=None,
                     required_cap: str | None = None) -> object | None:
@@ -235,6 +243,8 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
     cap_worker_usable = getattr(capacity, "worker_usable", None)
     LAST_SKIPS.clear()
     _task_id = str((raw or {}).get("id") or (raw or {}).get("task_id") or "") if isinstance(raw, dict) else ""
+    # Задача с явными целевыми файлами требует записи на диск.
+    _writes_files = bool(isinstance(raw, dict) and (raw.get("files") or []))
 
     def _skip(w, reason: str) -> None:
         LAST_SKIPS[w.name] = reason
@@ -244,6 +254,12 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
     for w in workers:
         if not getattr(w, "enabled", True):
             _skip(w, "disabled")
+            continue
+        # Plan-only воркер не создаёт файлы: отдача ему задачу на запись
+        # гарантированно даёт пустой результат и DEFERRED по построению
+        # (c-long-040046). Планирование без files по-прежнему разрешено.
+        if _writes_files and _is_plan_only(w):
+            _skip(w, "plan_only_no_file_write")
             continue
         if not health.available(w.name):
             _skip(w, "health_unavailable")

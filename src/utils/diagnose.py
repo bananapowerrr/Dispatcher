@@ -152,6 +152,52 @@ def diagnose_environment() -> list[str]:
             if mod == "yaml":
                 issues.append("missing PyYAML")
 
+    # 8. Worker readiness: OK / NO_KEY / disabled.
+    # Роутер сам по себе не знает про отсутствующие ключи: воркер без ключа
+    # остаётся "доступным" и падает уже в момент запуска, забирая слот и
+    # время (2-3с на облако в c-long-040046). Здесь показываем это заранее.
+    try:
+        from core.workers import load_workers
+        prov_by_id = {}
+        try:
+            try:
+                from providers import load_providers as _lp
+            except ImportError:
+                from providers.registry import load_providers as _lp  # type: ignore
+            for _p in _lp():
+                prov_by_id[str(getattr(_p, "id", "") or "")] = _p
+        except Exception as exp:
+            print(f"worker keys ERR : {exp}")
+        print("  --- workers ---")
+        for w in load_workers():
+            if not getattr(w, "enabled", True):
+                print(f"  {w.name:<22} DISABLED")
+                continue
+            caps = getattr(w, "capabilities", ()) or ()
+            if "plan" in (caps if not isinstance(caps, str) else (caps,)):
+                print(f"  {w.name:<22} PLAN_ONLY (файлы не пишет, задачи на запись исключены роутером)")
+                continue
+            prov = prov_by_id.get(str(getattr(w, "provider", "") or ""))
+            ke = str(getattr(w, "api_key_env", "") or "") or str(
+                getattr(prov, "api_key_env", "") or "")
+            pid = str(getattr(w, "provider", "") or "")
+            if pid in ("local", "ollama", ""):
+                print(f"  {w.name:<22} OK        (local, ключ не нужен)")
+                continue
+            if prov is None:
+                print(f"  {w.name:<22} NO_PROVIDER (провайдер {pid!r} отсутствует в providers.yaml)")
+                issues.append(f"worker {w.name}: провайдер {pid} не зарегистрирован")
+                continue
+            has = bool(getattr(prov, "api_key", "")) or (bool(ke) and bool(os.getenv(ke, "")))
+            if not has and not (hasattr(prov, "is_usable") and prov.is_usable() and not ke):
+                print(f"  {w.name:<22} NO_KEY    (env: {ke or '—'})")
+                issues.append(f"worker {w.name} без ключа (env: {ke or '—'})")
+            else:
+                print(f"  {w.name:<22} OK        (env: {ke or '—'})")
+    except Exception as exc:
+        print(f"workers ERR     : {exc}")
+        issues.append(f"workers: {exc}")
+
     return issues
 
 
