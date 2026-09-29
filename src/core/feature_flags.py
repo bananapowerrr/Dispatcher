@@ -246,6 +246,15 @@ def save_flags(path: Path | None = None) -> Path:
         lines.append(f"  {k}: {'true' if v else 'false'}")
     lines.append("")
     text = chr(10).join(lines)
+    # Не писать, если результат совпадает с текущим файлом. Без этого
+    # save_flags() каждый вызов пересобирает файл, теряя комментарии, из-за
+    # чего зеркало видит diff и коммитит снова — бесконечный цикл коммитов.
+    try:
+        if target.is_file() and target.read_text(encoding="utf-8") == text:
+            reload_flags()
+            return target
+    except OSError:
+        pass
     tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(target)

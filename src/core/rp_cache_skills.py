@@ -170,6 +170,25 @@ class RPCacheSkillsMixin:
                 pass
             return None
 
+    def _non_empty_files(self, paths) -> list[str]:
+        """Оставляет только реально записанные (непустые) файлы.
+
+        Путь в списке — не доказательство работы: заглушка 0 Б проходит
+        проверку «файл применён», но задача не решена. Такой случай давал
+        ложный DONE мимо finish_task.
+        """
+        out = []
+        try:
+            from pathlib import Path as _P
+            root = _P(str(getattr(getattr(self, "context", None), "root", ".") or "."))
+            for p in (paths or []):
+                f = root / str(p)
+                if f.is_file() and f.stat().st_size > 0:
+                    out.append(str(p))
+        except Exception:
+            return []
+        return out
+
     def _apply_cached_solution(self, task: Task, entry: dict, proj) -> str:
         """Replay cached DONE: optional file restore + finalize.
 
@@ -197,12 +216,27 @@ class RPCacheSkillsMixin:
                     break
                 if isinstance(v, (list, tuple)) and v:
                     applied = len(v)
+                    applied_paths = list(v)
                     break
         if not applied:
             try:
                 self.log.write(
                     f"cache miss {method}: восстановление ничего не применило "
                     f"({apply_info!r}) — задача не решена, иду в worker/LLM "
+                    f"(task={getattr(task, 'id', '?')})"
+                )
+            except Exception:
+                pass
+            return ""
+        # Непустой список путей ещё не доказательство: файл может быть
+        # создан, но остаться пустым (заглушка). Такой cache-hit давал
+        # ложный DONE в обход finish_task. Проверяем содержимое.
+        real_files = self._non_empty_files(applied_paths)
+        if not real_files:
+            try:
+                self.log.write(
+                    f"cache miss {method}: путь есть, но файлы пусты "
+                    f"{applied_paths!r} — задача не решена, иду в worker/LLM "
                     f"(task={getattr(task, 'id', '?')})"
                 )
             except Exception:
@@ -517,6 +551,20 @@ class RPCacheSkillsMixin:
                 self.log.write(
                     f"skill {skill_name}: файлов не изменено — задача не решена, "
                     f"передаю в worker/LLM (task={getattr(task, 'id', '?')})"
+                )
+            except Exception:
+                pass
+            return ""
+        # Непустой список путей — ещё не доказательство: файл может быть
+        # применён, но остаться пустым (заглушка) -> ложный DONE мимо
+        # finish_task. Проверяем содержимое так же, как в cache-пути.
+        real_files = self._non_empty_files(changed)
+        if not real_files:
+            try:
+                self.log.write(
+                    f"skill {skill_name}: путь есть, но файлы пусты "
+                    f"{changed!r} — задача не решена, передаю в worker/LLM "
+                    f"(task={getattr(task, 'id', '?')})"
                 )
             except Exception:
                 pass
