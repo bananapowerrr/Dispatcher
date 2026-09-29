@@ -1,4 +1,4 @@
-# AgentBus roadmap (current)
+﻿# AgentBus roadmap (current)
 
 ## Runtime engineering
 
@@ -80,15 +80,15 @@ LIVE-001 remains parallel acceptance on PC.
 
 ## Pre-UI blockers (blocking for UI phase)
 
-UI work does not start until PREUI-001..004 are green. Details and acceptance
+UI work does not start until B1..004 are green. Details and acceptance
 criteria in [PRE_UI_BLOCKERS.md](PRE_UI_BLOCKERS.md).
 
 | ID | Focus | Status |
 |----|-------|--------|
-| PREUI-001 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
-| PREUI-002 | F3 cache/skill path through `finish_task` | next |
-| PREUI-003 | F4 post-failure meta decomposition | done |
-| PREUI-004 | E2E proof of PREUI-001..003 | partial |
+| B1 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
+| B2 | F3 cache/skill path through `finish_task` | next |
+| B3 | F4 post-failure meta decomposition | done |
+| B4 | E2E proof of B1..B3 | partial |
 
 Warnings W1 (spill race), W2 (LoopGuard false positives) and W3 (metrics sink)
 are deferred to phase 2 and are not blockers.

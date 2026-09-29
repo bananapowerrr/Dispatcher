@@ -1,7 +1,7 @@
-# Pre-UI blocker list
+﻿# Pre-UI blocker list
 
 Blocking for the UI phase. Nothing here is a redesign: each item closes an
-architectural gap found by audit. UI work starts only when PREUI-001..004 are
+architectural gap found by audit. UI work starts only when B1..004 are
 green.
 
 Status legend: `next` — not started, `partial` — partly proven, `done` — closed
@@ -9,14 +9,14 @@ and verified.
 
 | ID | Focus | Status |
 |----|-------|--------|
-| PREUI-001 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
-| PREUI-002 | F3 cache/skill path through `finish_task` | next |
-| PREUI-003 | F4 post-failure meta decomposition | done |
-| PREUI-004 | E2E proof of PREUI-001..003 | partial |
+| B1 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
+| B2 | F3 cache/skill path through `finish_task` | next |
+| B3 | F4 post-failure meta decomposition | done |
+| B4 | E2E proof of B1..003 | partial |
 
 ---
 
-## PREUI-001 — atomic claim (F1) and terminal contract (F2)
+## B1 — atomic claim (F1) and terminal contract (F2)
 
 **Done, with one documented desktop caveat.** 11 tests in
 `tests/test_preui_atomic_claim_and_contract.py`.
@@ -82,7 +82,7 @@ Verified: defaults applied, `None` normalized, real values preserved,
 `changed_files` given a bare string is rejected to `[]`, and the DEFERRED
 payload from `rp_llm` serializes with both keys present.
 
-## PREUI-002 — cache/skill must go through `finish_task` (F3)
+## B2 — cache/skill must go through `finish_task` (F3)
 
 `src/core/rp_cache_skills.py` writes DONE on its own, bypassing the terminal
 contract and the verification gate:
@@ -105,7 +105,7 @@ Acceptance:
   `changed_files`, and the listed files exist on disk.
 - A cache hit with missing/altered files does not produce DONE.
 
-## PREUI-003 — post-failure meta decomposition (F4)
+## B3 — post-failure meta decomposition (F4)
 
 **Done.** Integrated and proven on a real dispatcher with local Ollama.
 
@@ -130,18 +130,18 @@ unrelated subtasks ("Review the logs ... payment gate"). `plan_subtasks` now
 returns `error="empty_task_message"` without calling the model, covered by
 `tests/test_meta_decompose.py::test_empty_message_is_not_decomposed`.
 
-## PREUI-004 — E2E proof
+## B4 — E2E proof
 
 `partial`. Already proven live:
 - parent terminal JSON: `DEFERRED`, `decomposition_required: true`,
-  `verified`/`changed_files` per contract (closes with PREUI-001),
+  `verified`/`changed_files` per contract (closes with B1),
   `meta_decompose_ok: true`, spawned ids listed;
 - children present in `incoming` with `parent_id` and `is_subtask: true`.
 
 Still to prove:
 - cached task produces DONE with `verified: true` and non-empty
-  `changed_files` (needs PREUI-002);
-- no `FileNotFoundError` at claim time under two instances (needs PREUI-001);
+  `changed_files` (needs B2);
+- no `FileNotFoundError` at claim time under two instances (needs B1);
 - no `None`/missing keys in any terminal record.
 
 ## Deferred to phase 2 (after basic UI)
@@ -149,7 +149,7 @@ Still to prove:
 Accepted as warnings, not blockers:
 
 - **W1 spill race** — proper DB (SQLite) queue later. Note: atomic `replace`
-  (PREUI-001) closes the race on all channels except desktop, whose
+  (B1) closes the race on all channels except desktop, whose
   `write`-artifact soft-ok remains; that needs an `O_CREAT|O_EXCL` claim.
 - **W2 LoopGuard false positives** — later allow-list noisy lines (progress
   bars, `=== test session starts ===`). Note: the 7B hit a real n-gram loop in
