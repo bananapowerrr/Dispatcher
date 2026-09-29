@@ -203,6 +203,16 @@ def plan_subtasks(
         )
 
     files = list(files or [])
+    # Задача без текста декомпозировать нечем: 1.5B на голом failure_reason
+    # выдумывает посторонние подзадачи (наблюдалось вживую). Лучше честно
+    # отказаться, чем плодить мусор в очереди.
+    if not (message or "").strip():
+        return DecomposeResult(
+            ok=False,
+            source="skipped",
+            error="empty_task_message",
+            latency_ms=0.0,
+        )
     prompt = (
         f"Parent task id: {parent_id or '(none)'}\n"
         f"Failure reason: {failure_reason or '(none)'}\n"

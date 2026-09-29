@@ -64,3 +64,20 @@ def test_try_decompose_skips_subtask(monkeypatch):
     runtime = SimpleNamespace(bus=SimpleNamespace(root="."), log=SimpleNamespace(write=lambda *a, **k: None))
     meta = try_decompose_failed_task(runtime, task, failure_reason="x")
     assert meta.get("meta_decompose_source") == "skipped_subtask"
+
+
+def test_empty_message_is_not_decomposed(monkeypatch):
+    """Пустую задачу декомпозировать нечем.
+
+    Регрессия из живого прогона: задача с пустым message ушла в 1.5B с одним
+    лишь failure_reason, и модель выдумала посторонние подзадачи
+    ("Review the logs ... payment gate"). Мусор в очереди хуже отказа.
+    """
+    monkeypatch.setenv("AGENTBUS_META", "1")
+    monkeypatch.setenv("AGENTBUS_META_DECOMPOSE", "1")
+    from skills.meta_decompose import plan_subtasks
+
+    r = plan_subtasks("", files=["a.py"], failure_reason="paid_gate_blocked")
+    assert r.ok is False
+    assert r.subtasks == []
+    assert r.error == "empty_task_message"
