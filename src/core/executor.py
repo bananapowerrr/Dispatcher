@@ -196,6 +196,20 @@ class Executor:
                 result.append(model if model is not None else self.paths.get("{aider_model}", ""))
             else:
                 result.append(token)
+        # Aider сам декодирует файлы модели и печатает
+        # "Use --encoding to set the unicode encoding." при не-UTF-8 содержимом.
+        # Модель затем повторяет эту строку, ngram-guard срабатывает и задача
+        # уходит в LOOP_ERROR -> health_unavailable -> cooldown (c-long-040046).
+        # Флаг задаётся здесь, на уровне harness, чтобы покрыть сразу все
+        # aider-воркеры (aider_local, aider_openrouter, ...) без дублирования
+        # в workers.yaml.
+        if result and not any(t == "--encoding" for t in result):
+            # aider вызывается как `{aider_python} -m aider ...`, поэтому
+            # искать «aider» только в имени исполняемого файла нельзя:
+            # result[0] — это python.exe.
+            if any("aider" in str(t).lower() for t in result[:3]):
+                result.insert(1, "--encoding")
+                result.insert(2, "utf-8")
         return result
 
     def _kill_tree(self, pid: int) -> None:

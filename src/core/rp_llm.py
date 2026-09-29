@@ -78,6 +78,62 @@ try:
 except Exception:  # pragma: no cover
     ProjectContext = None  # type: ignore
 
+def _task_baseline(root, task) -> dict:
+    """Снимок ТОЛЬКО файлов задачи до старта воркера: {rel: (size, sha1)}.
+
+    Раньше для проверки «что-то изменилось» брался весь `git status` проекта.
+    Это неверно: в дереве всегда есть чужие правки (в т.ч. правки самого
+    рантайма), и они удовлетворяли guard, поэтому задача без единого
+    своего изменения получала DONE (s-short-035301: 11 посторонних файлов
+    в changed_files, целевой файл 0 Б).
+    """
+    import hashlib
+    out: dict = {}
+    try:
+        base = Path(root)
+        for f in (getattr(task, "files", None) or []):
+            rel = str(f).replace("\\", "/")
+            try:
+                p = base / rel
+                data = p.read_bytes() if p.is_file() else None
+            except OSError:
+                data = None
+            if data is None:
+                out[rel] = (None, None)
+            else:
+                out[rel] = (len(data), hashlib.sha1(data).hexdigest())
+    except Exception:
+        return {}
+    return out
+
+
+def _task_changed(root, task, baseline) -> list[str]:
+    """Файлы задачи, реально изменившиеся после снимка baseline.
+
+    Пустой файл изменением не считается: Executor._ensure_target_files
+    создаёт заглушку 0 Б до старта воркера. Пустой Python-файл синтаксически
+    валиден, поэтому и `py_compile` на нём проходит — без этой отбраковки
+    «проверка успешна» означала бы «воркер ничего не сделал».
+    """
+    import hashlib
+    if not baseline:
+        return []
+    out: list[str] = []
+    base = Path(root)
+    for rel, (size, sha) in baseline.items():
+        try:
+            p = base / rel
+            data = p.read_bytes() if p.is_file() else None
+        except OSError:
+            data = None
+        if not data:
+            continue
+        if (len(data), hashlib.sha1(data).hexdigest()) == (size, sha):
+            continue
+        out.append(rel)
+    return out
+
+
 def _explicit_verified(result) -> bool:
     """Есть ли в результате явный положительный сигнал верификации."""
     d = result.to_dict() if hasattr(result, "to_dict") else dict(result or {})
@@ -436,7 +492,28 @@ class RPLlmMixin:
             req = task.executor if not tried else ""
             worker = select_executor(pool, self.health, raw, requested=req,
                                      ranker=self.ranker, capacity=self.capacity)
+            # Причины отсечки воркеров: без этого явный `executor` мог
+            # молча не выполниться (aider_local в c-long-040046).
+            try:
+                from core.router import LAST_SKIPS
+                if LAST_SKIPS:
+                    self.log.write(
+                        f"select_executor: skips={LAST_SKIPS} requested={req or '-'}")
+                if req and worker is not None and getattr(worker, 'name', '') != req:
+                    self.log.write(
+                        f"select_executor: REQUESTED {req} unavailable "
+                        f"({LAST_SKIPS.get(req, 'filtered')}) -> fallback {worker.name}")
+            except Exception:
+                pass
             if worker is None:
+                if req:
+                    try:
+                        from core.router import LAST_SKIPS
+                        self.log.write(
+                            f"select_executor: requested_executor_unavailable: {req} "
+                            f"({LAST_SKIPS.get(req, 'filtered')})")
+                    except Exception:
+                        pass
                 break
             tried.append(worker.name)
             if not self.health.begin_task(worker.name):
@@ -485,6 +562,14 @@ class RPLlmMixin:
                     self._touch_task_lease(task, phase="exec")
                 except Exception:
                     pass
+                # Снимок файлов ЗАДАЧИ ДО старта воркера. Заглушки 0 Б
+                # создаются внутри Executor уже после этого снимка, поэтому
+                # пустой файл отсеется как «изменение», а настоящая правка
+                # будет видна по хешу.
+                try:
+                    task_baseline = _task_baseline(str(ctx.root), task)
+                except Exception:
+                    task_baseline = {}
                 result = self._exec_worker(
                     worker, str(ctx.root), worker_message, exec_timeout, abs_files,
                     task_id=task.id)
@@ -559,7 +644,7 @@ class RPLlmMixin:
                     # файле (e2e-031910: test_e2e.py = 0 Б).
                     # DONE допустим только при реальных изменениях в дереве
                     # либо при явном положительном сигнале верификации.
-                    changed = _changed_paths(self, project=proj, task=task)
+                    changed = _task_changed(str(ctx.root), task, task_baseline)
                     verified_ok = _explicit_verified(result)
                     if not changed and not verified_ok:
                         reason = "no_changes_and_no_verification"

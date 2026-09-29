@@ -161,6 +161,82 @@ def test_verify_success_uses_task_commands(tmp_path) -> None:
     assert "task_verify" in detail, detail
 
 
+def _baseline_helpers():
+    import sys
+    sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
+    from core.rp_llm import _task_baseline, _task_changed
+    return _task_baseline, _task_changed
+
+
+class _FileTask:
+    def __init__(self, files):
+        self.files = files
+        self.id = "t"
+
+
+def test_task_scoped_baseline_ignores_unrelated_changes(tmp_path) -> None:
+    """Чужие правки в дереве не должны выдаваться за результат задачи.
+
+    Регрессия s-short-035301: в changed_files попадали 11 посторонних
+    файлов, задача получала DONE при собственном файле 0 Б.
+    """
+    import subprocess
+    _base, changed = _baseline_helpers()
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, capture_output=True)
+    for i in range(11):
+        (tmp_path / f"unrelated_{i}.py").write_text(f"x = {i}\n", encoding="utf-8")
+
+    task = _FileTask(["target.py"])
+    baseline = _base(tmp_path, task)
+    (tmp_path / "target.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+
+    got = changed(tmp_path, task, baseline)
+    assert got == ["target.py"], f"в changed попали чужие файлы: {got}"
+
+
+def test_task_scoped_baseline_detects_real_change(tmp_path) -> None:
+    """Воркер записал код в заглушку — это настоящее изменение."""
+    _base, changed = _baseline_helpers()
+    task = _FileTask(["target.py"])
+    (tmp_path / "target.py").write_text("", encoding="utf-8")  # заглушка
+    baseline = _base(tmp_path, task)
+    (tmp_path / "target.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    assert changed(tmp_path, task, baseline) == ["target.py"]
+
+
+def test_task_scoped_baseline_rejects_empty_file(tmp_path) -> None:
+    """Заглушка осталась 0 Б — изменения нет, DONE недопустим."""
+    _base, changed = _baseline_helpers()
+    task = _FileTask(["target.py"])
+    (tmp_path / "target.py").write_text("", encoding="utf-8")
+    baseline = _base(tmp_path, task)
+    assert changed(tmp_path, task, baseline) == [], "пустая заглушка не должна считаться изменением"
+
+
+def test_task_scoped_baseline_missing_file_stays_missing(tmp_path) -> None:
+    """Файл не создан вовсе — тоже не изменение."""
+    _base, changed = _baseline_helpers()
+    task = _FileTask(["absent.py"])
+    baseline = _base(tmp_path, task)
+    assert changed(tmp_path, task, baseline) == []
+
+
+def test_empty_file_cannot_pass_py_compile_claim(tmp_path) -> None:
+    """Пустой файл синтаксически валиден: py_compile проходит на пустоте.
+
+    Поэтому непустота проверяется по размеру ДО запуска verify, иначе
+    «верификация успешна» означала бы «воркер ничего не написал».
+    """
+    import subprocess
+    import sys
+    empty = tmp_path / "empty.py"
+    empty.write_text("", encoding="utf-8")
+    out = subprocess.run(
+        [sys.executable, "-m", "py_compile", str(empty)],
+        capture_output=True, text=True, cwd=tmp_path)
+    assert out.returncode == 0, "пустой файл действительно проходит py_compile"
+
+
 def test_changed_paths_detects_real_change(tmp_path) -> None:
     """Проверка идёт по git status, а не по словам модели."""
     import subprocess
