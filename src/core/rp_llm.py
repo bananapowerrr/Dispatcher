@@ -399,7 +399,9 @@ class RPLlmMixin:
                 pass
             if alt is None or alt.name in tried:
                 try:
-                    self.health.end_task(worker.name, ok=False)
+                    self.health.end_task(
+                        worker.name, ok=False,
+                        error=f"preflight: {reason_pf}", status="ERROR")
                 except Exception as exp:
                     try:
                         self.log.write(f"health.end_task: {exp}")
@@ -407,7 +409,9 @@ class RPLlmMixin:
                         pass
                 return None
             try:
-                self.health.end_task(worker.name, ok=False)
+                self.health.end_task(
+                    worker.name, ok=False,
+                    error=f"preflight: {reason_pf}", status="ERROR")
             except Exception as exp:
                 try:
                     self.log.write(f"health.end_task: {exp}")

@@ -294,13 +294,26 @@ class HealthRegistry:
             self.save_state()
             return True
 
-    def end_task(self, name: str, ok: bool = True) -> None:
+    def end_task(self, name: str, ok: bool = True, error: str = "",
+                 status: str = "ERROR") -> None:
+        """Освободить слот воркера.
+
+        ok=False РАНЬШЕ ПОЛНОСТЬЮ ИГНОРИРОВАЛСЯ: параметр принимался, но не
+        читался, и вызовы вида health.end_task(w, ok=False) из preflight-пути
+        (rp_llm.py) не оставляли в health ни следа. Воркер, отброшенный
+        preflight, снова выбирался роутером и тратил 2-3с на каждой задаче
+        (c-long-040046). Теперь неуспех фиксируется через failure().
+        """
         with self._lock:
             st = self.state(name)
             st.running_count = max(0, st.running_count - 1)
             if st.running_count == 0 and st.status == "BUSY":
                 st.status = "UNKNOWN"
-            self.save_state()
+            if not ok:
+                self.failure(name, error or f"slot/preflight неуспех: {status}",
+                             status=status)
+            else:
+                self.save_state()
 
     def budget_snapshot(self) -> dict[str, dict[str, Any]]:
         return self.budget.snapshot()

@@ -47,9 +47,36 @@ def test_execute_read(tmp_path):
     assert "x = 1" in str(res.get("result") or "")
 
 
-def test_gateway_inject():
+def test_gateway_inject_skipped_without_text_executor():
+    """Без исполнителя протокола каталог в промпт НЕ вставляется.
+
+    Раньше тест закреплял обратное, и именно это ломало aider_local:
+    parse_text_tool_line() никем не вызывается, поэтому 7B печатала
+    "TOOL: file_write(...)" вместо правки файла, файл оставался 0 Б и
+    задача уходила в DEFERRED (c-long-040046).
+    """
+    local = Worker(name="l", command=("a",), harness="aider", provider="ollama")
+    gw = UnifiedToolGateway()
+    msg = gw.inject_text_block("TASK:\nfix me", local)
+    assert "AVAILABLE TOOLS" not in msg
+    assert msg == "TASK:\nfix me"
+
+
+def test_gateway_inject_when_text_executor_exists(monkeypatch):
+    """Как только появится исполнитель протокола — блок возвращается."""
+    import core.tool_registry as tr
+
+    monkeypatch.setattr(tr, "TEXT_PROTOCOL_EXECUTOR", True)
     local = Worker(name="l", command=("a",), harness="aider", provider="ollama")
     gw = UnifiedToolGateway()
     msg = gw.inject_text_block("TASK:\nfix me", local)
     assert "AVAILABLE TOOLS" in msg
     assert "file_read" in msg
+
+
+def test_text_protocol_parser_is_unused_by_runtime():
+    """Парсер текстового протокола не подключён ни к одному харнессу."""
+    import core.tool_registry as tr
+
+    assert tr.TEXT_PROTOCOL_EXECUTOR is False
+    assert callable(tr.parse_text_tool_line)
