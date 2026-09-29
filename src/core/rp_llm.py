@@ -684,11 +684,31 @@ class RPLlmMixin:
                             )
                         except Exception:
                             pass
+                        # 7B не справился — по замыслу подключаем локальную
+                        # 1.5B мета-модель: она разбивает задачу на атомарные
+                        # подзадачи. Родитель честно уходит в DEFERRED, дети
+                        # падают в очередь как PENDING (fail-closed сохранён).
+                        meta_dec: dict[str, Any] = {}
+                        try:
+                            from skills.meta_decompose import try_decompose_failed_task
+                            meta_dec = try_decompose_failed_task(
+                                self, task, failure_reason=reason,
+                            ) or {}
+                        except Exception as decomp_err:
+                            try:
+                                self.log.write(
+                                    f"meta_decompose failed (defer без декомпозиции): {decomp_err}"
+                                )
+                            except Exception:
+                                pass
+                            meta_dec = {}
                         return self.finish_task(
                             task, "DEFERRED",
                             {"error": reason, "worker": worker.name,
                              "attempts": task.attempts,
-                             "changed_files": []},
+                             "changed_files": [],
+                             "decomposition_required": True,
+                             **meta_dec},
                             error=reason,
                         )
                     try:
@@ -1051,6 +1071,22 @@ class RPLlmMixin:
                 self.log.write(f"deferred by paid gate: {gate_reason}")
             except Exception:
                 pass
+            # Локальных исполнителей нет, облака закрыты → по замыслу это
+            # работа для 1.5B мета: она режет задачу на атомарные шаги.
+            meta_dec_paid: dict[str, Any] = {}
+            try:
+                from skills.meta_decompose import try_decompose_failed_task
+                meta_dec_paid = try_decompose_failed_task(
+                    self, task, failure_reason="paid_gate_blocked",
+                ) or {}
+            except Exception as decomp_err:
+                try:
+                    self.log.write(
+                        f"meta_decompose failed (defer без декомпозиции): {decomp_err}"
+                    )
+                except Exception:
+                    pass
+                meta_dec_paid = {}
             return self.finish_task(
                 task,
                 "DEFERRED",
@@ -1060,6 +1096,7 @@ class RPLlmMixin:
                     "category": cat,
                     "decomposition_required": True,
                     "paid_workers_blocked": True,
+                    **meta_dec_paid,
                 },
                 error=gate_reason,
             )
