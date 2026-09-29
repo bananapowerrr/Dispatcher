@@ -78,6 +78,49 @@ try:
 except Exception:  # pragma: no cover
     ProjectContext = None  # type: ignore
 
+def _explicit_verified(result) -> bool:
+    """Есть ли в результате явный положительный сигнал верификации."""
+    d = result.to_dict() if hasattr(result, "to_dict") else dict(result or {})
+    if d.get("verified") is True or d.get("tests_passed") is True:
+        return True
+    ver = d.get("verification")
+    if isinstance(ver, dict) and ver.get("ok") is True:
+        return True
+    return d.get("verify") in (True, "PASS", "pass", "ok")
+
+
+def _changed_paths(rt, *, project, task) -> list[str]:
+    """Файлы, реально изменённые в рабочем дереве проекта.
+
+    Проверка по git status, а не по словам в stdout: модель может
+    написать «файл создан» в тексте, не создав его.
+    """
+    try:
+        import subprocess
+        root = str(project or "")
+        if not root:
+            return []
+        r = subprocess.run(
+            ["git", "-C", root, "status", "--porcelain"],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=20,
+        )
+        if r.returncode != 0:
+            return []
+        out = []
+        for line in (r.stdout or "").splitlines():
+            if len(line) < 4:
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1]
+            if path and path not in out:
+                out.append(path)
+        return out
+    except Exception:
+        return []
+
+
 class RPLlmMixin:
 
     def _llm_policy_offline_state(self, task) -> tuple:
@@ -460,6 +503,30 @@ class RPLlmMixin:
                         attempt_messages=attempt_messages,
                     )
                 if result.ok:
+                    # Fail-closed: harness вернул exit 0, но это не значит,
+                    # что задача решена. opencode в режиме «только план»
+                    # печатал [PLAN] и выходил с кодом 0 -> DONE на пустом
+                    # файле (e2e-031910: test_e2e.py = 0 Б).
+                    # DONE допустим только при реальных изменениях в дереве
+                    # либо при явном положительном сигнале верификации.
+                    changed = _changed_paths(self, project=proj, task=task)
+                    verified_ok = _explicit_verified(result)
+                    if not changed and not verified_ok:
+                        reason = "no_changes_and_no_verification"
+                        try:
+                            self.log.write(
+                                f"{worker.name}: {reason} — DONE недопустим, "
+                                f"task={task.id} (файлы не изменены)"
+                            )
+                        except Exception:
+                            pass
+                        return self.finish_task(
+                            task, "DEFERRED",
+                            {"error": reason, "worker": worker.name,
+                             "attempts": task.attempts,
+                             "changed_files": []},
+                            error=reason,
+                        )
                     try:
                         self._reset_verify_fails(task)
                     except Exception:
