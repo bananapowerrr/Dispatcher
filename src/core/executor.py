@@ -181,18 +181,6 @@ class Executor:
 
     def _args(self, worker: Worker, message: str, files: list[str],
               model: str | None = None, project: str | os.PathLike[str] | None = None) -> list[str]:
-        # Relativize относительно project root. aider падает с UnicodeError
-        # (io.py:475 -> "Use --encoding...") на АБСОЛЮТНОМ пути в --file;
-        # повтор сообщения n-guard трактует как петлю модели -> LOOP_ERROR.
-        # Путь задаётся здесь, а не в run_foreign, потому что локальные
-        # воркеры (ollama/local/zen) идут через Executor.run, который зовёт
-        # _args напрямую и relativize из run_foreign не наследовал.
-        if files and project:
-            try:
-                _root = Path(str(project))
-                files = [os.path.relpath(str(f), _root) for f in files]
-            except Exception:
-                pass
         result: list[str] = []
         for token in worker.command:
             if token in self.paths:
@@ -445,17 +433,6 @@ class Executor:
             billing, rate = self._classify(text)
 
             if loop_hit is not None:
-                # _soft_log ждёт исключение и пишет через logging в logger,
-                # не подключённый к dispatcher.log. Для диагностики пишем
-                # в файл напрямую — это единственный канал, который виден.
-                try:
-                    _p = Path(str(project)) / ".agentbus" / "raw_aider"
-                    _p.mkdir(parents=True, exist_ok=True)
-                    (_p / "last_loop.txt").write_text(
-                        f"argv={args}\n---STDOUT---\n{stdout}\n"
-                        f"---STDERR---\n{stderr}\n", encoding="utf-8")
-                except Exception:
-                    pass
                 msg = f"зацикливание ({loop_hit.kind}): {loop_hit.detail}"
                 return ExecutionResult(
                     False, False, proc.returncode, stdout,
@@ -666,16 +643,6 @@ class Executor:
             from core.native_backend import native_backend_enabled
             from core.model_profiles import profile_for_worker
             prefer_native = native_backend_enabled(worker)
-            # Локальные воркеры (ollama/local/zen) идут в _exec_worker по
-            # ветке НЕ foreign -> Executor.run, где try_native_fallback
-            # вызывает aider in-process и НЕ передаёт files/encoding.
-            # aider читает репозиторий с кодировкой по умолчанию ->
-            # UnicodeError -> "Use --encoding..." повторяется -> n-guard
-            # объявляет LOOP_ERROR. Причина найдена измерением: run_foreign
-            # с теми же аргументами отрабатывает штатно (ok=True).
-            if str(getattr(worker, "provider", "") or "").lower() in (
-                    "ollama", "local", "zen", ""):
-                prefer_native = False
             try:
                 prefer_native = prefer_native or profile_for_worker(worker).is_native_tools
             except Exception as pe:
