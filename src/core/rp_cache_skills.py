@@ -131,7 +131,12 @@ class RPCacheSkillsMixin:
                     stdout=str(skill_result.get("result") or "")[:4000],
                     result=skill_result.get("result"),
                 )
-            return status
+                return status
+            # "" = навык отработал, но задачу не решил. Возвращаем None,
+            # чтобы вызывающий продолжил в worker/LLM. Раньше здесь был
+            # безусловный return status, и "" считался терминалом: воркер
+            # не запускался, задача висела в processing до reclaim.
+            return None
         try:
             from utils.metrics import GLOBAL_METRICS
             GLOBAL_METRICS.record("skill_miss")
