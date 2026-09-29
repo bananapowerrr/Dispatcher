@@ -193,7 +193,6 @@ class Executor:
                 files = [os.path.relpath(str(f), _root) for f in files]
             except Exception:
                 pass
-              model: str | None = None) -> list[str]:
         result: list[str] = []
         for token in worker.command:
             if token in self.paths:
@@ -446,6 +445,17 @@ class Executor:
             billing, rate = self._classify(text)
 
             if loop_hit is not None:
+                # _soft_log ждёт исключение и пишет через logging в logger,
+                # не подключённый к dispatcher.log. Для диагностики пишем
+                # в файл напрямую — это единственный канал, который виден.
+                try:
+                    _p = Path(str(project)) / ".agentbus" / "raw_aider"
+                    _p.mkdir(parents=True, exist_ok=True)
+                    (_p / "last_loop.txt").write_text(
+                        f"argv={args}\n---STDOUT---\n{stdout}\n"
+                        f"---STDERR---\n{stderr}\n", encoding="utf-8")
+                except Exception:
+                    pass
                 msg = f"зацикливание ({loop_hit.kind}): {loop_hit.detail}"
                 return ExecutionResult(
                     False, False, proc.returncode, stdout,
