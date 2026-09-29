@@ -76,3 +76,19 @@ LIVE-001 remains parallel acceptance on PC.
 | NIGHT-UI-001 | Night status + Morning Report in Chat | done |
 
 | NIGHT-RT-001 | execute_fn → Runtime bridge (mockable) | done |
+
+
+## Pre-UI blockers (blocking for UI phase)
+
+UI work does not start until PREUI-001..004 are green. Details and acceptance
+criteria in [PRE_UI_BLOCKERS.md](PRE_UI_BLOCKERS.md).
+
+| ID | Focus | Status |
+|----|-------|--------|
+| PREUI-001 | F1 atomic claim + F2 terminal contract | next |
+| PREUI-002 | F3 cache/skill path through `finish_task` | next |
+| PREUI-003 | F4 post-failure meta decomposition | done |
+| PREUI-004 | E2E proof of PREUI-001..003 | partial |
+
+Warnings W1 (spill race), W2 (LoopGuard false positives) and W3 (metrics sink)
+are deferred to phase 2 and are not blockers.

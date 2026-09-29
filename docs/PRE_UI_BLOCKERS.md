@@ -1,0 +1,135 @@
+# Pre-UI blocker list
+
+Blocking for the UI phase. Nothing here is a redesign: each item closes an
+architectural gap found by audit. UI work starts only when PREUI-001..004 are
+green.
+
+Status legend: `next` — not started, `partial` — partly proven, `done` — closed
+and verified.
+
+| ID | Focus | Status |
+|----|-------|--------|
+| PREUI-001 | F1 atomic claim + F2 terminal contract | next |
+| PREUI-002 | F3 cache/skill path through `finish_task` | next |
+| PREUI-003 | F4 post-failure meta decomposition | done |
+| PREUI-004 | E2E proof of PREUI-001..003 | partial |
+
+---
+
+## PREUI-001 — atomic claim (F1) and terminal contract (F2)
+
+### F1: `bus.move` is not atomic
+
+`src/core/bus.py:92` moves a claimed task with `shutil.copy2(src, dst)`
+followed by `src.unlink()`. Two dispatcher instances can both pass the copy
+before either unlinks, so the same task is processed twice.
+
+Fix: move with `Path.replace()` (atomic within one filesystem) and treat
+`FileNotFoundError` as "another instance already claimed it" — return `False`
+and let the caller stop. Keep the desktop `write()`-only soft-ok branch, but
+re-evaluate it against the new semantics: after a real `replace` there is no
+copy, so a missing source must mean a lost race, not a partial artifact.
+
+Acceptance:
+- `move` contains no `copy2`/`copy`+`unlink` pair.
+- Concurrent claim yields exactly one `True`.
+- Existing bus tests stay green.
+
+### F2: terminal JSON does not guarantee `verified` / `changed_files`
+
+`build_terminal_result` (`src/core/terminal_path.py:79`) is a passthrough:
+`out = dict(extra or {})` with no normalization. `setdefault("verified", ...)`
+appears **0 times** in `src/core/`. The DEFERRED path at
+`src/core/rp_llm.py:705` passes `changed_files: []` but no `verified` at all,
+so terminal records for DEFERRED/ERROR lack the key.
+
+Fix in `build_terminal_result`, not at call sites — it is the single choke point
+that every `finish_task` goes through:
+
+```python
+out.setdefault("verified", bool(out.get("verified", False)))
+cf = out.get("changed_files")
+out["changed_files"] = list(cf) if isinstance(cf, (list, tuple)) else []
+```
+
+Audit every DEFERRED/ERROR caller afterwards for fields the contract requires,
+but do not duplicate defaults at the call sites.
+
+Acceptance:
+- Every terminal JSON (DONE/DEFERRED/ERROR) has `verified: bool` and
+  `changed_files: list`.
+- No `null` in those two keys in any record under `channels/*/`.
+
+## PREUI-002 — cache/skill must go through `finish_task` (F3)
+
+`src/core/rp_cache_skills.py` writes DONE on its own, bypassing the terminal
+contract and the verification gate:
+
+- cache path: `bus.move(... "done" ...)` at L257, `return "DONE"` at L306
+- skill path: `bus.move(... "done" ...)` at L591, `return "DONE"` at L638
+
+The file already acknowledges this at L178 and L233 ("ложный DONE мимо
+finish_task"), so this is known debt, not a new finding.
+
+Fix: replace the direct `bus.move` + `_save` + `return "DONE"` with a call to
+`finish_task`, passing real data — `verified: true` only if the restored files
+were actually checked, and the real `changed_files` list. A cache hit is not
+automatically verified; if the file is gone or differs, the task must not be
+DONE.
+
+Acceptance:
+- No direct `bus.move` to `done` in `rp_cache_skills.py`.
+- A cache-solved task's terminal JSON has `verified: true` and non-empty
+  `changed_files`, and the listed files exist on disk.
+- A cache hit with missing/altered files does not produce DONE.
+
+## PREUI-003 — post-failure meta decomposition (F4)
+
+**Done.** Integrated and proven on a real dispatcher with local Ollama.
+
+- `src/skills/meta_decompose.py` — 1.5B decomposer (copied from Drive).
+- `src/core/rp_llm.py` — `try_decompose_failed_task()` on both trigger sites
+  (`no_changes_and_no_verification`, `paid_gate_blocked`).
+- `.env` — `AGENTBUS_META=1`, `AGENTBUS_META_DECOMPOSE=1`,
+  `META_MODEL=qwen2.5:1.5b-instruct`, `OLLAMA_HOST=http://127.0.0.1:11434`.
+- Parent goes `DEFERRED` with `decomposition_required: true`; children land in
+  `channels/<ch>/incoming` as `PENDING` with `metadata.parent_id`,
+  `metadata.is_subtask: true`, `metadata.sub_depth: 1`.
+- Fail-closed: no DONE, no retry loop, loop guard re-reads `is_subtask`.
+
+Live proof (task `ui-f555206a98`, local 7B → LOOP_ERROR → gate):
+`meta_decompose ok=True source=ollama n=3`, parent `DEFERRED`, three children
+with correct per-file targets. A second run (`ui-53f516a800`) produced 5
+children. Paid workers were blocked, never executed (`ALLOW_PAID=0`).
+
+One defect was found and fixed during the live run: a task with an empty
+`message` reached the 1.5B with only the failure reason, and the model invented
+unrelated subtasks ("Review the logs ... payment gate"). `plan_subtasks` now
+returns `error="empty_task_message"` without calling the model, covered by
+`tests/test_meta_decompose.py::test_empty_message_is_not_decomposed`.
+
+## PREUI-004 — E2E proof
+
+`partial`. Already proven live:
+- parent terminal JSON: `DEFERRED`, `decomposition_required: true`,
+  `verified`/`changed_files` per contract (closes with PREUI-001),
+  `meta_decompose_ok: true`, spawned ids listed;
+- children present in `incoming` with `parent_id` and `is_subtask: true`.
+
+Still to prove:
+- cached task produces DONE with `verified: true` and non-empty
+  `changed_files` (needs PREUI-002);
+- no `FileNotFoundError` at claim time under two instances (needs PREUI-001);
+- no `None`/missing keys in any terminal record.
+
+## Deferred to phase 2 (after basic UI)
+
+Accepted as warnings, not blockers:
+
+- **W1 spill race** — proper DB (SQLite) queue later; atomic `replace` in
+  PREUI-001 removes most of the exposure for now.
+- **W2 LoopGuard false positives** — later allow-list noisy lines (progress
+  bars, `=== test session starts ===`). Note: the 7B hit a real n-gram loop in
+  live runs, so the guard is earning its keep; only the false-positive side
+  needs tuning.
+- **W3 metrics sink** — distorts statistics only, does not break logic.
