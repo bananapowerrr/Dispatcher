@@ -1,4 +1,4 @@
-# AgentBus workers registry
+﻿# AgentBus workers registry
 # Meta-classification is NOT a worker here — see meta_classifier.py + AGENTBUS_META / META_MODEL.
 # role is informational for future router hints (optional).
 

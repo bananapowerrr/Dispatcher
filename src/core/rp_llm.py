@@ -1047,6 +1047,10 @@ class RPLlmMixin:
             # Повтор здесь бессмысленен: локальных исполнителей нет, а облака
             # закрыты политикой. Платить за прогон 7B ради того же DEFERRED
             # нельзя — возвращаем задачу в deferred без backoff.
+            try:
+                self.log.write(f"deferred by paid gate: {gate_reason}")
+            except Exception:
+                pass
             return self.finish_task(
                 task,
                 "DEFERRED",
