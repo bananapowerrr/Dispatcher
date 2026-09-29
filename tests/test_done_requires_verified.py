@@ -108,3 +108,23 @@ def test_changed_paths_detects_real_change(tmp_path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, capture_output=True)
     found = _changed_paths(None, project=str(tmp_path), task=None)
     assert "new_file.py" in found, f"изменение не найдено: {found}"
+
+
+def test_changed_paths_ignores_empty_stub(tmp_path) -> None:
+    """Заглушка 0 Б — не результат работы, а артефакт Executor.
+
+    Без этой проверки guard обманывается собственной заглушкой:
+    aider уходит в чат, файл остаётся пустым, git status показывает
+    «изменение», и задача снова получает DONE (a-aiders-033140).
+    """
+    import subprocess
+    import sys
+    sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
+    from core.rp_llm import _changed_paths
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, capture_output=True)
+    (tmp_path / "stub.py").write_text("", encoding="utf-8")
+    (tmp_path / "real.py").write_text("x = 1\n", encoding="utf-8")
+    found = _changed_paths(None, project=str(tmp_path), task=None)
+    assert "stub.py" not in found, "пустая заглушка не должна считаться изменением"
+    assert "real.py" in found, "настоящий файл должен учитываться"

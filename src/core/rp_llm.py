@@ -114,8 +114,20 @@ def _changed_paths(rt, *, project, task) -> list[str]:
             path = line[3:].strip()
             if " -> " in path:
                 path = path.split(" -> ", 1)[-1]
-            if path and path not in out:
-                out.append(path)
+            if not path or path in out:
+                continue
+            # Пустой файл — это заглушка, которую Executor создаёт ДО
+            # старта воркера (см. Executor._ensure_target_files), а не
+            # результат работы. Считать его изменением нельзя, иначе
+            # guard обманывается собственным же артефактом: aider ушёл в
+            # чат, файл остался пустым, а git status показывает «изменение».
+            try:
+                fp = Path(project) / path
+                if fp.is_file() and fp.stat().st_size == 0:
+                    continue
+            except OSError:
+                pass
+            out.append(path)
         return out
     except Exception:
         return []
