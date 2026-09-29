@@ -207,9 +207,24 @@ class Executor:
             # aider вызывается как `{aider_python} -m aider ...`, поэтому
             # искать «aider» только в имени исполняемого файла нельзя:
             # result[0] — это python.exe.
-            if any("aider" in str(t).lower() for t in result[:3]):
-                result.insert(1, "--encoding")
-                result.insert(2, "utf-8")
+            #
+            # Флаг должен стоять ПОСЛЕ `-m aider`: иначе его получает
+            # интерпретатор (`python --encoding utf-8 -m aider` — валидная
+            # опция python для кодировки stdio), а aider продолжает читать
+            # файлы репозитория своей кодировкой. Именно это приводило к
+            # "Use --encoding to set the unicode encoding." -> повтор строки
+            # моделью -> ngram-guard -> LOOP_ERROR (c-long-040046).
+            idx = next(
+                (
+                    i
+                    for i, t in enumerate(result[:3])
+                    if "aider" in str(t).lower()
+                ),
+                None,
+            )
+            if idx is not None:
+                result.insert(idx + 1, "--encoding")
+                result.insert(idx + 2, "utf-8")
         return result
 
     def _kill_tree(self, pid: int) -> None:
