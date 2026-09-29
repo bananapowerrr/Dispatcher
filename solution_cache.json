@@ -115,6 +115,56 @@
       "file_snapshots": {
         "hello.py": ""
       }
+    },
+    "2636bf13412daba1a7d91554f1acae36bc58dc53434df01e7fda273b3be4a3ae": {
+      "timestamp": 1790641086.7463899,
+      "project": "demo",
+      "message": "CODEBASE RAG:\n\n--- tests/test_capacity_shard.py:23 (score=11.7324) ---\ndef test_is_atomic_single_file():\n    d = TaskDecomposer()\n    assert d.is_atomic({\"files\": [\"a.py\"], \"message\": \"fix typo\"})\n    assert not d.is_atomic({\"files\": [\"a.py\", \"b.py\", \"c.py\"], \"message\": \"refactor all\"})\n\n\n\n--- tests/test_security_audit.py:29 (score=9.3583) ---\ndef test_validate_task_strips_bad_files():\n    # validate_task may raise or filter — accept either strict raise or cleaned files\n    raw = {\"message\": \"fix typo\", \"files\": [\"ok.py\"], \"project\": \"demo\"}\n    out = validate_task(raw)\n    assert isinstance(out, dict)\n    assert out.get(\"message\")\n\n--- tests/test_night_fc34.py:44 (score=8.6307) ---\ndef test_plan_steps_for_night():\n    plan = LivingPlan(\n        steps=[\n            LivingStep(id=\"light\", action=\"fix typo\", status=\"PENDING\", complexity=1),\n            LivingStep(id=\"heavy\", action=\"refactor module\", status=\"PENDING\", complexity=5),\n            LivingStep(id=\"done\", action=\"x\", status=\"DONE\", complexity=5),\n        ]\n    )\n    sched = NightScheduler(NightConfig(min_complexity=3\n\n--- tests/test_router_role.py:38 (score=8.3703) ---\ndef test_select_prefers_code_role():\n    workers = [\n        _w(\"cloud_heavy\", complexity=5, quality=1.0, role=\"\", provider=\"openrouter\"),\n        _w(\"aider_local\", complexity=2, quality=1.0, role=\"code\", provider=\"ollama\"),\n    ]\n    raw = {\n        \"message\": \"fix typo in foo.py\",\n        \"files\": [\"foo.py\"],\n        \"metadata\": {\"complexity\": 2, \"task_type\": \"bugfix\"},\n    }\n    chosen = select\n\nfix typo",
+      "files": [],
+      "verify": [
+        "python -m compileall -q ."
+      ],
+      "git_head": "0cfaae79f806cc535fb65a67b470484827baf256",
+      "git_dirty": true,
+      "content_fp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "post_content_fp": "",
+      "solution": {
+        "method": "llm",
+        "worker": "aider_local",
+        "skill": "",
+        "stdout": "roviders\\state.py\n\npyproject.toml\n\npytest.ini\n\nrecipes\\01_refactor.json\n\nrecipes\\02_test_coverage.json\n\nrecipes\\03_bugfix.json\n\nrecipes\\04_docstrings.json\n\nrecipes\\05_types.json\n\nrecipes\\06_explain.json\n\nrecipes\\07_cleanup.json\n\nrequirements-ui.txt\n\nrequirements.txt\n\nrun-tests.ps1\n\nscripts\\agentbus_updater.py\n\nscripts\\benchmark_harness.py\n\nscripts\\bootstrap.py\n\nscripts\\build_exe.py\n\nscripts\\build_release.py\n\nscripts\\ci_offline.sh\n\nscripts\\ci_smoke.sh\n\nscripts\\live001_preflight.py\n\nscripts\\live_acceptance_log.py\n\nscripts\\live_smoke.py\n\nscripts\\offline_acceptance_matrix.py\n\nscripts\\pack_run_evidence.py\n\nscripts\\product_path_check.py\n\nscripts\\product_readiness_check.py\n\nscripts\\product_surface_check.py\n\nscripts\\regression_fc22.sh\n\nscripts\\show_route_surface.py\n\nscripts\\smoke_offline.py\n\nscripts\\smoke_product.py\n\nscripts\\start_all.bat\n\nscripts\\start_doctor.bat\n\nscripts\\start_ui.bat\n\nscripts\\validate_config.py\n\nsemantic_memory.json\n\nsolution_cache.json\n\nsrc\\core\\executor.py\n\nsrc\\core\\router.py\n\nsrc\\core\\rp_cache_skills.py\n\nsrc\\core\\runtime_ops.py\n\ntests\\conftest.py\n\ntests\\test_active_channels_claim.py\n\ntests\\test_activity_badges.py\n\ntests\\test_agent_behavior_fc45.py\n\ntests\\test_agent_smart.py\n\ntests\\test_alerts_runtime_hook.py\n\ntests\\test_analyze_reconcile.py\n\ntests\\test_anti_false_done.py\n\ntests\\test_app_facade.py\n\ntests\\test_app_runner_stub.py\n\ntests\\test_app_services_fc38.py\n\ntests\\test_architecture_blockers_fc37h.py\n\ntests\\test_architecture_discovery_fc37f.py\n\ntests\\test_architecture_interview_fc37g.py\n\ntests\\test_async_poll.py\n\ntests\\test_attachments_and_flags.py\n\ntests\\test_autonomous_loop_fc35.py\n\ntests\\test_autopilot_night.py\n\ntests\\test_autopilot_policy_fc31.py\n\ntests\\test_autopilot_print.py\n\ntests\\test_benchmark_harness.py\n\ntests\\test_billing_protection.py\n\ntests\\test_budget.py\n\ntests\\test_budget_names.py\n\ntests\\test_builtin_analysis.py\n\ntests\\test_builtin_formatting_trace.py\n\ntests\\test_builtin_hygiene.py\n\ntests\\test_builtin_project.py\n\ntests\\test_builtin_refactor.py\n\ntests\\test_bus_types.py\n\ntests\\test_capability_scan_fc36.py\n\ntests\\test_capacity_shard.py\n\ntests\\test_changes_fc40.py\n\ntests\\test_changes_hints.py\n\ntests\\test_changes_scm.py\n\ntests\\test_changes_undo_wire.py\n\ntests\\test_chat_editor_context_fc41.py\n\ntests\\test_chat_integration_day6.py\n\nui\\activity_bar.py\n\nui\\admin_window.py\n\nui\\agent_popover.py\n\nui\\async_poll.py\n\nui\\changes_hints.py\n\nui\\changes_panel.py\n\nui\\chat_messages.py\n\nui\\chat_panel.py\n\nui\\chat_recovery_bridge.py\n\nui\\chat_task_bridge.py\n\nui\\command_palette.py\n\nui\\commands.py\n\nui\\composer_panel.py\n\nui\\current_task.py\n\nui\\diff_hints.py\n\nui\\diff_panel.py\n\nui\\dispatcher_ctl.py\n\nui\\editor_panel.py\n\nui\\explorer_panel.py\n\nui\\extensions_panel.py\n\nui\\help_dialog.py\n\nui\\help_popover.py\n\nui\\history_panel.py\n\nui\\i18n_ui.py\n\nui\\last_outcome.py\n\nui\\logs_panel.py\n\nui\\main_window.py\n\nui\\metrics_panel.py\n\nui\\night_notice.py\n\nui\\notify.py\n\nui\\palette_hints.py\n\nui\\paths.py\n\nui\\pev_panel.py\n\nui\\pev_text.py\n\nui\\phone_bus_panel.py\n\nui\\phone_bus_status.py\n\nui\\plan_hints.py\n\nui\\plan_panel.py\n\nhttp://127.0.0.1:8337\nScraping http://127.0.0.1:8337...\nError navigating to http://127.0.0.1:8337: Page.goto: \nnet::ERR_CONNECTION_REFUSED at http://127.0.0.1:8337/\nCall log:\n  - navigating to \"http://127.0.0.1:8337/\", waiting until \"networkidle\"\n\nFailed to retrieve content from http://127.0.0.1:8337\nYour estimated chat context of 205,622 tokens exceeds the 32,768 token limit \nfor ollama_chat/qwen2.5-coder:7b!\nTo reduce the chat context:\n- Use /drop to remove unneeded files from the chat\n- Use /clear to clear the chat history\n- Break your code into smaller files\nIt's probably safe to try and send the request, most providers won't charge if \nthe context limit is exceeded.\nИзвините, но я не могу выполнить ваш запрос. В вашем сообщении отсутствует \nконкретный запрос или описание того, что нужно изменить. Пожалуйста, уточните \nваш запрос или предоставьте больше информации о том, что именно вы хотите \nсделать.\n\nTokens: 3.9k sent, 63 received.\n",
+        "commit": "",
+        "summary": "roviders\\state.py\n\npyproject.toml\n\npytest.ini\n\nrecipes\\01_refactor.json\n\nrecipes\\02_test_coverage.json\n\nrecipes\\03_bugfix.json\n\nrecipes\\04_docstrings.json\n\nrecipes\\05_types.json\n\nrecipes\\06_explain.json\n\nrecipes\\07_cleanup.json\n\nrequirements-ui.txt\n\nrequirements.txt\n\nrun-tests.ps1\n\nscripts\\agentbus_updater.py\n\nscripts\\benchmark_harness.py\n\nscripts\\bootstrap.py\n\nscripts\\build_exe.py\n\nscripts\\build_release.py\n\nscripts\\ci_offline.sh\n\nscripts\\ci_smoke.sh\n\nscripts\\live001_preflight.py\n\nscripts\\live_a",
+        "result": null
+      },
+      "file_snapshots": {}
+    },
+    "9fcd1ba660bbf3ce396279b3e23f213b9e38f0af2b542855adad775cd9ab1bf8": {
+      "timestamp": 1790641210.7724712,
+      "project": "DEMO",
+      "message": "CODEBASE RAG:\n\n--- tests/test_progress_route_meta.py:15 (score=14.3408) ---\ndef test_doctor_route_snippet():\n    from app.product_surface import doctor_route_snippet\n\n    s = doctor_route_snippet(\"create file\")\n    assert len(s) > 5\n\n--- ui/help_popover.py:80 (score=11.6446) ---\ndef why_button(parent: Any, *, title: str, body: str, **kwargs: Any) -> Any:\n    \"\"\"Create a small [?] button that opens HelpPopover.\"\"\"\n    if ctk is None:\n        return None\n\n    def _open() -> None:\n        HelpPopover.show(parent, title=title, body=body, anchor_widget=btn)\n\n    btn = ctk.CTkButton(parent, text=\"?\", width=28, height=24, command=_open, **kwargs)\n    return btn\n\n--- tests/test_aider_local_writes_file.py:76 (score=11.0156) ---\ndef test_aider_local_writes_file(tmp_path: Path) -> None:\n    \"\"\"Требуемый регресс-тест: aider_local заполняет целевой файл.\n\n    Сначала создаём заглушку (как это делает Executor), затем запускаем\n    aider ровно той командой, которую собирает workers.yaml для aider_local.\n    \"\"\"\n    target = tmp_path / \"test_output.py\"\n    # ровно то, что теперь делает Executor до старта воркера\n    Executor._e\n\n--- scripts/live_smoke.py:17 (score=8.8109) ---\ndef ollama_up(base: str='http://127.0.0.1:11434') -> bool:\n    '''\"\"\"ollama_up(base).\n\nReturns:\n    Result of ollama_up.\n\"\"\"'''\n    try:\n        with urllib.request.urlopen(base + '/api/tags', timeout=2) as r:\n            return r.status == 200\n    except Exception:\n        return False\n\n\nCreate file test_e2e.py with function add(a, b) that returns a + b",
+      "files": [
+        "test_e2e.py"
+      ],
+      "verify": [
+        "python -m py_compile test_e2e.py"
+      ],
+      "git_head": "0cfaae79f806cc535fb65a67b470484827baf256",
+      "git_dirty": true,
+      "content_fp": "ea8568ff3a8d07aba70f2df69187c99b5eaa25147509a735cf1e01f9aa5b56a7",
+      "post_content_fp": "ea8568ff3a8d07aba70f2df69187c99b5eaa25147509a735cf1e01f9aa5b56a7",
+      "solution": {
+        "method": "llm",
+        "worker": "opencode",
+        "skill": "",
+        "stdout": "[THINKING] Нужно создать файл `test_e2e.py` и добавить в него функцию `add(a, b)`, которая будет возвращать сумму `a` и `b`. Составляю план.\n\n[PLAN] 1. Создать файл `test_e2e.py`. 2. Добавить функцию `add(a, b)`. 3. Написать тест для этой функции.",
+        "commit": "",
+        "summary": "[THINKING] Нужно создать файл `test_e2e.py` и добавить в него функцию `add(a, b)`, которая будет возвращать сумму `a` и `b`. Составляю план.\n\n[PLAN] 1. Создать файл `test_e2e.py`. 2. Добавить функцию `add(a, b)`. 3. Написать тест для этой функции.",
+        "result": null
+      },
+      "file_snapshots": {
+        "test_e2e.py": ""
+      }
     }
   }
 }

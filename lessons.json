@@ -20,6 +20,16 @@
       "avoidance": "Убедись, что объект имеет нужный атрибут/метод; проверь None.",
       "message_preview": "CODEBASE RAG:\n\n--- tests/test_context_budget_structured.py:19 (score=17.2445) ---\ndef test_estimate_tokens_positive():\n    assert estimate_tokens(\"hello world\") > 0\n\n\n\n--- tests/test_progress_route_me",
       "count": 1
+    },
+    {
+      "timestamp": 1790641192.417465,
+      "task_type": "test",
+      "error_pattern": "зацикливание (ngram): Р±Р»РѕРє РёР· 3 СЃС‚СЂРѕРє Г—4: - Use /drop to remove unneeded files from the chat",
+      "worker": "aider_local",
+      "category": "LOOP_ERROR",
+      "avoidance": "Повтори аккуратно: минимальный diff, сохрани тесты зелёными.",
+      "message_preview": "CODEBASE RAG:\n\n--- tests/test_progress_route_meta.py:15 (score=14.3408) ---\ndef test_doctor_route_snippet():\n    from app.product_surface import doctor_route_snippet\n\n    s = doctor_route_snippet(\"cre",
+      "count": 1
     }
   ]
 }

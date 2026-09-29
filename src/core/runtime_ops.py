@@ -231,6 +231,11 @@ class RuntimeOps:
                     )
                     if res.get("error") and not verified:
                         verified = False
+                    # Итог верификации должен попасть в файл задачи.
+                    # Раньше здесь считалось локально и уходило только в
+                    # evidence, поэтому result.verified оставался None
+                    # (в run-030427 так и было при успешном DONE).
+                    res["verified"] = verified
                     ev.setdefault("verification", {})
                     if isinstance(ev["verification"], dict) and "ok" not in ev["verification"]:
                         ev["verification"]["ok"] = verified

@@ -568,9 +568,53 @@ class Executor:
             _soft_log("native_fallback", exp)
             return ExecutionResult(ok=False, stdout="", stderr=f"native_fallback: {exp}")
 
+    @staticmethod
+    def _ensure_target_files(project: str, files: list[str]) -> list[str]:
+        """Создать пустые файлы для целей, которых ещё нет.
+
+        aider при несуществующем файле печатает «Creating empty file» и
+        уходит в чат-режим: модель отвечает текстом («Составляю план…»),
+        правка не применяется, задача завершается DONE с пустым файлом.
+        Именно это было в run-030427 (hello.py = 0 Б).
+
+        Проверено вручную 2026-09-29 на aider 0.86.2 + qwen2.5-coder:7b:
+          * --file demo.py, файла нет  -> «Creating empty file», правки нет
+          * --file demo.py, файл есть  -> «Applied edit to demo.py», 8 Б
+        Поэтому пустой файл-заглушка создаётся ДО запуска воркера.
+
+        Путь проверяется на выход за пределы проекта.
+        """
+        created: list[str] = []
+        if not project or not files:
+            return created
+        root = Path(project)
+        try:
+            root_resolved = root.resolve()
+        except OSError:
+            return created
+        for rel in files:
+            try:
+                name = str(rel or "").strip()
+                if not name:
+                    continue
+                target = (root / name).resolve()
+                try:
+                    target.relative_to(root_resolved)
+                except ValueError:
+                    continue  # не даём писать за пределы проекта
+                if target.is_file():
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("", encoding="utf-8")
+                created.append(name)
+            except OSError:
+                continue
+        return created
+
     def run(self, worker: Worker, project: str, message: str, timeout: int,
             files: list[str] | None = None) -> ExecutionResult:
         files = files or []
+        self._ensure_target_files(project, files)
         # Native-first when profile says so
         try:
             from core.native_backend import native_backend_enabled
