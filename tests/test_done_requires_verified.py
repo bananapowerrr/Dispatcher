@@ -41,8 +41,11 @@ def test_verification_allows_done_matrix() -> None:
     from core.terminal_path import verification_allows_done
 
     assert verification_allows_done({"verified": True}) is True
-    assert verification_allows_done({"tests_passed": True}) is True
     assert verification_allows_done({"verification": {"ok": True}}) is True
+    assert verification_allows_done({"verify": "PASS"}) is True
+    # tests_passed — только вместе с worker (исторический путь успеха)
+    assert verification_allows_done({"worker": "aider_local", "tests_passed": True}) is True
+    assert verification_allows_done({"tests_passed": True}) is False
     # голый stdout без верификации — не повод для DONE
     assert verification_allows_done({"worker": "opencode", "stdout": "создал файл!"}) is False
 

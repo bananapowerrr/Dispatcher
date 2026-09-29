@@ -165,6 +165,33 @@
       "file_snapshots": {
         "test_e2e.py": ""
       }
+    },
+    "34edab56dec826bbe597f0a29a3549d6b14f4677bf4928bb60390a76979f610e": {
+      "timestamp": 1790641964.8633542,
+      "project": "DEMO",
+      "message": "CODEBASE RAG:\n\n--- tests/test_progress_route_meta.py:15 (score=14.3408) ---\ndef test_doctor_route_snippet():\n    from app.product_surface import doctor_route_snippet\n\n    s = doctor_route_snippet(\"create file\")\n    assert len(s) > 5\n\n--- ui/help_popover.py:80 (score=11.6446) ---\ndef why_button(parent: Any, *, title: str, body: str, **kwargs: Any) -> Any:\n    \"\"\"Create a small [?] button that opens HelpPopover.\"\"\"\n    if ctk is None:\n        return None\n\n    def _open() -> None:\n        HelpPopover.show(parent, title=title, body=body, anchor_widget=btn)\n\n    btn = ctk.CTkButton(parent, text=\"?\", width=28, height=24, command=_open, **kwargs)\n    return btn\n\n--- tests/test_aider_local_writes_file.py:76 (score=9.5549) ---\ndef test_aider_local_writes_file(tmp_path: Path) -> None:\n    \"\"\"Требуемый регресс-тест: aider_local заполняет целевой файл.\n\n    Сначала создаём заглушку (как это делает Executor), затем запускаем\n    aider ровно той командой, которую собирает workers.yaml для aider_local.\n    \"\"\"\n    target = tmp_path / \"test_output.py\"\n    # ровно то, что теперь делает Executor до старта воркера\n    Executor._e\n\n--- scripts/live_smoke.py:17 (score=8.8109) ---\ndef ollama_up(base: str='http://127.0.0.1:11434') -> bool:\n    '''\"\"\"ollama_up(base).\n\nReturns:\n    Result of ollama_up.\n\"\"\"'''\n    try:\n        with urllib.request.urlopen(base + '/api/tags', timeout=2) as r:\n            return r.status == 200\n    except Exception:\n        return False\n\n\nCreate file test_aiders.py with function multiply(a, b) that returns a * b",
+      "files": [
+        "test_aiders.py"
+      ],
+      "verify": [
+        "python -m py_compile test_aiders.py"
+      ],
+      "git_head": "0cfaae79f806cc535fb65a67b470484827baf256",
+      "git_dirty": true,
+      "content_fp": "1f33a02e3bb7fb2ebd0a28033fb19d8e3d54f33de2f263ac4c40e6f6e22374ba",
+      "post_content_fp": "1f33a02e3bb7fb2ebd0a28033fb19d8e3d54f33de2f263ac4c40e6f6e22374ba",
+      "solution": {
+        "method": "llm",
+        "worker": "opencode",
+        "skill": "",
+        "stdout": "[THINKING] Нужно создать файл `test_aiders.py` и добавить в него функцию `multiply(a, b)`, которая возвращает произведение `a` и `b`. Составляю план.\n\n[PLAN] 1. Создать файл `test_aiders.py`. 2. Добавить функцию `multiply(a, b)`. 3. Написать тест для этой функции. 4. Прогнать тесты.",
+        "commit": "",
+        "summary": "[THINKING] Нужно создать файл `test_aiders.py` и добавить в него функцию `multiply(a, b)`, которая возвращает произведение `a` и `b`. Составляю план.\n\n[PLAN] 1. Создать файл `test_aiders.py`. 2. Добавить функцию `multiply(a, b)`. 3. Написать тест для этой функции. 4. Прогнать тесты.",
+        "result": null
+      },
+      "file_snapshots": {
+        "test_aiders.py": ""
+      }
     }
   }
 }
