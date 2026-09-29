@@ -272,7 +272,7 @@ class HealthRegistry:
             self.save_state()
             return True
 
-    def end_task(self, name: str) -> None:
+    def end_task(self, name: str, ok: bool = True) -> None:
         with self._lock:
             st = self.state(name)
             st.running_count = max(0, st.running_count - 1)
