@@ -1,0 +1,157 @@
+{
+  "id": "cmp-044939",
+  "channel": "desktop",
+  "project": "DEMO",
+  "message": "CODEBASE RAG:\n\n--- tests/test_context_git_day3.py:44 (score=18.487) ---\ndef test_estimate_tokens_positive():\n    assert estimate_tokens(\"hello\") >= 1\n    assert estimate_tokens(\"привет мир\") >= 1\n\n\n\n--- tests/test_progress_route_meta.py:15 (score=14.3307) ---\ndef test_doctor_route_snippet():\n    from app.product_surface import doctor_route_snippet\n\n    s = doctor_route_snippet(\"create file\")\n    assert len(s) > 5\n\n--- tests/test_aider_local_writes_file.py:76 (score=14.1775) ---\ndef test_aider_local_writes_file(tmp_path: Path) -> None:\n    \"\"\"Требуемый регресс-тест: aider_local заполняет целевой файл.\n\n    Сначала создаём заглушку (как это делает Executor), затем запускаем\n    aider ровно той командой, которую собирает workers.yaml для aider_local.\n    \"\"\"\n    target = tmp_path / \"test_output.py\"\n    # ровно то, что теперь делает Executor до старта воркера\n    Executor._e\n\n--- tests/test_language_repair_runtime_hook.py:19 (score=12.0996) ---\ndef test_code_blocks_ignored():\n    text = (\n        \"Объяснение на русском.\\n\"\n        \"```python\\n\"\n        \"def foo():\\n\"\n        \"    return \\\"hello world from English string\\\"\\n\"\n        \"```\\n\"\n        \"Ещё русский текст про модуль.\\n\"\n    )\n    assert needs_language_repair(text) is False\n\n\n\nCreate file test_final.py with function hello() that returns string мир",
+  "files": [
+    "test_final.py"
+  ],
+  "attempts": 3,
+  "error": "RETRY_BUDGET_EXHAUSTED (attempts>=3): Внутренняя ошибка: AttributeError: 'NoneType' object has no attribute 'root'",
+  "metadata": {
+    "capabilities": [
+      "code_edit"
+    ],
+    "project_root": "D:\\Workspace\\AgentBus",
+    "attachments": [],
+    "verify_ladder": 1,
+    "verify_ladder_label": "L1_compile",
+    "verify_policy": "user_provided",
+    "verify_max_level": 1,
+    "rag_context": "CODEBASE RAG:\n\n--- tests/test_context_git_day3.py:44 (score=18.487) ---\ndef test_estimate_tokens_positive():\n    assert estimate_tokens(\"hello\") >= 1\n    assert estimate_tokens(\"привет мир\") >= 1\n\n\n\n--- tests/test_progress_route_meta.py:15 (score=14.3307) ---\ndef test_doctor_route_snippet():\n    from app.product_surface import doctor_route_snippet\n\n    s = doctor_route_snippet(\"create file\")\n    assert len(s) > 5\n\n--- tests/test_aider_local_writes_file.py:76 (score=14.1775) ---\ndef test_aider_local_writes_file(tmp_path: Path) -> None:\n    \"\"\"Требуемый регресс-тест: aider_local заполняет целевой файл.\n\n    Сначала создаём заглушку (как это делает Executor), затем запускаем\n    aider ровно той командой, которую собирает workers.yaml для aider_local.\n    \"\"\"\n    target = tmp_path / \"test_output.py\"\n    # ровно то, что теперь делает Executor до старта воркера\n    Executor._e\n\n--- tests/test_language_repair_runtime_hook.py:19 (score=12.0996) ---\ndef test_code_blocks_ignored():\n    text = (\n        \"Объяснение на русском.\\n\"\n        \"```python\\n\"\n        \"def foo():\\n\"\n        \"    return \\\"hello world from English string\\\"\\n\"\n        \"```\\n\"\n        \"Ещё русский текст про модуль.\\n\"\n    )\n    assert needs_language_repair(text) is False\n\n",
+    "task_type": "test",
+    "complexity": 2,
+    "meta_summary": "",
+    "meta_source": "heuristic",
+    "meta_latency_ms": 0.0,
+    "estimated_files": 1,
+    "risk_level": "low",
+    "suggested_worker": "aider_local",
+    "_hooks_project": "D:\\Workspace\\AgentBus",
+    "_router_v2": {
+      "aider_local": {
+        "worker": "aider_local",
+        "total": 0.925,
+        "capability": 1.0,
+        "health": 1.0,
+        "cost": 1.0,
+        "reliability": 0.5,
+        "risk_fit": 1.0,
+        "reasons": [
+          "tier_ok:3>=2",
+          "local_free",
+          "reliability:0.50"
+        ]
+      },
+      "opencode": {
+        "worker": "opencode",
+        "total": 0.815,
+        "capability": 1.0,
+        "health": 1.0,
+        "cost": 0.45,
+        "reliability": 0.5,
+        "risk_fit": 1.0,
+        "reasons": [
+          "tier_ok:10>=2",
+          "cloud_cost",
+          "reliability:0.50"
+        ]
+      },
+      "aider_openrouter": {
+        "worker": "aider_openrouter",
+        "total": 0.925,
+        "capability": 1.0,
+        "health": 1.0,
+        "cost": 1.0,
+        "reliability": 0.5,
+        "risk_fit": 1.0,
+        "reasons": [
+          "tier_ok:9>=2",
+          "local_free",
+          "reliability:0.50"
+        ]
+      },
+      "aider_together": {
+        "worker": "aider_together",
+        "total": 0.925,
+        "capability": 1.0,
+        "health": 1.0,
+        "cost": 1.0,
+        "reliability": 0.5,
+        "risk_fit": 1.0,
+        "reasons": [
+          "tier_ok:10>=2",
+          "local_free",
+          "reliability:0.50"
+        ]
+      },
+      "aider_huggingface": {
+        "worker": "aider_huggingface",
+        "total": 0.925,
+        "capability": 1.0,
+        "health": 1.0,
+        "cost": 1.0,
+        "reliability": 0.5,
+        "risk_fit": 1.0,
+        "reasons": [
+          "tier_ok:8>=2",
+          "local_free",
+          "reliability:0.50"
+        ]
+      }
+    },
+    "worker_outcome": {
+      "kind": "worker_crash",
+      "switch_backend": true,
+      "prefer_local": false,
+      "worker_ok": false,
+      "verification_ok": null,
+      "event": "ERROR",
+      "err_type": "ERROR",
+      "fail_status": "ERROR",
+      "detail": "Внутренняя ошибка: AttributeError: 'NoneType' object has no attribute 'root'",
+      "fallback_kind": "other"
+    },
+    "failure_kind": "worker_crash",
+    "prefer_local": false,
+    "prev_failure": "Внутренняя ошибка: AttributeError: 'NoneType' object has no attribute 'root'",
+    "last_result": {
+      "error": "Внутренняя ошибка: AttributeError: 'NoneType' object has no attribute 'root'",
+      "ok": null,
+      "verified": null,
+      "verification": {},
+      "changed_files": [],
+      "worker": "",
+      "timed_out": false,
+      "terminal_state": "DEFERRED"
+    },
+    "worker_result": {
+      "kind": "worker_crash",
+      "switch_backend": true,
+      "prefer_local": false
+    },
+    "execution_evidence": {
+      "task_id": "cmp-044939",
+      "plan_step": "",
+      "worker": "aider_local",
+      "model": "",
+      "attempt": 2,
+      "started_at": "",
+      "finished_at": "2026-09-29T01:51:03.043642+00:00",
+      "changed_files": [],
+      "verification": {},
+      "terminal_state": "DEFERRED",
+      "error": "Внутренняя ошибка: AttributeError: 'NoneType' object has no attribute 'root'",
+      "reclaim_reason": null,
+      "route_advisory": null
+    },
+    "quarantined": true,
+    "category": "CODE_ERROR",
+    "verify_budget": 3,
+    "final": "BLOCKED",
+    "verify_exhausted": false,
+    "max_attempts": 3,
+    "consecutive_verify_fails": 0
+  },
+  "ts": 1790646733.670723
+}

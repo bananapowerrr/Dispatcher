@@ -579,11 +579,16 @@ class RPLlmMixin:
                 # и объявлял LOOP_ERROR — модель при этом не зацикливалась
                 # (u-utf8-041524). --encoding тут не помогает: флаг задаёт
                 # кодек, но не errors.
-                worker_files = [
-                    f for f in (abs_files or [])
-                    if (self.context.root / Path(str(f)).name).name in
-                    [str(t).replace("\\", "/").split("/")[-1] for t in (task.files or [])]
-                ] or [str(f) for f in (task.files or []) if (self.context.root / str(f)).is_file()]
+                # ctx, а не self.context: в рантайме self.context равен None
+                # и обращение к self.context.root роняло задачу с
+                # AttributeError: 'NoneType' object has no attribute 'root'
+                # (cmp-044939) ДО запуска воркера.
+                _root = Path(str(getattr(ctx, "root", None) or "."))
+                _names = {str(t).replace("\\", "/").split("/")[-1]
+                          for t in (getattr(task, "files", None) or [])}
+                worker_files = [f for f in (abs_files or [])
+                                if Path(str(f)).name in _names] or \
+                    [str(f) for f in _names if (_root / f).is_file()]
                 try:
                     self.log.write(
                         f"worker_files: task={task.id} passing {len(worker_files)} "
