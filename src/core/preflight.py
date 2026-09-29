@@ -23,8 +23,24 @@ def preflight_worker(worker: Any, timeout: float = 1.2) -> tuple[bool, str]:
             return False, f"runtime {prov} недоступен"
 
         if harness in ("aider", "opencode"):
+            import os
             import shutil
-            binary = harness if shutil.which(harness) else None
+            # Резолвим бинарь ТАК ЖЕ, как Executor: сперва путь из
+            # конфигурации, потом PATH. Раньше был только shutil.which(),
+            # а aider лежит в .venv-aider\Scripts и в PATH не прописан —
+            # все облачные aider-воркеры отбрасывались с ложным
+            # "CLI aider не найден", хотя executor запускал их нормально
+            # (c-long-040046). Локальный воркер сюда не доходил: у него
+            # provider=ollama, и предыдущая ветка возвращала ok по ollama.
+            binary = ""
+            try:
+                from core.config import AIDER_PATH, OPENCODE_PATH
+                configured = AIDER_PATH if harness == "aider" else OPENCODE_PATH
+                binary = str(configured or "")
+            except Exception:
+                binary = ""
+            if not binary or not os.path.exists(binary):
+                binary = shutil.which(harness) or ""
             if not binary:
                 return False, f"CLI {harness} не найден"
         return True, "ok"
