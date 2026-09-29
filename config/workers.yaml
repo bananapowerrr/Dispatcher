@@ -16,6 +16,7 @@
   timeout: 900
   complexity: 2
   quality: 1.0
+  billing: free
   enabled: true
 
 - name: opencode
@@ -31,6 +32,7 @@
   # задачи на запись — иначе после выпадения остальных воркеров задача
   # уходит в DEFERRED по построению (c-long-040046).
   capabilities: [plan]
+  billing: free
   enabled: true
 
 - name: aider_siliconflow
@@ -42,6 +44,10 @@
   timeout: 300
   complexity: 5
   quality: 1.4
+  # Платный шлюз: при AGENTBUS_ALLOW_PAID=0 воркер роутером не выбирается
+  # (src/core/paid_gate.py). Метка 'free' в providers.yaml означает лишь
+  # free-тир, а не бесплатность по политике программы.
+  billing: paid
   enabled: true
 
 - name: aider_openrouter
@@ -53,6 +59,7 @@
   timeout: 180
   complexity: 4
   quality: 1.3
+  billing: paid
   enabled: true
 
 - name: aider_together
@@ -64,6 +71,7 @@
   timeout: 300
   complexity: 5
   quality: 1.3
+  billing: paid
   enabled: true
 
 - name: aider_huggingface
@@ -75,4 +83,5 @@
   timeout: 300
   complexity: 4
   quality: 1.2
+  billing: paid
   enabled: true

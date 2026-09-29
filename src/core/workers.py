@@ -36,6 +36,9 @@ class Worker:
     tier: int = 5  # 1=meta light … 10=premium cloud
     quality: float = 1.0
     capabilities: tuple[str, ...] = ()
+    # "" = вывести по провайдеру (core.paid_gate). "paid"/"free" = явное
+    # переопределение для конкретного воркера.
+    billing: str = ""
     # Per-worker API override. Empty means: use provider-level configuration.
     api_base: str = ""
     api_key_env: str = ""
@@ -53,6 +56,7 @@ class Worker:
             "harness": self.harness, "provider": self.provider, "model": self.model,
             "complexity": self.complexity, "tier": self.tier, "quality": self.quality,
             "capabilities": list(self.capabilities),
+            "billing": self.billing,
             "api_base": self.api_base, "api_key_env": self.api_key_env,
             "role": self.role,
             "profile": self.profile,
@@ -224,6 +228,7 @@ def _from_yaml(path: Path) -> list[Worker]:
             tier=_as_int(item.get("tier"), _default_tier(item)),
             quality=_as_float(item.get("quality"), 1.0),
             capabilities=_as_str_tuple(item.get("capabilities")),
+            billing=str(item.get("billing", "") or "").strip().lower(),
             api_base=str(item.get("api_base", "") or "").strip(),
             api_key_env=str(item.get("api_key_env", "") or "").strip(),
             role=str(item.get("role", "") or "").strip(),

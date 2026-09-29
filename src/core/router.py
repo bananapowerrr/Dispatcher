@@ -234,9 +234,21 @@ def _is_plan_only(w) -> bool:
 
 def select_executor(workers, health, raw: dict[str, Any] | None,
                     requested: str = "", ranker=None, capacity=None,
-                    required_cap: str | None = None) -> object | None:
+                    required_cap: str | None = None,
+                    allow_paid: bool | None = None) -> object | None:
     complexity = task_complexity(raw)
     task_type = _task_type(raw, ranker)
+
+    if allow_paid is None:
+        # AGENTBUS_ALLOW_PAID заводили, печатали, но не проверяли: платные
+        # облака выбирались и тратили деньги (c-long-040046). Здесь шлюз
+        # наконец закрыт. Явный allow_paid=True оставлен для сознательных
+        # прогонов с платным бюджетом.
+        try:
+            from core.config import ALLOW_PAID
+            allow_paid = bool(ALLOW_PAID)
+        except Exception:
+            allow_paid = False
 
     soft_penalty: dict[str, float] = {}
     candidates = []
@@ -255,6 +267,17 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
         if not getattr(w, "enabled", True):
             _skip(w, "disabled")
             continue
+        if not allow_paid:
+            try:
+                from core.paid_gate import is_paid_worker
+                if is_paid_worker(w):
+                    _skip(w, "paid_disallowed[ALLOW_PAID=0]")
+                    continue
+            except Exception as _paid_err:
+                # Неизвестная цена = платно. Шлюз не должен «падать в открытый»
+                # из-за внутренней ошибки (c-long-040046).
+                _skip(w, f"paid_gate_error[{type(_paid_err).__name__}]")
+                continue
         # Plan-only воркер не создаёт файлы: отдача ему задачу на запись
         # гарантированно даёт пустой результат и DEFERRED по построению
         # (c-long-040046). Планирование без files по-прежнему разрешено.

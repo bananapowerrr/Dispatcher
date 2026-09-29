@@ -40,6 +40,7 @@ CHECK_LABELS = {
     "cli_aider": "cli aider",
     "cli_opencode": "cli opencode",
     "code_worker_stack": "code worker stack",
+    "paid_gate": "платный шлюз (ALLOW_PAID)",
 }
 
 CHECK_TIPS = {
@@ -58,6 +59,7 @@ CHECK_TIPS = {
     "aider_cli": "pip install aider-chat",
     "opencode_cli": "установите OpenCode CLI или задайте OPENCODE_BIN",
     "live_path": "нужны Ollama + модель + Aider (исторический path) или OpenCode",
+    "paid_gate": "AGENTBUS_ALLOW_PAID=1 включает платные облака; по умолчанию 0",
 }
 
 @dataclass
@@ -180,11 +182,32 @@ def run_doctor() -> DoctorReport:
         from providers.registry import load_providers
         from providers.capacity import FreeCapacityManager
         from core.workers import load_workers
+        # Платный шлюз: при ALLOW_PAID=0 платные воркеры роутер не выбирает
+        # (core/paid_gate.py), поэтому и в отчёте они не должны считаться
+        # доступной ёмкостью — иначе doctor показывает несуществующий запас.
+        try:
+            from core.config import ALLOW_PAID as _ALLOW_PAID
+            from core.paid_gate import is_paid_worker
+        except Exception:
+            _ALLOW_PAID, is_paid_worker = False, None
+
+        def _paid(w) -> bool:
+            try:
+                return bool(is_paid_worker(w)) if is_paid_worker else False
+            except Exception:
+                return False
+
         ps = load_providers()
         cm = FreeCapacityManager(ps)
         usable_workers = []
+        paid_workers: list[str] = []
         for w in load_workers():
+            is_paid = _paid(w)
+            if is_paid:
+                paid_workers.append(w.name)
             if not getattr(w, "enabled", True):
+                continue
+            if is_paid and not _ALLOW_PAID:
                 continue
             try:
                 if cm.worker_usable(w):
@@ -209,6 +232,14 @@ def run_doctor() -> DoctorReport:
             (", ".join(usable_workers[:8]) if usable_workers else "no usable workers"),
             critical=True,
         )
+        blocked = [n for n in paid_workers if not _ALLOW_PAID]
+        detail = (
+            f"ALLOW_PAID={_ALLOW_PAID}; платных воркеров: "
+            f"{', '.join(paid_workers) or '—'}"
+        )
+        if blocked:
+            detail += f" — заблокированы гейтом: {', '.join(blocked)}"
+        add("paid_gate", True, detail, critical=False)
     except Exception as exp:
         add("worker_capacity", False, str(exp), critical=True)
 
