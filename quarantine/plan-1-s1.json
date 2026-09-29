@@ -5,7 +5,7 @@
   "message": "CODEBASE RAG:\n\n--- tests/test_capacity_shard.py:23 (score=11.7347) ---\ndef test_is_atomic_single_file():\n    d = TaskDecomposer()\n    assert d.is_atomic({\"files\": [\"a.py\"], \"message\": \"fix typo\"})\n    assert not d.is_atomic({\"files\": [\"a.py\", \"b.py\", \"c.py\"], \"message\": \"refactor all\"})\n\n\n\n--- tests/test_security_audit.py:29 (score=9.3612) ---\ndef test_validate_task_strips_bad_files():\n    # validate_task may raise or filter — accept either strict raise or cleaned files\n    raw = {\"message\": \"fix typo\", \"files\": [\"ok.py\"], \"project\": \"demo\"}\n    out = validate_task(raw)\n    assert isinstance(out, dict)\n    assert out.get(\"message\")\n\n--- tests/test_night_fc34.py:44 (score=8.6335) ---\ndef test_plan_steps_for_night():\n    plan = LivingPlan(\n        steps=[\n            LivingStep(id=\"light\", action=\"fix typo\", status=\"PENDING\", complexity=1),\n            LivingStep(id=\"heavy\", action=\"refactor module\", status=\"PENDING\", complexity=5),\n            LivingStep(id=\"done\", action=\"x\", status=\"DONE\", complexity=5),\n        ]\n    )\n    sched = NightScheduler(NightConfig(min_complexity=3\n\n--- tests/test_router_role.py:38 (score=8.3732) ---\ndef test_select_prefers_code_role():\n    workers = [\n        _w(\"cloud_heavy\", complexity=5, quality=1.0, role=\"\", provider=\"openrouter\"),\n        _w(\"aider_local\", complexity=2, quality=1.0, role=\"code\", provider=\"ollama\"),\n    ]\n    raw = {\n        \"message\": \"fix typo in foo.py\",\n        \"files\": [\"foo.py\"],\n        \"metadata\": {\"complexity\": 2, \"task_type\": \"bugfix\"},\n    }\n    chosen = select\n\nfix typo",
   "files": [],
   "attempts": 3,
-  "error": "RETRY_BUDGET_EXHAUSTED (attempts>=3): Команда не прошла: pytest -q\n........................................................................ [  4%]\n........................................................................ [  8%]\n........................................................................ [ 12%]\n........................................................................ [ 17%]\n........................................................................ [ 21%]\n........................................................................ [ 25%]\n.........F.............................................................. [ 30%]\n........................................................................ [ 34%]\n........................................................................ [ 38%]\n........................................................................ [ 43%]\n........................................................................ [ 47%]\n........................................................................ [ 51%]\n........................................................................ [ 56%]\n........................................................................ [ 60%]\n........................................................................ [ 64%]\n........................................................................ [ 68%]\n........................................................................ [ 73%]\n........................................................................ [ 77%]\n........................................................................ [ 81%]\n......................................................................s. [ 86%]\n..........................................................s............. [ 90%]\n..............................................s......................... [ 94%]\n........................................................................ [ 99%]\n...............                                                          [100%]\n================================== FAILURES ===================================\n______________________ test_report_ok_on_healthy_python _______________________\n\nexecutor = <core.executor.Executor object at 0x0000020B7FE596A0>\npython_exe = 'C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe'\n\n    def test_report_ok_on_healthy_python(executor, python_exe):\n        # GitPython-проба в подпроцессе иногда падает из-за задокументированного\n        # AV-флейка: `git version` крашится нативно (0xC0000005). Этот краш приходит\n        # в _gitpython_report как ImportError (не _CRASH-returncode), поэтому его\n        # внутренний ретрай может вернуть ok=False. Повторяем инвокацию до\n        # устойчивого ok=True — тест проверяет «GitPython в здоровый момент работает».\n        rep = None\n        for _ in range(6):\n            rep = executor._gitpython_report(python_exe)\n            if rep.get(\"ok\"):\n                break\n            time.sleep(0.5)\n        assert rep is not None\n        # структурно корректный отчёт + реально рабочий GitPython\n        assert set(rep) >= {\"ok\", \"path\", \"version\", \"exc\", \"exc_obj\", \"reason\"}\n>       assert rep[\"ok\"] is True, rep\nE       AssertionError: {'ok': False, 'path': '', 'version': '', 'exc': 'ModuleNotFoundError', ...}\nE       assert False is True\n\ntests\\test_executor.py:48: AssertionError\n============================== warnings summary ===============================\ntests/test_theme_engine.py::test_widget_without_configure_is_false\n  D:\\Workspace\\AgentBus\\tests\\test_theme_engine.py:226: RuntimeWarning: theme: у виджета нет configure(), стиль не применён\n    assert th.apply_frame(object(), role=\"panel\") is False\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_executor.py::test_report_ok_on_healthy_python - AssertionEr...",
+  "error": "RETRY_BUDGET_EXHAUSTED (attempts>=3): Все исполнители не справились",
   "metadata": {
     "source": "living_plan",
     "plan_version": 1,
@@ -46,34 +46,6 @@
     "suggested_worker": "aider_local",
     "_hooks_project": "D:\\Workspace\\AgentBus",
     "_router_v2": {
-      "aider_local": {
-        "worker": "aider_local",
-        "total": 0.67,
-        "capability": 0.15,
-        "health": 1.0,
-        "cost": 1.0,
-        "reliability": 0.5,
-        "risk_fit": 1.0,
-        "reasons": [
-          "tier_low:3<6",
-          "local_free",
-          "reliability:0.50"
-        ]
-      },
-      "opencode": {
-        "worker": "opencode",
-        "total": 0.815,
-        "capability": 1.0,
-        "health": 1.0,
-        "cost": 0.45,
-        "reliability": 0.5,
-        "risk_fit": 1.0,
-        "reasons": [
-          "tier_ok:10>=6",
-          "cloud_cost",
-          "reliability:0.50"
-        ]
-      },
       "aider_openrouter": {
         "worker": "aider_openrouter",
         "total": 0.925,
@@ -117,60 +89,9 @@
         ]
       }
     },
-    "execution_result": {
-      "ok": true,
-      "worker": "opencode",
-      "model": "",
-      "timed_out": false,
-      "error": "",
-      "latency_sec": 0.0
-    },
-    "worker_result": {
-      "status": "success",
-      "kind": "worker_ok",
-      "ok": true,
-      "timed_out": false,
-      "exit_code": null,
-      "error": "",
-      "switch_backend": false,
-      "prefer_local": false
-    },
-    "_language_repaired": true,
-    "verification_report": {
-      "passed": true,
-      "reason": "escalating_ok",
-      "risk": "low",
-      "duration_sec": 0.0,
-      "summary": "Verify PASS (1/1)",
-      "checks": [
-        {
-          "name": "escalating",
-          "passed": true,
-          "status": "passed",
-          "detail": "from_verify_escalating",
-          "command": "",
-          "code": null,
-          "exit_code": null,
-          "duration_sec": 0.0
-        }
-      ],
-      "check_map": {
-        "escalating": "passed"
-      },
-      "details": [
-        {
-          "name": "escalating",
-          "passed": true,
-          "detail": "from_verify_escalating",
-          "command": "",
-          "code": null,
-          "duration_sec": 0.0
-        }
-      ]
-    },
-    "consecutive_verify_fails": 4,
+    "prev_failure": "Все исполнители не справились",
     "last_result": {
-      "error": "Команда не прошла: pytest -q\n........................................................................ [  4%]\n........................................................................ [  8%]\n........................................................................ [ 12%]\n........................................................................ [ 17%]\n........................................................................ [ 21%]\n........................................................................ [ 25%]\n.........F.............................................................. [ 30%]\n........................................................................ [ 34%]\n........................................................................ [ 38%]\n........................................................................ [ 43%]\n........................................................................ [ 47%]\n........................................................................ [ 51%]\n........................................................................ [ 56%]\n........................................................................ [ 60%]\n........................................................................ [ 64%]\n........................................................................ [ 68%]\n........................................................................ [ 73%]\n........................................................................ [ 77%]\n........................................................................ [ 81%]\n......................................................................s. [ 86%]\n..........................................................s............. [ 90%]\n..............................................s......................... [ 94%]\n........................................................................ [ 99%]\n...............                                                          [100%]\n================================== FAILURES =======",
+      "error": "Все исполнители не справились",
       "ok": null,
       "verified": null,
       "verification": {},
@@ -178,6 +99,11 @@
       "worker": "opencode",
       "timed_out": false,
       "terminal_state": "DEFERRED"
+    },
+    "worker_result": {
+      "kind": "worker_crash",
+      "switch_backend": true,
+      "prefer_local": false
     },
     "failure_kind": "worker_crash",
     "execution_evidence": {
@@ -187,35 +113,21 @@
       "model": "",
       "attempt": 2,
       "started_at": "",
-      "finished_at": "2026-09-29T02:28:07.886335+00:00",
+      "finished_at": "2026-09-29T02:34:24.192485+00:00",
       "changed_files": [],
       "verification": {},
       "terminal_state": "DEFERRED",
-      "error": "Команда не прошла: pytest -q\n........................................................................ [  4%]\n........................................................................ [  8%]\n........................................................................ [ 12%]\n........................................................................ [ 17%]\n........................................................................ [ 21%]\n........................................................................ [ 25%]\n.........F.............................................................. [ 30%]\n........................................................................ [ 34%]\n........................................................................ [ 38%]\n........................................................................ [ 43%]\n........................................................................ [ 47%]\n........................................................................ [ 51%]\n........................................................................ [ 56%]\n........................................................................ [ 60%]\n........................................................................ [ 64%]\n........................................................................ [ 68%]\n........................................................................ [ 73%]\n........................................................................ [ 77%]\n........................................................................ [ 81%]\n......................................................................s. [ 86%]\n..........................................................s............. [ 90%]\n..............................................s......................... [ 94%]\n........................................................................ [ 99%]\n...............                                                          [100%]\n================================== FAILURES =======",
+      "error": "Все исполнители не справились",
       "reclaim_reason": null,
       "route_advisory": null
     },
-    "last_verify_error": "================\ntests/test_theme_engine.py::test_widget_without_configure_is_false\n  D:\\Workspace\\AgentBus\\tests\\test_theme_engine.py:226: RuntimeWarning: theme: у виджета нет configure(), стиль не применён\n    assert th.apply_frame(object(), role=\"panel\") is False\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_executor.py::test_report_ok_on_healthy_python - AssertionEr...",
-    "worker_outcome": {
-      "kind": "worker_crash",
-      "switch_backend": true,
-      "prefer_local": false,
-      "worker_ok": false,
-      "verification_ok": null,
-      "event": "ERROR",
-      "err_type": "ERROR",
-      "fail_status": "ERROR",
-      "detail": "Команда не прошла: pytest -q\n........................................................................ [  4%]\n........................................................................ [  8%]\n........................................................................ [ 12%]\n........................................................................ [ 17%]\n........................................................................ [ 21%]\n.......................................................................",
-      "fallback_kind": "other"
-    },
-    "prefer_local": false,
-    "prev_failure": ".............                                                          [100%]\n================================== FAILURES ===================================\n______________________ test_report_ok_on_healthy_python _______________________\n\nexecutor = <core.executor.Executor object at 0x000002542374D6A0>\npython_exe = 'C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe'\n\n    def test_report_ok_on_healthy_python(executor, python_exe):\n        # GitPython-проба в подпроцессе иногда падает из-за задокументированного\n        # AV-флейка: `git version` крашится нативно (0xC0000005). Этот краш приходит\n        # в _gitpython_report как ImportError (не _CRASH-returncode), поэтому его\n        # внутренний ретрай может вернуть ok=False. Повторяем инвокацию до\n        # устойчивого ok=True — тест проверяет «GitPython в здоровый момент работает».\n        rep = None\n        for _ in range(6):\n            rep = executor._gitpython_report(python_exe)\n            if rep.get(\"ok\"):\n                break\n            time.sleep(0.5)\n        assert rep is not None\n        # структурно корректный отчёт + реально рабочий GitPython\n        assert set(rep) >= {\"ok\", \"path\", \"version\", \"exc\", \"exc_obj\", \"reason\"}\n>       assert rep[\"ok\"] is True, rep\nE       AssertionError: {'ok': False, 'path': '', 'version': '', 'exc': 'ModuleNotFoundError', ...}\nE       assert False is True\n\ntests\\test_executor.py:48: AssertionError\n============================== warnings summary ===============================\ntests/test_theme_engine.py::test_widget_without_configure_is_false\n  D:\\Workspace\\AgentBus\\tests\\test_theme_engine.py:226: RuntimeWarning: theme: у виджета нет configure(), стиль не применён\n    assert th.apply_frame(object(), role=\"panel\") is False\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_executor.py::test_report_ok_on_healthy_python - AssertionEr...",
     "quarantined": true,
-    "category": "IMPORT_ERROR",
+    "category": "UNKNOWN_ERROR",
     "verify_budget": 3,
-    "final": "ERROR",
-    "verify_exhausted": true,
-    "max_attempts": 3
+    "final": "BLOCKED",
+    "verify_exhausted": false,
+    "max_attempts": 3,
+    "consecutive_verify_fails": 0
   },
-  "ts": 1790649183.5830293
+  "ts": 1790649330.7120864
 }
