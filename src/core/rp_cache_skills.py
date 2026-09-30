@@ -59,7 +59,11 @@ class RPCacheSkillsMixin:
     def _stage_cache_and_skills(self, task, raw: dict, proj) -> str | None:
         """Cache hit or skill hit → terminal status; else None."""
         cache_hit = self._try_cache(task, raw, proj)
-        if cache_hit is not None:
+        # Истина, а не "is not None": "" означает "кэш есть, но восстановление
+        # ничего не дало". Раньше "" считался попаданием и возвращался вверх
+        # как терминал, из-за чего задача висела в processing до reclaim
+        # вместо того, чтобы уйти в worker/LLM.
+        if cache_hit:
             try:
                 from utils.metrics import GLOBAL_METRICS
                 GLOBAL_METRICS.record("cache_hit")
@@ -131,6 +135,12 @@ class RPCacheSkillsMixin:
                     stdout=str(skill_result.get("result") or "")[:4000],
                     result=skill_result.get("result"),
                 )
+                return status
+            if status:
+                # Терминальное состояние (например контракт демотил
+                # DONE -> ERROR, и терминальная запись уже записана).
+                # Раньше любой не-DONE молча превращался в None, и задача
+                # продолжала обрабатываться поверх готовой записи.
                 return status
             # "" = навык отработал, но задачу не решил. Возвращаем None,
             # чтобы вызывающий продолжил в worker/LLM. Раньше здесь был
@@ -244,31 +254,51 @@ class RPCacheSkillsMixin:
             return ""
 
         summary = sol.get("summary") or sol.get("stdout") or f"cache:{method}"
-        try:
-            self.queue.finish(
-                task.id, self.worker_id, "DONE",
-                str(summary)[:4000], "",
-            )
-        except Exception as exc:
-            try:
-                self.log.write(f"finish cache: {exc}")
-            except Exception:
-                pass
-        self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
-        self._save(
+        restored = apply_info.get("written") or []
+        # B3: терминал пишется только через finish_task. Раньше здесь стояли
+        # bus.move -> done и _save в обход контракта, из-за чего ложный DONE
+        # проходил без verified/changed_files. emit=False: ниже остаётся
+        # свой _emit с богатым payload для UI, двойного события не будет.
+        state = self.finish_task(
             task,
-            "done",
+            "DONE",
             {
                 "worker": worker,
                 "method": "cache",
                 "cache_method": method,
                 "skill": sol.get("skill") or "",
                 "stdout": str(sol.get("stdout") or "")[:4000],
+                "summary": str(summary)[:4000],
                 "commit": sol.get("commit") or "",
                 "cache_key": entry.get("_key") or "",
-                "restored_files": apply_info.get("written") or [],
+                "restored_files": restored,
+                "restored_from_cache": True,
+                # verified не выдумывается: выше _non_empty_files уже
+                # убедился, что файлы существуют и непусты. Фиксируем, чем
+                # именно проверено, чтобы флаг не был голым обещанием.
+                "verified": True,
+                "verify_ok": True,
+                "verification": {
+                    "ok": True,
+                    "source": "cache_restore",
+                    "files_checked": len(real_files),
+                },
+                "changed_files": list(real_files),
             },
+            emit=False,
         )
+        if state != "DONE":
+            # Контракт демотил DONE -> ERROR. Терминальная запись уже
+            # записана finish_task, поэтому возвращаем состояние: дальше
+            # идти нельзя, иначе задача продолжит обрабатываться.
+            try:
+                self.log.write(
+                    f"cache {method}: контракт не дал DONE ({state}) — "
+                    f"task={getattr(task, 'id', '?')}"
+                )
+            except Exception:
+                pass
+            return state
         try:
             self.report.record("DONE", "cache", task.attempts)
         except Exception:
@@ -577,29 +607,40 @@ class RPCacheSkillsMixin:
         except Exception:
             summary = str(detail)[:2000]
 
-        try:
-            self.queue.finish(
-                task.id, self.worker_id, "DONE",
-                summary or f"skill:{skill_name}", "",
-            )
-        except Exception as exc:
-            try:
-                self.log.write(f"finish skill: {exc}")
-            except Exception:
-                pass
-
-        self.bus.move(task.channel, "processing", "done", f"{task.id}.json")
-        self._save(
+        # B3: тот же контракт, что и в cache-пути. Навык отработал, но
+        # раньше это не считалось доказательством: DONE писался мимо
+        # finish_task. Теперь терминал идёт через контракт, а verified
+        # подтверждён проверкой реальных файлов выше.
+        state = self.finish_task(
             task,
-            "done",
+            "DONE",
             {
                 "worker": "skill",
                 "skill": skill_name,
                 "method": "skill",
                 "result": detail,
                 "stdout": summary,
+                "restored_from_skill": True,
+                "verified": True,
+                "verify_ok": True,
+                "verification": {
+                    "ok": True,
+                    "source": "skill_apply",
+                    "files_checked": len(real_files),
+                },
+                "changed_files": list(real_files),
             },
+            emit=False,
         )
+        if state != "DONE":
+            try:
+                self.log.write(
+                    f"skill {skill_name}: контракт не дал DONE ({state}) — "
+                    f"task={getattr(task, 'id', '?')}"
+                )
+            except Exception:
+                pass
+            return state
         try:
             self.report.record("DONE", "skill", task.attempts)
         except Exception:

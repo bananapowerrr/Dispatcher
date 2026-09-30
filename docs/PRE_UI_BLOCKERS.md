@@ -10,9 +10,9 @@ and verified.
 | ID | Focus | Status |
 |----|-------|--------|
 | B1 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
-| B2 | F3 cache/skill path through `finish_task` | next |
+| B2 | F3 cache/skill path through `finish_task` | done |
 | B3 | F4 post-failure meta decomposition | done |
-| B4 | E2E proof of B1..003 | partial |
+| B4 | E2E proof of B1..B3 | partial |
 
 ---
 
@@ -84,26 +84,56 @@ payload from `rp_llm` serializes with both keys present.
 
 ## B2 — cache/skill must go through `finish_task` (F3)
 
-`src/core/rp_cache_skills.py` writes DONE on its own, bypassing the terminal
-contract and the verification gate:
+**Done.** 12 tests in `tests/test_b3_cache_skill_via_finish_task.py`.
 
-- cache path: `bus.move(... "done" ...)` at L257, `return "DONE"` at L306
-- skill path: `bus.move(... "done" ...)` at L591, `return "DONE"` at L638
+`src/core/rp_cache_skills.py` wrote DONE on its own, bypassing the terminal
+contract and the verification gate — cache path and skill path each did
+`bus.move(... "done" ...)` + `_save(...)` + `return "DONE"`. The file already
+acknowledged this at L178/L233 ("ложный DONE мимо finish_task"), so it was
+known debt, not a new finding.
 
-The file already acknowledges this at L178 and L233 ("ложный DONE мимо
-finish_task"), so this is known debt, not a new finding.
+Both paths now call `finish_task`, which supplies the whole terminal sequence
+that was previously hand-rolled: `enforce_done_contract`, the DEV-001 evidence
+decision, `bus.move`, `_save`, queue and metrics. The direct `queue.finish`,
+`bus.move` and `_save` calls are gone.
 
-Fix: replace the direct `bus.move` + `_save` + `return "DONE"` with a call to
-`finish_task`, passing real data — `verified: true` only if the restored files
-were actually checked, and the real `changed_files` list. A cache hit is not
-automatically verified; if the file is gone or differs, the task must not be
-DONE.
+`emit=False` is passed deliberately: the rich `_emit` payload below it carries
+`cache_method` / `skill` / `restored_files` for the UI, so letting `finish_task`
+emit as well would double the event.
 
-Acceptance:
-- No direct `bus.move` to `done` in `rp_cache_skills.py`.
-- A cache-solved task's terminal JSON has `verified: true` and non-empty
-  `changed_files`, and the listed files exist on disk.
-- A cache hit with missing/altered files does not produce DONE.
+`verified: true` is not a bare promise. It is only reached after
+`_non_empty_files` has confirmed the restored files exist and are non-empty, and
+the payload records *how* it was checked rather than asserting a flag:
+
+```python
+"verified": True,
+"verify_ok": True,
+"verification": {"ok": True, "source": "cache_restore", "files_checked": len(real_files)},
+"changed_files": list(real_files),   # проверенный список, не apply_info["written"]
+```
+
+`changed_files` carries `real_files` (verified) instead of
+`apply_info["written"]`, which may still list phantom paths.
+
+### Two latent bugs fixed along the way
+
+Both were reachable and are covered by tests:
+
+1. **A demotion to ERROR was swallowed.** The skill caller collapsed *any*
+   non-DONE status into `None` and let the pipeline continue, so if the
+   contract demoted DONE the task would keep processing on top of an
+   already-written terminal record. Now a terminal state is returned and `""`
+   alone means "not solved".
+2. **An empty cache status was treated as a hit.** `_try_cache` returns `""`
+   when an entry exists but restored nothing; `if cache_hit is not None` read
+   that as a hit and returned `""` upward as a terminal, so the worker never
+   started and the task hung in `processing` until reclaim. Now the check is
+   truthiness, matching the documented intent of the method.
+
+Not changed, flagged for W3: both paths still call `GLOBAL_METRICS.record_task`
+after `finish_task` already recorded the same transition, so a cache DONE is
+counted twice. Fixing it would drop the `cache`/`skill` attribution, so it
+needs a metrics decision rather than a drive-by edit.
 
 ## B3 — post-failure meta decomposition (F4)
 
@@ -139,9 +169,12 @@ returns `error="empty_task_message"` without calling the model, covered by
 - children present in `incoming` with `parent_id` and `is_subtask: true`.
 
 Still to prove:
-- cached task produces DONE with `verified: true` and non-empty
-  `changed_files` (needs B2);
-- no `FileNotFoundError` at claim time under two instances (needs B1);
+- a live task that hits the cache path and produces DONE with
+  `verified: true` and non-empty `changed_files` (the logic is now unit-tested
+  against the contract boundary, but no real cache hit has been observed since
+  the change);
+- no `FileNotFoundError` at claim time under two instances (needs the desktop
+  `O_CREAT|O_EXCL` claim from B1);
 - no `None`/missing keys in any terminal record.
 
 ## Deferred to phase 2 (after basic UI)

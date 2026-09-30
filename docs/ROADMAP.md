@@ -86,7 +86,7 @@ criteria in [PRE_UI_BLOCKERS.md](PRE_UI_BLOCKERS.md).
 | ID | Focus | Status |
 |----|-------|--------|
 | B1 | F1 atomic claim + F2 terminal contract | done (desktop caveat) |
-| B2 | F3 cache/skill path through `finish_task` | next |
+| B2 | F3 cache/skill path through `finish_task` | done |
 | B3 | F4 post-failure meta decomposition | done |
 | B4 | E2E proof of B1..B3 | partial |
 

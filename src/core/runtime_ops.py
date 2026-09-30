@@ -471,7 +471,7 @@ class RuntimeOps:
             pass
 
         # bus move processing → terminal folder FIRST.
-        # FileBus.move is copy2-based, so moving after _save would overwrite the
+        # FileBus.move is rename-based, so moving after _save would overwrite the
         # terminal payload with the stale processing snapshot (status=CLAIMED +
         # phase placeholder), losing error/evidence/verification.
         try:
