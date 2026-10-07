@@ -82,3 +82,12 @@ Desktop.ini
 .kilo/
 .kilocode/
 .aider*
+
+# runtime-состояние intelligence, генерируется при работе
+lessons.json
+solution_cache.json
+semantic_memory.json
+
+# журналы и события диспетчера в корне
+/events/
+/logs/

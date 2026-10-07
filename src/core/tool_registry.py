@@ -10,6 +10,18 @@ Dispatcher picks adapter by worker.harness / provider — never mixes formats.
 """
 from __future__ import annotations
 
+# Исполнителя текстового протокола в рантайме НЕТ: parse_text_tool_line()
+# определён здесь и больше нигде не вызывается — никто не разбирает и не
+# выполняет строки "TOOL: name(...)" из ответа модели. При этом каталог
+# инструментов всё равно вставлялся в промпт (inject_text_block ->
+# adapt_for_worker -> protocol="text" для aider/ollama), и 7B послушно
+# печатала "TOOL: file_write(path=..., content=...)" вместо правки файла.
+# aider CLI такие строки не выполняет, файл оставался 0 Б, задача уходила в
+# DEFERRED с no_changes_and_no_verification (c-long-040046: fix1-fix3 из 5).
+# A/B на живом aider: без блока — файл 34 Б, с блоком — 0 Б.
+# Флаг станет True, когда появится реальный исполнитель протокола.
+TEXT_PROTOCOL_EXECUTOR = False
+
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -255,6 +267,12 @@ class UnifiedToolGateway:
     def inject_text_block(self, message: str, worker: Any, *, allow_write: bool = True) -> str:
         adapted = adapt_for_worker(worker, allow_write=allow_write)
         if adapted["protocol"] != "text" or not adapted.get("tools_text"):
+            return message
+        # Протокола "TOOL: ..." на стороне рантайма не существует — парсер
+        # никем не вызывается. Каталог в промпте только сбивает модель с
+        # толку: вместо правки файла она печатает неисполняемую
+        # "TOOL: file_write(...)" (c-long-040046). Не вводим, пока флаг False.
+        if not TEXT_PROTOCOL_EXECUTOR:
             return message
         if "AVAILABLE TOOLS" in (message or ""):
             return message

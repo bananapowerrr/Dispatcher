@@ -152,6 +152,78 @@ def diagnose_environment() -> list[str]:
             if mod == "yaml":
                 issues.append("missing PyYAML")
 
+    # 8. Worker readiness: OK / NO_KEY / disabled.
+    # Роутер сам по себе не знает про отсутствующие ключи: воркер без ключа
+    # остаётся "доступным" и падает уже в момент запуска, забирая слот и
+    # время (2-3с на облако в c-long-040046). Здесь показываем это заранее.
+    try:
+        from core.workers import load_workers
+        prov_by_id = {}
+        try:
+            try:
+                from providers import load_providers as _lp
+            except ImportError:
+                from providers.registry import load_providers as _lp  # type: ignore
+            for _p in _lp():
+                prov_by_id[str(getattr(_p, "id", "") or "")] = _p
+        except Exception as exp:
+            print(f"worker keys ERR : {exp}")
+        print("  --- workers ---")
+        # Платный шлюз: показываем цену каждого воркера, иначе политика
+        # «только бесплатные» невидима (c-long-040046).
+        try:
+            from core.config import ALLOW_PAID as _ALLOW_PAID
+            from core.paid_gate import is_paid_worker
+        except Exception:
+            _ALLOW_PAID, is_paid_worker = False, None
+        _paid_names: list[str] = []
+        _free_names: list[str] = []
+
+        def _line(w, status: str, note: str = "") -> str:
+            try:
+                paid = bool(is_paid_worker(w)) if is_paid_worker else False
+            except Exception:
+                paid = False
+            mark = "[PAID] " if paid else "[FREE] "
+            (_paid_names if paid else _free_names).append(w.name)
+            blocked = paid and not _ALLOW_PAID
+            tail = f"  {'- ЗАБЛОКИРОВАН ALLOW_PAID=0' if blocked else ''}"
+            return f"  {w.name:<22} {mark}{status:<10} {note}{tail}"
+
+        for w in load_workers():
+            if not getattr(w, "enabled", True):
+                print(_line(w, "DISABLED"))
+                continue
+            caps = getattr(w, "capabilities", ()) or ()
+            if "plan" in (caps if not isinstance(caps, str) else (caps,)):
+                print(_line(w, "PLAN_ONLY", "файлы не пишет, задачи на запись исключены роутером"))
+                continue
+            prov = prov_by_id.get(str(getattr(w, "provider", "") or ""))
+            ke = str(getattr(w, "api_key_env", "") or "") or str(
+                getattr(prov, "api_key_env", "") or "")
+            pid = str(getattr(w, "provider", "") or "")
+            if pid in ("local", "ollama", ""):
+                print(_line(w, "OK", "local, ключ не нужен"))
+                continue
+            if prov is None:
+                print(_line(w, "NO_PROVIDER", f"провайдер {pid!r} отсутствует в providers.yaml"))
+                issues.append(f"worker {w.name}: провайдер {pid} не зарегистрирован")
+                continue
+            has = bool(getattr(prov, "api_key", "")) or (bool(ke) and bool(os.getenv(ke, "")))
+            if not has and not (hasattr(prov, "is_usable") and prov.is_usable() and not ke):
+                print(_line(w, "NO_KEY", f"env: {ke or '—'}"))
+                issues.append(f"worker {w.name} без ключа (env: {ke or '—'})")
+            else:
+                print(_line(w, "OK", f"env: {ke or '—'}"))
+        print(f"  ALLOW_PAID={_ALLOW_PAID}: платных воркеров {len(_paid_names)} "
+              f"({', '.join(_paid_names) or '—'}), бесплатных {len(_free_names)} "
+              f"({', '.join(_free_names) or '—'})")
+        if _paid_names and not _ALLOW_PAID:
+            print("  -> платные воркеры исключены роутером; задачи идут только на бесплатные")
+    except Exception as exc:
+        print(f"workers ERR     : {exc}")
+        issues.append(f"workers: {exc}")
+
     return issues
 
 

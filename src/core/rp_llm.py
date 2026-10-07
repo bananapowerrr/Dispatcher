@@ -78,6 +78,117 @@ try:
 except Exception:  # pragma: no cover
     ProjectContext = None  # type: ignore
 
+def _task_baseline(root, task) -> dict:
+    """Снимок ТОЛЬКО файлов задачи до старта воркера: {rel: (size, sha1)}.
+
+    Раньше для проверки «что-то изменилось» брался весь `git status` проекта.
+    Это неверно: в дереве всегда есть чужие правки (в т.ч. правки самого
+    рантайма), и они удовлетворяли guard, поэтому задача без единого
+    своего изменения получала DONE (s-short-035301: 11 посторонних файлов
+    в changed_files, целевой файл 0 Б).
+    """
+    import hashlib
+    out: dict = {}
+    try:
+        base = Path(root)
+        for f in (getattr(task, "files", None) or []):
+            rel = str(f).replace("\\", "/")
+            try:
+                p = base / rel
+                data = p.read_bytes() if p.is_file() else None
+            except OSError:
+                data = None
+            if data is None:
+                out[rel] = (None, None)
+            else:
+                out[rel] = (len(data), hashlib.sha1(data).hexdigest())
+    except Exception:
+        return {}
+    return out
+
+
+def _task_changed(root, task, baseline) -> list[str]:
+    """Файлы задачи, реально изменившиеся после снимка baseline.
+
+    Пустой файл изменением не считается: Executor._ensure_target_files
+    создаёт заглушку 0 Б до старта воркера. Пустой Python-файл синтаксически
+    валиден, поэтому и `py_compile` на нём проходит — без этой отбраковки
+    «проверка успешна» означала бы «воркер ничего не сделал».
+    """
+    import hashlib
+    if not baseline:
+        return []
+    out: list[str] = []
+    base = Path(root)
+    for rel, (size, sha) in baseline.items():
+        try:
+            p = base / rel
+            data = p.read_bytes() if p.is_file() else None
+        except OSError:
+            data = None
+        if not data:
+            continue
+        if (len(data), hashlib.sha1(data).hexdigest()) == (size, sha):
+            continue
+        out.append(rel)
+    return out
+
+
+def _explicit_verified(result) -> bool:
+    """Есть ли в результате явный положительный сигнал верификации."""
+    d = result.to_dict() if hasattr(result, "to_dict") else dict(result or {})
+    if d.get("verified") is True or d.get("tests_passed") is True:
+        return True
+    ver = d.get("verification")
+    if isinstance(ver, dict) and ver.get("ok") is True:
+        return True
+    return d.get("verify") in (True, "PASS", "pass", "ok")
+
+
+def _changed_paths(rt, *, project, task) -> list[str]:
+    """Файлы, реально изменённые в рабочем дереве проекта.
+
+    Проверка по git status, а не по словам в stdout: модель может
+    написать «файл создан» в тексте, не создав его.
+    """
+    try:
+        import subprocess
+        root = str(project or "")
+        if not root:
+            return []
+        r = subprocess.run(
+            ["git", "-C", root, "status", "--porcelain"],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=20,
+        )
+        if r.returncode != 0:
+            return []
+        out = []
+        for line in (r.stdout or "").splitlines():
+            if len(line) < 4:
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1]
+            if not path or path in out:
+                continue
+            # Пустой файл — это заглушка, которую Executor создаёт ДО
+            # старта воркера (см. Executor._ensure_target_files), а не
+            # результат работы. Считать его изменением нельзя, иначе
+            # guard обманывается собственным же артефактом: aider ушёл в
+            # чат, файл остался пустым, а git status показывает «изменение».
+            try:
+                fp = Path(project) / path
+                if fp.is_file() and fp.stat().st_size == 0:
+                    continue
+            except OSError:
+                pass
+            out.append(path)
+        return out
+    except Exception:
+        return []
+
+
 class RPLlmMixin:
 
     def _llm_policy_offline_state(self, task) -> tuple:
@@ -288,7 +399,9 @@ class RPLlmMixin:
                 pass
             if alt is None or alt.name in tried:
                 try:
-                    self.health.end_task(worker.name, ok=False)
+                    self.health.end_task(
+                        worker.name, ok=False,
+                        error=f"preflight: {reason_pf}", status="ERROR")
                 except Exception as exp:
                     try:
                         self.log.write(f"health.end_task: {exp}")
@@ -296,7 +409,9 @@ class RPLlmMixin:
                         pass
                 return None
             try:
-                self.health.end_task(worker.name, ok=False)
+                self.health.end_task(
+                    worker.name, ok=False,
+                    error=f"preflight: {reason_pf}", status="ERROR")
             except Exception as exp:
                 try:
                     self.log.write(f"health.end_task: {exp}")
@@ -309,6 +424,44 @@ class RPLlmMixin:
         except Exception:
             return worker
 
+
+    def _verify_success(self, task, ctx, changed):
+        """Выполняет verify-команды задачи на success-пути.
+
+        Раньше этот путь вообще не проверял результат: при exit 0 задача
+        сразу получала DONE, а _save() вычислял verified=False, что
+        неотличимо от «проверка провалилась».
+
+        Если verify-команд нет, проверяем синтаксис изменённых .py файлов
+        через py_compile. Если проверить нечего — возвращаем True с
+        явной пометкой, а не молчаливый False.
+        """
+        import sys
+        from core.verify import run_command
+        from core.runtime_ops import VERIFY_TIMEOUT
+
+        root = str(getattr(ctx, "root", None) or self.context.root)
+        commands = list(getattr(task, "verify", None) or [])
+
+        if not commands:
+            py_files = [p for p in (changed or [])
+                        if p.endswith(".py") and (self.context.root / p).is_file()]
+            if not py_files:
+                return True, "no_verify_commands: проверяемых файлов нет"
+            # Без кавычек: core.verify._argv() не снимает кавычки, поэтому
+            # `py_compile "f.py"` передал бы имя файла вместе с кавычками
+            # (Errno 22), а `python -c "..."` выполнился бы как строковый
+            # литерал и всегда вернул бы 0.
+            commands = [f"{sys.executable} -m py_compile {p}" for p in py_files]
+            detail_prefix = "default_py_compile"
+        else:
+            detail_prefix = "task_verify"
+
+        for command in commands:
+            check = run_command(command, root, VERIFY_TIMEOUT)
+            if not check.ok:
+                return False, f"{detail_prefix}: {command}\n{check.output[-4000:]}"
+        return True, f"{detail_prefix}: {len(commands)} команда(ы) пройдены"
 
     def _stage_llm_pipeline(
         self, raw: dict, task, proj, ctx, tests, gitops, cbuilder, task_type: str
@@ -343,7 +496,28 @@ class RPLlmMixin:
             req = task.executor if not tried else ""
             worker = select_executor(pool, self.health, raw, requested=req,
                                      ranker=self.ranker, capacity=self.capacity)
+            # Причины отсечки воркеров: без этого явный `executor` мог
+            # молча не выполниться (aider_local в c-long-040046).
+            try:
+                from core.router import LAST_SKIPS
+                if LAST_SKIPS:
+                    self.log.write(
+                        f"select_executor: skips={LAST_SKIPS} requested={req or '-'}")
+                if req and worker is not None and getattr(worker, 'name', '') != req:
+                    self.log.write(
+                        f"select_executor: REQUESTED {req} unavailable "
+                        f"({LAST_SKIPS.get(req, 'filtered')}) -> fallback {worker.name}")
+            except Exception:
+                pass
             if worker is None:
+                if req:
+                    try:
+                        from core.router import LAST_SKIPS
+                        self.log.write(
+                            f"select_executor: requested_executor_unavailable: {req} "
+                            f"({LAST_SKIPS.get(req, 'filtered')})")
+                    except Exception:
+                        pass
                 break
             tried.append(worker.name)
             if not self.health.begin_task(worker.name):
@@ -392,8 +566,41 @@ class RPLlmMixin:
                     self._touch_task_lease(task, phase="exec")
                 except Exception:
                     pass
+                # Снимок файлов ЗАДАЧИ ДО старта воркера. Заглушки 0 Б
+                # создаются внутри Executor уже после этого снимка, поэтому
+                # пустой файл отсеется как «изменение», а настоящая правка
+                # будет видна по хешу.
+                try:
+                    task_baseline = _task_baseline(str(ctx.root), task)
+                except Exception:
+                    task_baseline = {}
+                # Воркеру передаём ТОЛЬКО целевые файлы задачи.
+                # Раньше сюда уходил abs_files на весь проект, и aider
+                # пытался прочитать файлы в cp1251: aider/io.py:475 на
+                # UnicodeError печатает "Use --encoding to set the unicode
+                # encoding." и возвращается молча. Таких файлов было
+                # несколько, n-gram-guard видел 4 одинаковые строки подряд
+                # и объявлял LOOP_ERROR — модель при этом не зацикливалась
+                # (u-utf8-041524). --encoding тут не помогает: флаг задаёт
+                # кодек, но не errors.
+                # ctx, а не self.context: в рантайме self.context равен None
+                # и обращение к self.context.root роняло задачу с
+                # AttributeError: 'NoneType' object has no attribute 'root'
+                # (cmp-044939) ДО запуска воркера.
+                _root = Path(str(getattr(ctx, "root", None) or "."))
+                _names = {str(t).replace("\\", "/").split("/")[-1]
+                          for t in (getattr(task, "files", None) or [])}
+                worker_files = [f for f in (abs_files or [])
+                                if Path(str(f)).name in _names] or \
+                    [str(f) for f in _names if (_root / f).is_file()]
+                try:
+                    self.log.write(
+                        f"worker_files: task={task.id} passing {len(worker_files)} "
+                        f"file(s) to {worker.name}: {worker_files}")
+                except Exception:
+                    pass
                 result = self._exec_worker(
-                    worker, str(ctx.root), worker_message, exec_timeout, abs_files,
+                    worker, str(ctx.root), worker_message, exec_timeout, worker_files,
                     task_id=task.id)
                 try:
                     self._touch_task_lease(task, phase="post_exec")
@@ -460,6 +667,50 @@ class RPLlmMixin:
                         attempt_messages=attempt_messages,
                     )
                 if result.ok:
+                    # Fail-closed: harness вернул exit 0, но это не значит,
+                    # что задача решена. opencode в режиме «только план»
+                    # печатал [PLAN] и выходил с кодом 0 -> DONE на пустом
+                    # файле (e2e-031910: test_e2e.py = 0 Б).
+                    # DONE допустим только при реальных изменениях в дереве
+                    # либо при явном положительном сигнале верификации.
+                    changed = _task_changed(str(ctx.root), task, task_baseline)
+                    verified_ok = _explicit_verified(result)
+                    if not changed and not verified_ok:
+                        reason = "no_changes_and_no_verification"
+                        try:
+                            self.log.write(
+                                f"{worker.name}: {reason} — DONE недопустим, "
+                                f"task={task.id} (файлы не изменены)"
+                            )
+                        except Exception:
+                            pass
+                        # 7B не справился — по замыслу подключаем локальную
+                        # 1.5B мета-модель: она разбивает задачу на атомарные
+                        # подзадачи. Родитель честно уходит в DEFERRED, дети
+                        # падают в очередь как PENDING (fail-closed сохранён).
+                        meta_dec: dict[str, Any] = {}
+                        try:
+                            from skills.meta_decompose import try_decompose_failed_task
+                            meta_dec = try_decompose_failed_task(
+                                self, task, failure_reason=reason,
+                            ) or {}
+                        except Exception as decomp_err:
+                            try:
+                                self.log.write(
+                                    f"meta_decompose failed (defer без декомпозиции): {decomp_err}"
+                                )
+                            except Exception:
+                                pass
+                            meta_dec = {}
+                        return self.finish_task(
+                            task, "DEFERRED",
+                            {"error": reason, "worker": worker.name,
+                             "attempts": task.attempts,
+                             "changed_files": [],
+                             "decomposition_required": True,
+                             **meta_dec},
+                            error=reason,
+                        )
                     try:
                         self._reset_verify_fails(task)
                     except Exception:
@@ -478,6 +729,29 @@ class RPLlmMixin:
                                           complexity=complexity, task_type=task_type)
                     except Exception:
                         pass
+                    # Проблема 1: harness вернул exit 0, но verify-команды
+                    # из задачи на success-пути НЕ выполнялись. Из-за этого
+                    # _save() вычислял verified=False, хотя файл мог быть
+                    # вполне рабочим: отсутствие проверки выдавалось за
+                    # провал проверки. Теперь проверяем явно.
+                    verify_ok, verify_detail = self._verify_success(task, ctx, changed)
+                    if not verify_ok:
+                        reason = "verification failed"
+                        try:
+                            self.log.write(
+                                f"{worker.name}: {reason} task={task.id}\n{verify_detail}"
+                            )
+                        except Exception:
+                            pass
+                        return self.finish_task(
+                            task, "ERROR",
+                            {"error": reason, "worker": worker.name,
+                             "attempts": task.attempts,
+                             "changed_files": changed,
+                             "verified": False,
+                             "verification": {"ok": False, "detail": verify_detail}},
+                            error=reason,
+                        )
                     try:
                         self.queue.finish(task.id, self.worker_id, "DONE",
                                           result.stdout or commit_sha or "", "")
@@ -488,10 +762,14 @@ class RPLlmMixin:
                     run = GitRun(task_id=task.id, before_sha=before_sha,
                                  after_sha=commit_sha or before_sha,
                                  committed=bool(commit_sha), commit_sha=commit_sha,
-                                 tests_passed=True, executor=worker.name,
+                                 tests_passed=bool(verify_ok), executor=worker.name,
                                  duration=result.latency)
                     self._save(task, "done", {"worker": worker.name, "git": run.to_dict(),
-                                              "stdout": (result.stdout or "")[-4000:]})
+                                              "stdout": (result.stdout or "")[-4000:],
+                                              "verified": bool(verify_ok),
+                                              "changed_files": changed,
+                                              "verification": {"ok": bool(verify_ok),
+                                                               "detail": verify_detail}})
                     self.report.record("DONE", worker.name, task.attempts)
                     try:
                         self._explain_and_learn("worker", task, worker=worker.name, success=True,
@@ -784,6 +1062,44 @@ class RPLlmMixin:
                 return "ERROR"
 
         self._rollback_task(gitops, before_snapshot, task)
+        gate_reason = self._paid_gate_deferred_reason()
+        if gate_reason:
+            # Повтор здесь бессмысленен: локальных исполнителей нет, а облака
+            # закрыты политикой. Платить за прогон 7B ради того же DEFERRED
+            # нельзя — возвращаем задачу в deferred без backoff.
+            try:
+                self.log.write(f"deferred by paid gate: {gate_reason}")
+            except Exception:
+                pass
+            # Локальных исполнителей нет, облака закрыты → по замыслу это
+            # работа для 1.5B мета: она режет задачу на атомарные шаги.
+            meta_dec_paid: dict[str, Any] = {}
+            try:
+                from skills.meta_decompose import try_decompose_failed_task
+                meta_dec_paid = try_decompose_failed_task(
+                    self, task, failure_reason="paid_gate_blocked",
+                ) or {}
+            except Exception as decomp_err:
+                try:
+                    self.log.write(
+                        f"meta_decompose failed (defer без декомпозиции): {decomp_err}"
+                    )
+                except Exception:
+                    pass
+                meta_dec_paid = {}
+            return self.finish_task(
+                task,
+                "DEFERRED",
+                {
+                    "error": gate_reason,
+                    "attempts": int(task.attempts or 0),
+                    "category": cat,
+                    "decomposition_required": True,
+                    "paid_workers_blocked": True,
+                    **meta_dec_paid,
+                },
+                error=gate_reason,
+            )
         self._schedule_retry(task, last_err)
         return self.finish_task(
             task,
@@ -794,6 +1110,44 @@ class RPLlmMixin:
                 "category": cat,
             },
             error=last_err,
+        )
+
+    def _paid_gate_deferred_reason(self) -> str:
+        """Причина DEFERRED, если локальных исполнителей не осталось.
+
+        Архитектура задумана как «1.5B мета (декомпозиция) → 7B исполнитель».
+        Когда 7B недоступен, следующий по замыслу шаг — локальная декомпозиция,
+        а не прыжок в платное облако (AGENTBUS_ALLOW_PAID=0). Здесь мы честно
+        сообщаем об этом и не запускаем бессмысленный повтор.
+
+        Пустая строка = блокировка не при чём, действует обычный retry.
+        """
+        try:
+            from core.router import LAST_SKIPS
+        except Exception:
+            return ""
+        try:
+            skips = dict(LAST_SKIPS or {})
+        except Exception:
+            return ""
+        if not skips:
+            return ""
+        blocked = sorted(n for n, r in skips.items() if "paid_disallowed" in str(r))
+        if not blocked:
+            return ""
+        # Платные были отброшены, но если хоть один локальный кандидат был
+        # отобран по другой причине — это не ситуация «нет локальных».
+        for name, reason in skips.items():
+            if name in blocked:
+                continue
+            if str(reason) in ("disabled", "plan_only_no_file_write"):
+                continue
+            return ""
+        return (
+            "Требуется локальная декомпозиция: свободных локальных исполнителей нет "
+            f"(7B недоступен), платные облака заблокированы AGENTBUS_ALLOW_PAID=0 "
+            f"[{', '.join(blocked)}]. Ожидаемый путь — мета-модель 1.5B "
+            "(skills/task_decomposer.py) для разбиения на атомарные подзадачи."
         )
 
     # ------------------------------------------------------------------

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Offline check: main product path modules import and wire.
 
   PYTHONPATH=src python scripts/product_path_check.py

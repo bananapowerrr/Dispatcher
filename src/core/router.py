@@ -2,11 +2,19 @@
 """Роутер: Stage 3 complexity + context fit + soft quota + ranker."""
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from .config import COMPLEXITY_LOCAL_MAX
+
+_LOG = logging.getLogger("core.router")
+
+# Причины отсечки воркеров на последнем вызове select_executor.
+# Раньше отсечки были полностью молчаливыми: в логе не оставалось следа,
+# почему явно запрошенный `executor` не выполнился (aider_local в c-long-040046).
+LAST_SKIPS: dict[str, str] = {}
 
 SOFT_QUOTA_PENALTY = 3.0
 LOCAL_CTX_BUDGET = 6000  # грубо: 4 байта/символа на токен, с запасом для ответа
@@ -216,22 +224,73 @@ def _local_first_bonus(worker, raw: dict[str, Any] | None) -> float:
     return 0.0
 
 
+def _is_plan_only(w) -> bool:
+    """Воркер умеет только планировать и не пишет файлы (capabilities: [plan])."""
+    caps = getattr(w, "capabilities", ()) or ()
+    if isinstance(caps, str):
+        return "plan" in caps
+    return "plan" in tuple(caps)
+
+
 def select_executor(workers, health, raw: dict[str, Any] | None,
                     requested: str = "", ranker=None, capacity=None,
-                    required_cap: str | None = None) -> object | None:
+                    required_cap: str | None = None,
+                    allow_paid: bool | None = None) -> object | None:
     complexity = task_complexity(raw)
     task_type = _task_type(raw, ranker)
+
+    if allow_paid is None:
+        # AGENTBUS_ALLOW_PAID заводили, печатали, но не проверяли: платные
+        # облака выбирались и тратили деньги (c-long-040046). Здесь шлюз
+        # наконец закрыт. Явный allow_paid=True оставлен для сознательных
+        # прогонов с платным бюджетом.
+        try:
+            from core.config import ALLOW_PAID
+            allow_paid = bool(ALLOW_PAID)
+        except Exception:
+            allow_paid = False
 
     soft_penalty: dict[str, float] = {}
     candidates = []
     cap_worker_usable = getattr(capacity, "worker_usable", None)
+    LAST_SKIPS.clear()
+    _task_id = str((raw or {}).get("id") or (raw or {}).get("task_id") or "") if isinstance(raw, dict) else ""
+    # Задача с явными целевыми файлами требует записи на диск.
+    _writes_files = bool(isinstance(raw, dict) and (raw.get("files") or []))
+
+    def _skip(w, reason: str) -> None:
+        LAST_SKIPS[w.name] = reason
+        _LOG.info("select_executor: skip %s (%s) task=%s requested=%s",
+                  w.name, reason, _task_id or "-", requested or "-")
 
     for w in workers:
-        if not w.enabled or not health.available(w.name):
+        if not getattr(w, "enabled", True):
+            _skip(w, "disabled")
+            continue
+        if not allow_paid:
+            try:
+                from core.paid_gate import is_paid_worker
+                if is_paid_worker(w):
+                    _skip(w, "paid_disallowed[ALLOW_PAID=0]")
+                    continue
+            except Exception as _paid_err:
+                # Неизвестная цена = платно. Шлюз не должен «падать в открытый»
+                # из-за внутренней ошибки (c-long-040046).
+                _skip(w, f"paid_gate_error[{type(_paid_err).__name__}]")
+                continue
+        # Plan-only воркер не создаёт файлы: отдача ему задачу на запись
+        # гарантированно даёт пустой результат и DEFERRED по построению
+        # (c-long-040046). Планирование без files по-прежнему разрешено.
+        if _writes_files and _is_plan_only(w):
+            _skip(w, "plan_only_no_file_write")
+            continue
+        if not health.available(w.name):
+            _skip(w, "health_unavailable")
             continue
         if cap_worker_usable is not None:
             try:
                 if not cap_worker_usable(w):
+                    _skip(w, "cap_worker_usable_false")
                     continue
             except Exception:
                 pass
@@ -239,6 +298,7 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
             cap_key = f"{w.provider}:{w.model or 'auto'}"
             try:
                 if not capacity.available(cap_key):
+                    _skip(w, f"capacity_unavailable[{cap_key}]")
                     continue
                 qf = capacity.quota_factor(cap_key)
                 if qf < 1.0:
@@ -248,9 +308,11 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
         if required_cap:
             wc = getattr(w, "capabilities", None) or ()
             if wc and required_cap not in wc:
+                _skip(w, f"required_cap[{required_cap}]")
                 continue
         score = health.score(w.name, complexity, w.complexity, w.quality)
         if score < 0:
+            _skip(w, f"negative_health_score({score:.2f})")
             continue
         score -= soft_penalty.get(w.name, 0.0)
         score += _role_bonus(w, task_type, complexity)
@@ -309,6 +371,13 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
         candidates.append((score, w))
 
     if not candidates:
+        _LOG.warning(
+            "select_executor: no workers available task=%s requested=%s skips=%s",
+            _task_id or "-", requested or "-", dict(LAST_SKIPS))
+        if requested and requested in LAST_SKIPS:
+            _LOG.warning(
+                "select_executor: REQUESTED executor %s was filtered out: %s",
+                requested, LAST_SKIPS[requested])
         return None
 
     min_tier = min_tier_for_complexity(complexity)
@@ -330,4 +399,9 @@ def select_executor(workers, health, raw: dict[str, Any] | None,
         return (is_req, fit, role_pref, score)
 
     pool.sort(key=key, reverse=True)
-    return pool[0][1]
+    chosen = pool[0][1]
+    _LOG.info("select_executor: selected %s task=%s requested=%s complexity=%s "
+              "candidates=%s skipped=%s",
+              chosen.name, _task_id or "-", requested or "-", complexity,
+              [w.name for _, w in pool], dict(LAST_SKIPS))
+    return chosen

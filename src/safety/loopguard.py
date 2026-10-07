@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Р—Р°С‰РёС‚Р° РѕС‚ Р·Р°С†РёРєР»РёРІР°РЅРёСЏ РјРѕРґРµР»Рё / CLI-РІС‹РІРѕРґР°.
+"""Защита от зацикливания модели / CLI-вывода.
 
-Р›РѕРІРёС‚:
-  1) РѕРґРЅР° Рё С‚Р° Р¶Рµ СЃС‚СЂРѕРєР° N СЂР°Р· РїРѕРґСЂСЏРґ
-  2) РїРѕРІС‚РѕСЂСЏСЋС‰РёР№СЃСЏ Р±Р»РѕРє РёР· K СЃС‚СЂРѕРє (ngram)
-  3) В«С‚РѕРїС‡РµС‚СЃСЏВ» вЂ” РЅРёР·РєР°СЏ РЅРѕРІРёР·РЅР° Р·Р° РѕРєРЅРѕ
+Ловит:
+  1) одна и та же строка N раз подряд
+  2) повторяющийся блок из K строк (ngram)
+  3) «топчется» — низкая новизна за окно
 
-РџСЂРё СЃСЂР°Р±Р°С‚С‹РІР°РЅРёРё вЂ” signal РґР»СЏ РѕСЃС‚Р°РЅРѕРІРєРё РёСЃРїРѕР»РЅРёС‚РµР»СЏ Рё СЃРјРµРЅС‹ РІРѕСЂРєРµСЂР°.
+При срабатывании — signal для остановки исполнителя и смены воркера.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class LoopHit:
 
 
 class LoopGuard:
-    """РџРѕС‚РѕРєРѕР±РµР·РѕРїР°СЃРЅС‹Р№ РЅР° СѓСЂРѕРІРЅРµ РѕРґРЅРѕРіРѕ Р·Р°РїСѓСЃРєР° (РѕРґРёРЅ worker run)."""
+    """Потокобезопасный на уровне одного запуска (один worker run)."""
 
     def __init__(
         self,
@@ -44,10 +44,10 @@ class LoopGuard:
         self.window = window
         self.min_novelty = min_novelty
         self.min_lines_for_novelty = min_lines_for_novelty
-        # РџРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РІС‹РєР»СЋС‡РµРЅРѕ: СЃС…Р»РѕРїС‹РІР°РЅРёРµ С†РёС„СЂ РґРµР»Р°Р»Рѕ СЃС‚СЂРѕРєРё
-        # "Working on part 1", "Working on part 2", ... РёРґРµРЅС‚РёС‡РЅС‹РјРё, Рё
-        # РЅРѕСЂРјР°Р»СЊРЅС‹Р№ РїСЂРѕРіСЂРµСЃСЃ СЃРѕ СЃС‡С‘С‚С‡РёРєРѕРј РѕР±СЉСЏРІР»СЏР»СЃСЏ С†РёРєР»РѕРј. Р’РєР»СЋС‡Р°С‚СЊ
-        # СЃС‚РѕРёС‚ С‚РѕР»СЊРєРѕ С‚Р°Рј, РіРґРµ СЃС‡С‘С‚С‡РёРє РґРµР№СЃС‚РІРёС‚РµР»СЊРЅРѕ РїСЂРёР·РЅР°Рє Р·Р°СЃС‚СЂРµРІР°РЅРёСЏ.
+        # По умолчанию выключено: схлопывание цифр делало строки
+        # "Working on part 1", "Working on part 2", ... идентичными, и
+        # нормальный прогресс со счётчиком объявлялся циклом. Включать
+        # стоит только там, где счётчик действительно признак застревания.
         self.collapse_numbers = collapse_numbers
         self._recent: deque[str] = deque(maxlen=window)
         self._hashes: deque[str] = deque(maxlen=window)
@@ -90,7 +90,7 @@ class LoopGuard:
             return None
         self.lines_seen += 1
 
-        # 1) РѕРґРЅР° СЃС‚СЂРѕРєР° РїРѕРґСЂСЏРґ
+        # 1) одна строка подряд
         if norm == self._last_line:
             self._same_streak += 1
         else:
@@ -99,12 +99,12 @@ class LoopGuard:
         if self._same_streak >= self.same_line_limit:
             self._hit = LoopHit(
                 "same_line",
-                f"СЃС‚СЂРѕРєР° РїРѕРІС‚РѕСЂРёР»Р°СЃСЊ {self._same_streak}Г—: {norm[:80]}",
+                f"строка повторилась {self._same_streak}×: {norm[:80]}",
                 self._same_streak,
             )
             return self._hit
 
-        # 2) ngram-Р±Р»РѕРєРё
+        # 2) ngram-блоки
         self._recent.append(norm)
         key = self._h(norm)
         self._hashes.append(key)
@@ -115,19 +115,19 @@ class LoopGuard:
             if self._ngram_counts[bh] >= self.ngram_limit:
                 self._hit = LoopHit(
                     "ngram",
-                    f"Р±Р»РѕРє РёР· {self.ngram_size} СЃС‚СЂРѕРє Г—{self._ngram_counts[bh]}: {norm[:60]}",
+                    f"блок из {self.ngram_size} строк ×{self._ngram_counts[bh]}: {norm[:60]}",
                     self._ngram_counts[bh],
                 )
                 return self._hit
 
-        # 3) РЅРёР·РєР°СЏ РЅРѕРІРёР·РЅР° РІ РѕРєРЅРµ
+        # 3) низкая новизна в окне
         if self.lines_seen >= self.min_lines_for_novelty and len(self._hashes) >= self.window:
             unique = len(set(self._hashes))
             novelty = unique / max(1, len(self._hashes))
             if novelty < self.min_novelty:
                 self._hit = LoopHit(
                     "low_novelty",
-                    f"РЅРѕРІРёР·РЅР° {novelty:.0%} Р·Р° {len(self._hashes)} СЃС‚СЂРѕРє (РїРѕСЂРѕРі {self.min_novelty:.0%})",
+                    f"новизна {novelty:.0%} за {len(self._hashes)} строк (порог {self.min_novelty:.0%})",
                     unique,
                 )
                 return self._hit
@@ -142,6 +142,6 @@ class LoopGuard:
 
 
 def detect_loop_in_text(text: str, **kw) -> LoopHit | None:
-    """РћРґРЅРѕСЂР°Р·РѕРІС‹Р№ Р°РЅР°Р»РёР· РіРѕС‚РѕРІРѕРіРѕ stdout/stderr."""
+    """Одноразовый анализ готового stdout/stderr."""
     g = LoopGuard(**kw)
     return g.feed_text(text or "")

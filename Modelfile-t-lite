@@ -1,0 +1,6 @@
+FROM t-tech/T-lite-it-2.1:q4_K_M
+
+PARAMETER num_ctx 16384
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+PARAMETER repeat_penalty 1.15

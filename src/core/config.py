@@ -148,8 +148,10 @@ CHANNELS = tuple(
 DEFAULT_CHANNEL = os.getenv("AGENTBUS_DEFAULT_CHANNEL", "gpt").strip() or "gpt"
 
 
-# --- Meta classifier (direct Ollama HTTP, not workers.yaml) ---
-# AGENTBUS_META=1 enables; META_MODEL default qwen2.5:1.5b-instruct (see meta_classifier.py)
+# --- Meta classifier & decompose (direct Ollama HTTP) ---
+# AGENTBUS_META=1 enables. Pre-claim: skills/meta_classifier.py
+# Post-failure decomposition: skills/meta_decompose.py
+# Default model: qwen2.5:1.5b-instruct
 WORKERS_FILE = _resolve_config_file("AGENTBUS_WORKERS_FILE", "workers.yaml")
 PROVIDERS_FILE = _resolve_config_file("AGENTBUS_PROVIDERS_FILE", "providers.yaml")
 PROVIDERS_STATE_FILE = (

@@ -19,7 +19,9 @@ _VERIFY_FAILURE_SCORE_PENALTY = 0.9
 _RATE_TIERS = (300, 900, 3600, 10800)
 _FAIL_TIERS = (60, 300, 900, 1800, 3600)
 _BILLING_COOLDOWN = 86400.0
-_LOOP_COOLDOWN = 300.0
+# LOOP: шум модели, а не отказ воркера. Ступени по числу подряд идущих
+# сбоев вместо плоских 300с (c-long-040046).
+_LOOP_TIERS = (60.0, 120.0, 300.0, 900.0, 1800.0)
 _VERIFY_COOLDOWN = 600.0
 _BILLING_ERROR_MARKERS = (
     "insufficient credits", "billing required", "payment required",
@@ -184,6 +186,12 @@ class HealthRegistry:
         st.consecutive_failures = 0
         st.consecutive_timeouts = 0
         st.consecutive_verify_failures = 0
+        # Успех доказывает, что воркер жив: снимаем cooldown. Иначе после
+        # серии сбоев ступени разгоняются до 1800с, а единственный рабочий
+        # воркер остаётся выбитым из пула даже после удачной задачи
+        # (c-long-040046). rate_limit_until не трогаем: это ограничение
+        # провайдера, а не здоровья воркера.
+        st.cooldown_until = 0.0
         st.success_count += 1
         st.tasks_completed += 1
         st.last_success = time.monotonic()
@@ -227,7 +235,7 @@ class HealthRegistry:
             return
         if _is_loop_error(error, status):
             st.status = "LOOP"
-            st.cooldown_until = time.monotonic() + _LOOP_COOLDOWN
+            st.cooldown_until = time.monotonic() + self._loop_cooldown(st)
             self.save_state()
             return
         if timed_out:
@@ -238,6 +246,20 @@ class HealthRegistry:
             st.status = status
         st.cooldown_until = time.monotonic() + self._cooldown_delay(st, error, timed_out)
         self.save_state()
+
+    def _loop_cooldown(self, st: WorkerState) -> float:
+        """Cooldown для LOOP_ERROR — ступенчатый, а не плоский.
+
+        LOOP у локальной 7B — это шум модели, а не отказ воркера: тот же
+        воркер сразу после этого успешно создавал файлы (c-long-040046).
+        Плоские 300 секунд после ПЕРВОГО же повтора выбивали единственную
+        рабочую машину из пула на 5 минут, и весь поток задач уходил по
+        fallback-цепочке в plan-only opencode -> DEFERRED по построению.
+        Теперь: 60 -> 120 -> 300 -> 900 -> 1800 секунд по числу подряд
+        идущих сбоев; успех обнуляет счётчик в success().
+        """
+        idx = min(max(st.consecutive_failures - 1, 0), len(_LOOP_TIERS) - 1)
+        return float(_LOOP_TIERS[idx])
 
     def _cooldown_delay(self, st: WorkerState, error: str, timed_out: bool) -> float:
         delay = float(self.base_cooldown)
@@ -272,13 +294,26 @@ class HealthRegistry:
             self.save_state()
             return True
 
-    def end_task(self, name: str) -> None:
+    def end_task(self, name: str, ok: bool = True, error: str = "",
+                 status: str = "ERROR") -> None:
+        """Освободить слот воркера.
+
+        ok=False РАНЬШЕ ПОЛНОСТЬЮ ИГНОРИРОВАЛСЯ: параметр принимался, но не
+        читался, и вызовы вида health.end_task(w, ok=False) из preflight-пути
+        (rp_llm.py) не оставляли в health ни следа. Воркер, отброшенный
+        preflight, снова выбирался роутером и тратил 2-3с на каждой задаче
+        (c-long-040046). Теперь неуспех фиксируется через failure().
+        """
         with self._lock:
             st = self.state(name)
             st.running_count = max(0, st.running_count - 1)
             if st.running_count == 0 and st.status == "BUSY":
                 st.status = "UNKNOWN"
-            self.save_state()
+            if not ok:
+                self.failure(name, error or f"slot/preflight неуспех: {status}",
+                             status=status)
+            else:
+                self.save_state()
 
     def budget_snapshot(self) -> dict[str, dict[str, Any]]:
         return self.budget.snapshot()

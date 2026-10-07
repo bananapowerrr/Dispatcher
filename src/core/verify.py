@@ -25,8 +25,21 @@ def _python() -> str:
                 return p
     return cand
 
+def _unquote(tok: str) -> str:
+    """Снять парные внешние кавычки, не трогая внутренние.
+
+    shlex.split(posix=False) сохраняет кавычки в самих токенах, поэтому
+    `py_compile "f.py"` уходил в subprocess как имя файла вместе с кавычками
+    и падал с [Errno 22] Invalid argument. Просто убрать кавычки из команды
+    нельзя: корень проекта бывает с пробелами ("F:\\Мой диск\\AgentBus"),
+    и без кавычек такой путь разваливается.
+    """
+    if len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in "\"'":
+        return tok[1:-1]
+    return tok
+
 def _argv(command: str) -> list[str]:
-    parts = shlex.split(command, posix=False)
+    parts = [_unquote(p) for p in shlex.split(command, posix=False)]
     if not parts: return []
     exe = Path(parts[0].strip('"')).name.lower()
     if exe in {"pytest", "pytest.exe"}:

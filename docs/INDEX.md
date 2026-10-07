@@ -14,6 +14,7 @@
 |-----|------|
 | STRUCTURE.md | дерево репо |
 | CONTRACTS.md | контракты слоёв |
+| PRE_UI_BLOCKERS.md | блокеры до UI (атомарность, терминальный контракт) |
 | LIVE_ACCEPTANCE.md | live-сценарии |
 | GETTING_STARTED.md | старт |
 | INSTALL_WINDOWS.md | установка |

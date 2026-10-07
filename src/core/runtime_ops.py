@@ -231,6 +231,11 @@ class RuntimeOps:
                     )
                     if res.get("error") and not verified:
                         verified = False
+                    # Итог верификации должен попасть в файл задачи.
+                    # Раньше здесь считалось локально и уходило только в
+                    # evidence, поэтому result.verified оставался None
+                    # (в run-030427 так и было при успешном DONE).
+                    res["verified"] = verified
                     ev.setdefault("verification", {})
                     if isinstance(ev["verification"], dict) and "ok" not in ev["verification"]:
                         ev["verification"]["ok"] = verified
@@ -466,7 +471,7 @@ class RuntimeOps:
             pass
 
         # bus move processing → terminal folder FIRST.
-        # FileBus.move is copy2-based, so moving after _save would overwrite the
+        # FileBus.move is rename-based, so moving after _save would overwrite the
         # terminal payload with the stale processing snapshot (status=CLAIMED +
         # phase placeholder), losing error/evidence/verification.
         try:

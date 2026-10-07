@@ -179,8 +179,32 @@ class Executor:
         }
         self.on_line: Callable[[str], None] | None = None
 
+    @staticmethod
+    def _relativize(path: str, project: str | os.PathLike[str] | None) -> str:
+        """Путь относительно корня проекта.
+
+        Абсолютный путь в `--file` заставляет aider развернуть в чат весь
+        проект: наблюдалось «estimated chat context of 234,471 tokens exceeds
+        the 32,768 token limit», дальше aider печатает «- Use /drop to remove
+        unneeded files», модель повторяет эту строку, n-gram-guard даёт
+        LOOP_ERROR (c-long-040046). С относительным путём aider добавляет
+        только целевой файл («Added test_manual.py to the chat.»).
+        Вне проекта (или без project) путь не трогаем.
+        """
+        if not project:
+            return path
+        try:
+            base = Path(os.path.abspath(str(project)))
+            target = Path(os.path.abspath(path))
+            rel = os.path.relpath(str(target), str(base))
+        except (OSError, ValueError):
+            return path
+        if rel.startswith(os.pardir):
+            return path
+        return rel
+
     def _args(self, worker: Worker, message: str, files: list[str],
-              model: str | None = None) -> list[str]:
+              model: str | None = None, project: str | os.PathLike[str] | None = None) -> list[str]:
         result: list[str] = []
         for token in worker.command:
             if token in self.paths:
@@ -189,13 +213,42 @@ class Executor:
                 result.append(message)
             elif token == "{files}":
                 for f in files:
-                    result += ["--file", f]
+                    result += ["--file", self._relativize(f, project)]
             elif token == "{yes}":
                 result.append("--yes")
             elif token == "{model}":
                 result.append(model if model is not None else self.paths.get("{aider_model}", ""))
             else:
                 result.append(token)
+        # Aider сам декодирует файлы модели и печатает
+        # "Use --encoding to set the unicode encoding." при не-UTF-8 содержимом.
+        # Модель затем повторяет эту строку, ngram-guard срабатывает и задача
+        # уходит в LOOP_ERROR -> health_unavailable -> cooldown (c-long-040046).
+        # Флаг задаётся здесь, на уровне harness, чтобы покрыть сразу все
+        # aider-воркеры (aider_local, aider_openrouter, ...) без дублирования
+        # в workers.yaml.
+        if result and not any(t == "--encoding" for t in result):
+            # aider вызывается как `{aider_python} -m aider ...`, поэтому
+            # искать «aider» только в имени исполняемого файла нельзя:
+            # result[0] — это python.exe.
+            #
+            # Флаг должен стоять ПОСЛЕ `-m aider`: иначе его получает
+            # интерпретатор (`python --encoding utf-8 -m aider` — валидная
+            # опция python для кодировки stdio), а aider продолжает читать
+            # файлы репозитория своей кодировкой. Именно это приводило к
+            # "Use --encoding to set the unicode encoding." -> повтор строки
+            # моделью -> ngram-guard -> LOOP_ERROR (c-long-040046).
+            idx = next(
+                (
+                    i
+                    for i, t in enumerate(result[:3])
+                    if "aider" in str(t).lower()
+                ),
+                None,
+            )
+            if idx is not None:
+                result.insert(idx + 1, "--encoding")
+                result.insert(idx + 2, "utf-8")
         return result
 
     def _kill_tree(self, pid: int) -> None:
@@ -288,7 +341,16 @@ class Executor:
     def run_foreign(self, worker: Worker, provider, project: str, message: str,
                     timeout: int, files: list[str] | None = None) -> ExecutionResult:
         files = files or []
-        args = self._args(worker, message, files, model=self._run_model(provider, worker))
+        args = self._args(worker, message, files,
+                          model=self._run_model(provider, worker), project=project)
+        # Финальный argv перед subprocess: единственное место, где видно,
+        # дошёл ли --encoding utf-8 до aider на самом деле.
+        try:
+            import logging as _lg
+            _lg.getLogger("agentbus.executor").info(
+                "EXECUTOR: final argv (%s) = %s", worker.name, " ".join(map(str, args)))
+        except Exception:
+            pass
         return self._run_with_env(args, project, timeout, self._foreign_env(provider, worker))
 
     def _classify(self, text: str) -> tuple[bool, bool]:
@@ -568,9 +630,53 @@ class Executor:
             _soft_log("native_fallback", exp)
             return ExecutionResult(ok=False, stdout="", stderr=f"native_fallback: {exp}")
 
+    @staticmethod
+    def _ensure_target_files(project: str, files: list[str]) -> list[str]:
+        """Создать пустые файлы для целей, которых ещё нет.
+
+        aider при несуществующем файле печатает «Creating empty file» и
+        уходит в чат-режим: модель отвечает текстом («Составляю план…»),
+        правка не применяется, задача завершается DONE с пустым файлом.
+        Именно это было в run-030427 (hello.py = 0 Б).
+
+        Проверено вручную 2026-09-29 на aider 0.86.2 + qwen2.5-coder:7b:
+          * --file demo.py, файла нет  -> «Creating empty file», правки нет
+          * --file demo.py, файл есть  -> «Applied edit to demo.py», 8 Б
+        Поэтому пустой файл-заглушка создаётся ДО запуска воркера.
+
+        Путь проверяется на выход за пределы проекта.
+        """
+        created: list[str] = []
+        if not project or not files:
+            return created
+        root = Path(project)
+        try:
+            root_resolved = root.resolve()
+        except OSError:
+            return created
+        for rel in files:
+            try:
+                name = str(rel or "").strip()
+                if not name:
+                    continue
+                target = (root / name).resolve()
+                try:
+                    target.relative_to(root_resolved)
+                except ValueError:
+                    continue  # не даём писать за пределы проекта
+                if target.is_file():
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("", encoding="utf-8")
+                created.append(name)
+            except OSError:
+                continue
+        return created
+
     def run(self, worker: Worker, project: str, message: str, timeout: int,
             files: list[str] | None = None) -> ExecutionResult:
         files = files or []
+        self._ensure_target_files(project, files)
         # Native-first when profile says so
         try:
             from core.native_backend import native_backend_enabled
@@ -586,7 +692,7 @@ class Executor:
                     return nf
         except Exception as run_pref:
             _soft_log("prefer_native", run_pref)
-        args = self._args(worker, message, files)
+        args = self._args(worker, message, files, project=project)
         if worker.harness == "aider":
             if worker.provider == "ollama" and not self._ollama_alive():
                 return ExecutionResult(False, stderr="ollama недоступен (boot-check)")

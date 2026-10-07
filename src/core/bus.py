@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -102,29 +101,26 @@ class FileBus:
         dst.parent.mkdir(parents=True, exist_ok=True)
 
         def move_once() -> bool:
+            # Атомарно: rename в пределах одной ФС. Раньше здесь был
+            # copy2 + unlink, и два инстанса успевали оба скопировать файл
+            # до того, как кто-то его удалил, — задача обрабатывалась дважды.
             try:
-                shutil.copy2(src, dst)
+                src.replace(dst)
+                return True
             except FileNotFoundError:
                 # Desktop tasks may only have write() artifacts; treat as soft ok if dst exists
+                #
+                # Известный долг Phase 2: этот soft-ok неотличим от
+                # проигранной гонки — в обоих случаях src нет, а dst есть.
+                # Поэтому на канале desktop задача может быть заявлена и
+                # обработана дважды, даже с атомарным rename. Обычные
+                # каналы защищены (см. test_concurrent_move_claims_exactly_once),
+                # desktop ждёт claim через O_CREAT|O_EXCL.
                 if channel == "desktop" and dst.is_file():
                     return True
                 return False
-            try:
-                src.unlink()
-            except FileNotFoundError:
-                pass
-            except PermissionError:
-                # Dropbox still syncing source; destination exists → success
-                pass
-            except OSError as exc:
-                try:
-                    import logging
-
-                    logging.getLogger("agentbus.bus").warning(
-                        "move unlink %s: %s", src.name, exc
-                    )
-                except Exception:
-                    pass
-            return True
+            # PermissionError и sharing violation НЕ глотаем: их ловит _retry.
+            # Глотать нельзя — если rename не прошёл, перехода не было, и
+            # True означал бы повторную обработку задачи.
 
         return self._retry(move_once)
