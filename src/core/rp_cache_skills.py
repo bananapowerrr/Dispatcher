@@ -273,6 +273,11 @@ class RPCacheSkillsMixin:
                 "cache_key": entry.get("_key") or "",
                 "restored_files": restored,
                 "restored_from_cache": True,
+                # DEV-001: ok -> execution_ok в evidence_snapshot. Без него
+                # гейт читал exec_ok=None/False и демотил cache-hit в ERROR
+                # с reason=execution_failed, хотя файлы восстановлены.
+                "ok": True,
+                "short_circuit": "cache_hit",
                 # verified не выдумывается: выше _non_empty_files уже
                 # убедился, что файлы существуют и непусты. Фиксируем, чем
                 # именно проверено, чтобы флаг не был голым обещанием.
@@ -280,6 +285,10 @@ class RPCacheSkillsMixin:
                 "verify_ok": True,
                 "verification": {
                     "ok": True,
+                    # passed обязателен: report_from_dict читает только
+                    # 'passed'; без него verification выглядит как FAIL и
+                    # гейт отвергает DONE.
+                    "passed": True,
                     "source": "cache_restore",
                     "files_checked": len(real_files),
                 },
@@ -621,10 +630,17 @@ class RPCacheSkillsMixin:
                 "result": detail,
                 "stdout": summary,
                 "restored_from_skill": True,
+                # Те же два поля, что и в cache-пути: ok даёт execution_ok,
+                # short_circuit помечает детерминированный путь. Иначе
+                # skill-DONE демотится в ERROR (DEV-001).
+                "ok": True,
+                "short_circuit": "skill_success",
                 "verified": True,
                 "verify_ok": True,
                 "verification": {
                     "ok": True,
+                    # report_from_dict смотрит только на 'passed'.
+                    "passed": True,
                     "source": "skill_apply",
                     "files_checked": len(real_files),
                 },
