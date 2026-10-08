@@ -1,0 +1,13 @@
+{
+  "id": "recipe-add-tests",
+  "message": "Напиши unit-тесты на pytest для указанного модуля. Покрой: основные ветки, граничные случаи, ошибки. Используй fixtures при необходимости. Не меняй production-код без необходимости. Если тесты уже есть — добавь недостающие случаи.",
+  "files": [],
+  "metadata": {
+    "recipe": "add-tests",
+    "complexity": 3,
+    "task_type": "test",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["basic", "test", "pytest"]
+  }
+}

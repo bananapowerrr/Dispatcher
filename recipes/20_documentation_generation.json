@@ -1,0 +1,13 @@
+{
+  "id": "recipe-documentation-generation",
+  "message": "Сгенерируй документацию для проекта: README.md с описанием, установкой, использованием. Docstrings для всех публичных функций и классов (Google style). Если есть API — добавь примеры использования. Не меняй логику кода.",
+  "files": [],
+  "metadata": {
+    "recipe": "documentation-generation",
+    "complexity": 2,
+    "task_type": "docs",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["specialized", "docs", "readme"]
+  }
+}

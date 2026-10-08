@@ -1,0 +1,13 @@
+{
+  "id": "recipe-explain-code",
+  "message": "Объясни устройство указанного куска кода простым языком: что делает, почему так реализовано, какие есть зависимости и потенциальные проблемы. Код не меняй. Используй примеры если помогают пониманию.",
+  "files": [],
+  "metadata": {
+    "recipe": "explain-code",
+    "complexity": 1,
+    "task_type": "explain",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["basic", "explain", "documentation"]
+  }
+}

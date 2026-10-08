@@ -1,0 +1,13 @@
+{
+  "id": "recipe-code-review",
+  "message": "Проведи ревью кода с конкретными рекомендациями. Оцени: читаемость, производительность, безопасность, тестируемость, соответствие паттернам проекта. Выдай структурированный отчёт с приоритетами (blocker/warning/suggestion).",
+  "files": [],
+  "metadata": {
+    "recipe": "code-review",
+    "complexity": 3,
+    "task_type": "review",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["specialized", "review", "quality"]
+  }
+}

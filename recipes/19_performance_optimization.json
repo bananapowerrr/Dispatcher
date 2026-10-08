@@ -1,0 +1,13 @@
+{
+  "id": "recipe-performance-optimization",
+  "message": "Оптимизируй медленный код. Сначала профилируй и найди bottleneck. Затем оптимизируй: алгоритмы, структуры данных, запросы к БД, кэширование. Не жертвуй читаемостью без необходимости. Добавь бенчмарки если уместно.",
+  "files": [],
+  "metadata": {
+    "recipe": "performance-optimization",
+    "complexity": 4,
+    "task_type": "optimize",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["specialized", "performance", "optimize"]
+  }
+}

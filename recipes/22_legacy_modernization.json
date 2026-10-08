@@ -1,0 +1,13 @@
+{
+  "id": "recipe-legacy-modernization",
+  "message": "Модернизируй устаревший код: обнови синтаксис до современного Python, замени устаревшие библиотеки, улучши структуру без изменения поведения. Добавь type hints и docstrings. Сохрани обратную совместимость где возможно.",
+  "files": [],
+  "metadata": {
+    "recipe": "legacy-modernization",
+    "complexity": 5,
+    "task_type": "modernize",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["specialized", "legacy", "modernize"]
+  }
+}

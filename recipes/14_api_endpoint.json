@@ -1,0 +1,13 @@
+{
+  "id": "recipe-api-endpoint",
+  "message": "Создай REST API endpoint с валидацией по спецификации. Используй фреймворк проекта (FastAPI/Flask). Добавь валидацию входных данных, обработку ошибок, и тесты для endpoint. Следуй паттернам существующих endpoints.",
+  "files": [],
+  "metadata": {
+    "recipe": "api-endpoint",
+    "complexity": 4,
+    "task_type": "create",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["advanced", "api", "rest", "backend"]
+  }
+}

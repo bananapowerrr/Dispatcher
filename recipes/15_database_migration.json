@@ -1,0 +1,13 @@
+{
+  "id": "recipe-database-migration",
+  "message": "Создай миграцию базы данных с возможностью отката. Используй систему миграций проекта (Alembic/ Django migrations). Миграция должна быть идемпотентной. Добавь upgrade и downgrade функции. Проверь совместимость с текущей схемой.",
+  "files": [],
+  "metadata": {
+    "recipe": "database-migration",
+    "complexity": 4,
+    "task_type": "create",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["advanced", "database", "migration"]
+  }
+}

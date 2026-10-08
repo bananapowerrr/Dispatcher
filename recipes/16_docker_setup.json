@@ -1,0 +1,13 @@
+{
+  "id": "recipe-docker-setup",
+  "message": "Создай Dockerfile и docker-compose.yml для проекта. Dockerfile должен быть многоступенчатым, с минимальным размером образа. docker-compose должен включать все необходимые сервисы (БД, кэш и т.д.). Добавь .dockerignore.",
+  "files": [],
+  "metadata": {
+    "recipe": "docker-setup",
+    "complexity": 3,
+    "task_type": "create",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["advanced", "docker", "devops"]
+  }
+}

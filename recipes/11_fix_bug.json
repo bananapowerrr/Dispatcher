@@ -1,0 +1,13 @@
+{
+  "id": "recipe-fix-bug",
+  "message": "Проанализируй описание бага и найди причину в указанном файле/модуле. Исправь баг минимальными изменениями. Добавь регрессионный тест. Кратко объясни причину и исправление.",
+  "files": [],
+  "metadata": {
+    "recipe": "fix-bug",
+    "complexity": 3,
+    "task_type": "bugfix",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["basic", "bugfix", "debug"]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "recipe-create-simple-file",
+  "message": "Создай новый Python-файл с функцией по спецификации. Функция должна иметь docstring (Google style), type hints, и следовать PEP 8. Если в проекте есть тесты — добавь базовый тест для новой функции. Убедись, что файл не пересекается с существующими модулями.",
+  "files": [],
+  "metadata": {
+    "recipe": "create-simple-file",
+    "complexity": 2,
+    "task_type": "create",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["basic", "create", "python"]
+  }
+}

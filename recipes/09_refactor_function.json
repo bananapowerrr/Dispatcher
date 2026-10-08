@@ -1,0 +1,13 @@
+{
+  "id": "recipe-refactor-function",
+  "message": "Проведи рефакторинг указанной функции: улучши читаемость, убери дублирование, выдели вспомогательные функции при необходимости. Не меняй публичное поведение и сигнатуру функции. Сохрани стиль проекта. Добавь type hints если их нет.",
+  "files": [],
+  "metadata": {
+    "recipe": "refactor-function",
+    "complexity": 3,
+    "task_type": "refactor",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["basic", "refactor", "python"]
+  }
+}

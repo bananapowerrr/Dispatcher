@@ -91,3 +91,5 @@ semantic_memory.json
 # журналы и события диспетчера в корне
 /events/
 /logs/
+
+.opencode/

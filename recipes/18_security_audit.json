@@ -1,0 +1,13 @@
+{
+  "id": "recipe-security-audit",
+  "message": "Проведи аудит безопасности Python-кода. Проверь: SQL-инъекции, XSS, небезопасные десериализации, утечки секретов, устаревшие зависимости. Выдай отчёт с приоритетами и конкретными рекомендациями по исправлению.",
+  "files": [],
+  "metadata": {
+    "recipe": "security-audit",
+    "complexity": 4,
+    "task_type": "audit",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["specialized", "security", "audit"]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "recipe-ci-pipeline",
+  "message": "Создай конфигурацию CI/CD пайплайна (GitHub Actions или GitLab CI). Пайплайн должен включать: линтинг, тесты, сборку, деплой при необходимости. Используй кеширование зависимостей. Следуй best practices.",
+  "files": [],
+  "metadata": {
+    "recipe": "ci-pipeline",
+    "complexity": 3,
+    "task_type": "create",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["advanced", "ci-cd", "devops"]
+  }
+}

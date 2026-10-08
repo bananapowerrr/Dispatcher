@@ -1,0 +1,13 @@
+{
+  "id": "recipe-multi-file-feature",
+  "message": "Создай новую фичу из 3-5 связанных файлов по спецификации. Структура: основной модуль, вспомогательные модули, тесты, конфигурация если нужно. Следуй паттернам проекта. Каждый файл должен иметь docstring и type hints.",
+  "files": [],
+  "metadata": {
+    "recipe": "multi-file-feature",
+    "complexity": 4,
+    "task_type": "create",
+    "prefer_local": true,
+    "source": "recipe",
+    "tags": ["advanced", "create", "multi-file"]
+  }
+}
